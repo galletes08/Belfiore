@@ -34,6 +34,7 @@ const upload = multer({
 function mapProductRow(row) {
   return {
     id: row.id,
+    category: row.category || '',
     name: row.name,
     tag: row.tag,
     price: Number(row.price),
@@ -48,7 +49,7 @@ function mapProductRow(row) {
 router.get('/api/products', async (_req, res) => {
   try {
     const result = await pool.query(`
-      SELECT id, name, tag, price, stock, description, image_url, created_at, updated_at
+      SELECT id, category, name, tag, price, stock, description, image_url, created_at, updated_at
       FROM products
       ORDER BY id DESC
     `);
@@ -60,6 +61,7 @@ router.get('/api/products', async (_req, res) => {
 
 router.post('/api/products', upload.single('image'), async (req, res) => {
   try {
+    const category = String(req.body?.category || '').trim();
     const name = String(req.body?.name || '').trim();
     const tag = String(req.body?.tag || '').trim();
     const price = Number(req.body?.price);
@@ -67,15 +69,16 @@ router.post('/api/products', upload.single('image'), async (req, res) => {
     const description = String(req.body?.description || '').trim();
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : String(req.body?.imageUrl || '').trim();
 
+    if (!category) return res.status(400).json({ error: 'Category is required' });
     if (!name) return res.status(400).json({ error: 'Name is required' });
     if (!Number.isFinite(price) || price < 0) return res.status(400).json({ error: 'Invalid price' });
     if (!Number.isInteger(stock) || stock < 0) return res.status(400).json({ error: 'Invalid stock' });
 
     const result = await pool.query(
-      `INSERT INTO products (name, tag, price, stock, description, image_url)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, name, tag, price, stock, description, image_url, created_at, updated_at`,
-      [name, tag || null, price, stock, description || null, imageUrl || null]
+      `INSERT INTO products (category, name, tag, price, stock, description, image_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, category, name, tag, price, stock, description, image_url, created_at, updated_at`,
+      [category, name, tag || null, price, stock, description || null, imageUrl || null]
     );
 
     res.status(201).json(mapProductRow(result.rows[0]));
@@ -97,6 +100,12 @@ router.patch('/api/products/:id', upload.single('image'), async (req, res) => {
       const value = String(req.body.name).trim();
       if (!value) return res.status(400).json({ error: 'Name cannot be empty' });
       fields.push(`name = $${idx++}`);
+      values.push(value);
+    }
+    if (req.body?.category !== undefined) {
+      const value = String(req.body.category).trim();
+      if (!value) return res.status(400).json({ error: 'Category cannot be empty' });
+      fields.push(`category = $${idx++}`);
       values.push(value);
     }
     if (req.body?.tag !== undefined) {
@@ -136,7 +145,7 @@ router.patch('/api/products/:id', upload.single('image'), async (req, res) => {
       `UPDATE products
        SET ${fields.join(', ')}
        WHERE id = $${idx}
-       RETURNING id, name, tag, price, stock, description, image_url, created_at, updated_at`,
+       RETURNING id, category, name, tag, price, stock, description, image_url, created_at, updated_at`,
       values
     );
 

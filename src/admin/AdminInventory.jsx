@@ -7,9 +7,14 @@ import {
   getImageUrl,
 } from '../api/client';
 
+const CATEGORY_OPTIONS = ['Aquaponics', 'Aloe Hybrids'];
+const AQUAPONICS_NAME_OPTIONS = ['Lollo Bionda', 'Butterhead', 'Romaine'];
 const TAG_OPTIONS = ['White', 'Green', 'Red', 'Clumps', 'Bundles'];
+const ALOE_CATEGORY = 'Aloe Hybrids';
+const AQUAPONICS_CATEGORY = 'Aquaponics';
 
 const initialForm = {
+  category: ALOE_CATEGORY,
   name: '',
   tag: 'Green',
   price: '',
@@ -57,8 +62,10 @@ export default function AdminInventory() {
   };
 
   const openEdit = (product) => {
+    const category = product.category || ALOE_CATEGORY;
     setEditingId(product.id);
     setForm({
+      category,
       name: product.name || '',
       tag: product.tag || 'Green',
       price: product.price != null ? String(product.price) : '',
@@ -83,7 +90,24 @@ export default function AdminInventory() {
   };
 
   const handleChange = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((prev) => {
+      if (field === 'category') {
+        if (value === AQUAPONICS_CATEGORY) {
+          return {
+            ...prev,
+            category: value,
+            name: AQUAPONICS_NAME_OPTIONS.includes(prev.name) ? prev.name : '',
+            tag: '',
+          };
+        }
+        return {
+          ...prev,
+          category: value,
+          tag: prev.tag || 'Green',
+        };
+      }
+      return { ...prev, [field]: value };
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -93,12 +117,18 @@ export default function AdminInventory() {
     const fileToUpload = selectedFileRef.current || form.imageFile;
 
     try {
+      const category = form.category;
       const name = form.name.trim();
-      const tag = form.tag;
+      const tag = category === AQUAPONICS_CATEGORY ? '' : form.tag;
       const price = parseFloat(form.price);
       const stock = parseInt(form.stock, 10);
       const description = form.description.trim();
 
+      if (!category) {
+        setError('Category is required');
+        setSaving(false);
+        return;
+      }
       if (!name) {
         setError('Product name is required');
         setSaving(false);
@@ -116,6 +146,7 @@ export default function AdminInventory() {
       }
 
       const formData = new FormData();
+      formData.append('category', category);
       formData.append('name', name);
       formData.append('tag', tag);
       formData.append('price', String(price));
@@ -210,7 +241,7 @@ export default function AdminInventory() {
                     <td className="py-3 px-5 font-medium text-gray-900">{p.name}</td>
                     <td className="py-3 px-5">
                       <span className="inline-flex px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700">
-                        {p.tag}
+                        {p.tag || '-'}
                       </span>
                     </td>
                     <td className="py-3 px-5 text-gray-700">${Number(p.price).toFixed(2)}</td>
@@ -273,34 +304,70 @@ export default function AdminInventory() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Product Name
-                </label>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => handleChange('name', e.target.value)}
-                  placeholder="e.g. White Echeveria A"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2d5a45]/30 focus:border-[#2d5a45]"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tag / Type
+                  Category
                 </label>
                 <select
-                  value={form.tag}
-                  onChange={(e) => handleChange('tag', e.target.value)}
+                  value={form.category}
+                  onChange={(e) => handleChange('category', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2d5a45]/30 focus:border-[#2d5a45]"
+                  required
                 >
-                  {TAG_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
+                  {CATEGORY_OPTIONS.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
                     </option>
                   ))}
                 </select>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Product Name
+                </label>
+                {form.category === AQUAPONICS_CATEGORY ? (
+                  <select
+                    value={form.name}
+                    onChange={(e) => handleChange('name', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2d5a45]/30 focus:border-[#2d5a45]"
+                    required
+                  >
+                    <option value="">Select aquaponics type</option>
+                    {AQUAPONICS_NAME_OPTIONS.map((nameOption) => (
+                      <option key={nameOption} value={nameOption}>
+                        {nameOption}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={form.name}
+                    onChange={(e) => handleChange('name', e.target.value)}
+                    placeholder="e.g. White Echeveria A"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2d5a45]/30 focus:border-[#2d5a45]"
+                    required
+                  />
+                )}
+              </div>
+
+              {form.category !== AQUAPONICS_CATEGORY && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tag / Type
+                  </label>
+                  <select
+                    value={form.tag}
+                    onChange={(e) => handleChange('tag', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2d5a45]/30 focus:border-[#2d5a45]"
+                  >
+                    {TAG_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>

@@ -20,6 +20,17 @@ export async function apiLogin(email, password) {
   return data;
 }
 
+export async function apiRegister(payload) {
+  const res = await fetch(`${API_URL}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Registration failed');
+  return data;
+}
+
 export async function apiProducts() {
   const res = await fetch(`${API_URL}/api/products`, {
     headers: getAuthHeader(),
@@ -73,6 +84,40 @@ export async function apiDashboard() {
   return data;
 }
 
+export async function apiAdminOrders() {
+  const res = await fetch(`${API_URL}/api/admin/orders`, {
+    headers: getAuthHeader(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load orders');
+  return data;
+}
+
+export async function apiUpdateOrder(id, payload) {
+  const res = await fetch(`${API_URL}/api/admin/orders/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeader(),
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update order');
+  return data;
+}
+
+export async function apiCustomerOrders(ids) {
+  const res = await fetch(`${API_URL}/api/orders/lookup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error(data.error || 'Failed to load your orders');
+  return data;
+}
+
 export async function apiPlaceOrder(payload) {
   const res = await fetch(`${API_URL}/api/orders`, {
     method: 'POST',
@@ -94,10 +139,22 @@ export function setToken(token) {
   localStorage.setItem('adminToken', token);
 }
 
+export function setCustomerToken(token) {
+  localStorage.setItem('customerToken', token);
+}
+
 export function clearToken() {
   localStorage.removeItem('adminToken');
 }
 
+export function clearCustomerToken() {
+  localStorage.removeItem('customerToken');
+}
+
 export function hasToken() {
   return !!getToken();
+}
+
+export function hasCustomerToken() {
+  return !!localStorage.getItem('customerToken');
 }

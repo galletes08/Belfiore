@@ -1,17 +1,34 @@
 import { Link } from 'react-router-dom';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getImageUrl } from '../../api/client';
 
-const INITIAL_FORM = {
-  fullName: '',
-  gmail: '',
-  mobileNumber: '',
-  location: '',
-  paymentMethod: 'COD',
-};
+const PROFILE_STORAGE_KEY = 'customerProfile';
+
+function getStoredCustomerDetails() {
+  try {
+    const rawProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
+    const profile = rawProfile ? JSON.parse(rawProfile) : {};
+
+    return {
+      fullName: String(profile?.name || localStorage.getItem('customerName') || '').trim(),
+      gmail: String(profile?.email || localStorage.getItem('customerEmail') || '').trim(),
+      mobileNumber: String(profile?.phone || localStorage.getItem('customerPhone') || '').trim(),
+      location: '',
+      paymentMethod: 'COD',
+    };
+  } catch {
+    return {
+      fullName: String(localStorage.getItem('customerName') || '').trim(),
+      gmail: String(localStorage.getItem('customerEmail') || '').trim(),
+      mobileNumber: String(localStorage.getItem('customerPhone') || '').trim(),
+      location: '',
+      paymentMethod: 'COD',
+    };
+  }
+}
 
 export default function CheckoutSection({ items, total, formatPrice, onOrderPlaced, onPlaceOrder }) {
-  const [form, setForm] = useState(INITIAL_FORM);
+  const [form, setForm] = useState(getStoredCustomerDetails);
   const [errors, setErrors] = useState({});
   const [confirmation, setConfirmation] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -20,6 +37,20 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
     () => items.reduce((count, item) => count + Number(item.qty || 0), 0),
     [items]
   );
+
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      ...getStoredCustomerDetails(),
+      location: prev.location,
+      paymentMethod: prev.paymentMethod,
+    }));
+  }, []);
+
+  function resolveItemImage(item) {
+    if (item.image) return item.image;
+    return getImageUrl(item.imageUrl);
+  }
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -76,8 +107,12 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
         type: 'success',
         message: `Order placed successfully. Reference: ${reference}. ${paymentText}`,
       });
-      onOrderPlaced();
-      setForm(INITIAL_FORM);
+      onOrderPlaced(order);
+      setForm((prev) => ({
+        ...getStoredCustomerDetails(),
+        location: '',
+        paymentMethod: prev.paymentMethod,
+      }));
       setErrors({});
     } catch (error) {
       setConfirmation({
@@ -105,68 +140,80 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[2fr_1fr]">
         <form className="rounded-2xl border border-[#e1e7dc] bg-white p-6 sm:p-8 space-y-6" onSubmit={handleSubmit}>
-          <div>
-            <label htmlFor="fullName" className="block text-sm text-[#1f2f28] mb-2">
-              Full Name
-            </label>
-            <input
-              id="fullName"
-              name="fullName"
-              type="text"
-              value={form.fullName}
-              onChange={handleChange}
-              className="w-full rounded-xl border border-[#d8dfd3] px-4 py-3 text-sm outline-none focus:border-[#0b7a3c] focus:ring-2 focus:ring-[#0b7a3c]/20"
-              placeholder="Juan Dela Cruz"
-            />
-            {errors.fullName ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.fullName}</p> : null}
-          </div>
+          <div className="rounded-2xl border border-[#e7ede3] bg-[#f8fbf6] p-5">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-['Playfair_Display'] text-[#0f4d2e]">Personal details</h3>
+                <p className="text-sm text-[#5e6f65]">Your saved account name and Gmail are filled in automatically.</p>
+              </div>
+              <span className="text-xs uppercase tracking-[0.28em] text-[#7b867d]">Editable before checkout</span>
+            </div>
 
-          <div>
-            <label htmlFor="gmail" className="block text-sm text-[#1f2f28] mb-2">
-              Gmail
-            </label>
-            <input
-              id="gmail"
-              name="gmail"
-              type="email"
-              value={form.gmail}
-              onChange={handleChange}
-              className="w-full rounded-xl border border-[#d8dfd3] px-4 py-3 text-sm outline-none focus:border-[#0b7a3c] focus:ring-2 focus:ring-[#0b7a3c]/20"
-              placeholder="yourname@gmail.com"
-            />
-            {errors.gmail ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.gmail}</p> : null}
-          </div>
+            <div className="mt-5 grid gap-5 md:grid-cols-2">
+              <div>
+                <label htmlFor="fullName" className="block text-sm text-[#1f2f28] mb-2">
+                  Full Name
+                </label>
+                <input
+                  id="fullName"
+                  name="fullName"
+                  type="text"
+                  value={form.fullName}
+                  onChange={handleChange}
+                  className="w-full rounded-xl border border-[#d8dfd3] bg-white px-4 py-3 text-sm outline-none focus:border-[#0b7a3c] focus:ring-2 focus:ring-[#0b7a3c]/20"
+                  placeholder="Juan Dela Cruz"
+                />
+                {errors.fullName ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.fullName}</p> : null}
+              </div>
 
-          <div>
-            <label htmlFor="mobileNumber" className="block text-sm text-[#1f2f28] mb-2">
-              Mobile Number
-            </label>
-            <input
-              id="mobileNumber"
-              name="mobileNumber"
-              type="tel"
-              value={form.mobileNumber}
-              onChange={handleChange}
-              className="w-full rounded-xl border border-[#d8dfd3] px-4 py-3 text-sm outline-none focus:border-[#0b7a3c] focus:ring-2 focus:ring-[#0b7a3c]/20"
-              placeholder="09XXXXXXXXX"
-            />
-            {errors.mobileNumber ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.mobileNumber}</p> : null}
-          </div>
+              <div>
+                <label htmlFor="gmail" className="block text-sm text-[#1f2f28] mb-2">
+                  Gmail
+                </label>
+                <input
+                  id="gmail"
+                  name="gmail"
+                  type="email"
+                  value={form.gmail}
+                  onChange={handleChange}
+                  className="w-full rounded-xl border border-[#d8dfd3] bg-white px-4 py-3 text-sm outline-none focus:border-[#0b7a3c] focus:ring-2 focus:ring-[#0b7a3c]/20"
+                  placeholder="yourname@gmail.com"
+                />
+                {errors.gmail ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.gmail}</p> : null}
+              </div>
 
-          <div>
-            <label htmlFor="location" className="block text-sm text-[#1f2f28] mb-2">
-              Delivery Location
-            </label>
-            <textarea
-              id="location"
-              name="location"
-              value={form.location}
-              onChange={handleChange}
-              rows={4}
-              className="w-full rounded-xl border border-[#d8dfd3] px-4 py-3 text-sm outline-none focus:border-[#0b7a3c] focus:ring-2 focus:ring-[#0b7a3c]/20"
-              placeholder="House number, street, barangay, city, province"
-            />
-            {errors.location ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.location}</p> : null}
+              <div>
+                <label htmlFor="mobileNumber" className="block text-sm text-[#1f2f28] mb-2">
+                  Mobile Number
+                </label>
+                <input
+                  id="mobileNumber"
+                  name="mobileNumber"
+                  type="tel"
+                  value={form.mobileNumber}
+                  onChange={handleChange}
+                  className="w-full rounded-xl border border-[#d8dfd3] bg-white px-4 py-3 text-sm outline-none focus:border-[#0b7a3c] focus:ring-2 focus:ring-[#0b7a3c]/20"
+                  placeholder="09XXXXXXXXX"
+                />
+                {errors.mobileNumber ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.mobileNumber}</p> : null}
+              </div>
+
+              <div className="md:col-span-2">
+                <label htmlFor="location" className="block text-sm text-[#1f2f28] mb-2">
+                  Delivery Location
+                </label>
+                <textarea
+                  id="location"
+                  name="location"
+                  value={form.location}
+                  onChange={handleChange}
+                  rows={4}
+                  className="w-full rounded-xl border border-[#d8dfd3] bg-white px-4 py-3 text-sm outline-none focus:border-[#0b7a3c] focus:ring-2 focus:ring-[#0b7a3c]/20"
+                  placeholder="House number, street, barangay, city, province"
+                />
+                {errors.location ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.location}</p> : null}
+              </div>
+            </div>
           </div>
 
           <fieldset>
@@ -224,9 +271,9 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                 <div key={item.id} className="flex items-start justify-between gap-4 text-sm">
                   <div className="flex items-start gap-3 min-w-0">
                     <div className="h-12 w-12 overflow-hidden rounded-lg bg-[#eef2ea] shrink-0">
-                      {getImageUrl(item.imageUrl) ? (
+                      {resolveItemImage(item) ? (
                         <img
-                          src={getImageUrl(item.imageUrl)}
+                          src={resolveItemImage(item)}
                           alt={item.name}
                           className="h-full w-full object-cover"
                         />

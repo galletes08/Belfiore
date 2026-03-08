@@ -32,6 +32,14 @@ export default function CustomerNav({ cartCount, cartItems }) {
               <path d="M4 20c2.5-4 13.5-4 16 0" />
             </svg>
           </Link>
+          <Link to="/orders" className="rounded-full p-2 hover:bg-[#e7eee6] block" aria-label="My orders">
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M7 7h10" />
+              <path d="M7 12h10" />
+              <path d="M7 17h6" />
+              <path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+            </svg>
+          </Link>
           <div className="group/cart">
             <Link className="relative rounded-full p-2 hover:bg-[#e7eee6] block" aria-label="Cart" to="/cart">
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -107,6 +115,9 @@ export default function CustomerNav({ cartCount, cartItems }) {
         </NavLink>
         <NavLink className={navClass} to="/profile">
           Profile
+        </NavLink>
+        <NavLink className={navClass} to="/orders">
+          Orders
         </NavLink>
       </nav>
     </header>

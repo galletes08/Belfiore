@@ -1,8 +1,1 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Playfair+Display:wght@500;700&display=swap');
 @import "tailwindcss";
-
-@theme {
-  --color-primary: #1a3d2e;
-  --color-primary-light: #2d5a45;
-  --color-primary-muted: #5a7a6a;
-}

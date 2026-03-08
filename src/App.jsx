@@ -1,42 +1,164 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import AdminProtectedRoute from './admin/AdminProtectedRoute';
-import AdminLayout from './admin/AdminLayout';
-import AdminLogin from './admin/AdminLogin';
-import AdminDashboard from './admin/AdminDashboard';
-import AdminInventory from './admin/AdminInventory';
-import AdminPlaceholder from './admin/AdminPlaceholder';
-import { CustomerStoreProvider } from './customer/context/CustomerStore';
-import CustomerLayout from './customer/layout/CustomerLayout';
-import AboutPage from './customer/pages/about/AboutPage';
-import CartPage from './customer/pages/cart/CartPage';
-import ContactPage from './customer/pages/contact/ContactPage';
-import CheckoutPage from './customer/pages/checkout/CheckoutPage';
-import HomePage from './customer/pages/home/HomePage';
-import ProfilePage from './customer/pages/profile/ProfilePage';
-import ShopPage from './customer/pages/shop/ShopPage';
+import { useState } from "react";
+import { BrowserRouter as Router, Navigate, Outlet, Route, Routes } from "react-router-dom";
+import AdminDashboard from "./admin/AdminDashboard";
+import AdminInventory from "./admin/AdminInventory";
+import AdminLayout from "./admin/AdminLayout";
+import AdminLogin from "./admin/AdminLogin";
+import AdminOrders from "./admin/AdminOrders";
+import AdminPlaceholder from "./admin/AdminPlaceholder";
+import AdminProtectedRoute from "./admin/AdminProtectedRoute";
+import Navbar from "./components/Navbar";
+import Footer from "./components/Footerlink/Footer";
+import ScrollToTop from "./components/ScrollToTop";
+import Home from "./components/Pages/Home";
+import Login from "./components/Signup/Login";
+import About from "./components/Pages/About";
+import Contact from "./components/Pages/Contact";
+import Signup from "./components/Signup/Signup";
+import ForgotPassword from "./components/Signup/ForgotPassword";
+import Products from "./components/Pages/Products";
+import ProductDetail from "./components/Pages/ProductDetail";
+import CheckoutPage from "./components/Pages/CheckoutPage";
+import UserDashboard from "./components/Signup/UserDashboard";
+import UserAccountPage from "./components/Signup/User";
+import Order from "./components/Signup/Order";
+import plantsImage from "./assets/Plants.jpg";
+import { getImageUrl } from "./api/client";
+
+const parsePrice = (value) => Number(String(value).replace(/[^\d.]/g, ""));
 
 function App() {
+  const [cartItems, setCartItems] = useState([]);
+
+  const handleAddToCart = (product, quantity = 1) => {
+    const safeQuantity = Number(quantity) > 0 ? Number(quantity) : 1;
+    const productPrice = parsePrice(product.price);
+    const resolvedImage = product.image && product.image !== "#" ? product.image : getImageUrl(product.imageUrl);
+    const productImage = resolvedImage || plantsImage;
+
+    setCartItems((previous) => {
+      const existingItem = previous.find((item) => item.id === product.id);
+
+      if (existingItem) {
+        return previous.map((item) =>
+          item.id === product.id ? { ...item, qty: item.qty + safeQuantity } : item
+        );
+      }
+
+      return [
+        ...previous,
+        {
+          id: product.id,
+          name: product.name,
+          price: productPrice,
+          qty: safeQuantity,
+          image: productImage
+        }
+      ];
+    });
+  };
+
+  const handleIncreaseQty = (itemId) => {
+    setCartItems((previous) =>
+      previous.map((item) => (item.id === itemId ? { ...item, qty: item.qty + 1 } : item))
+    );
+  };
+
+  const handleDecreaseQty = (itemId) => {
+    setCartItems((previous) =>
+      previous
+        .map((item) => (item.id === itemId ? { ...item, qty: item.qty - 1 } : item))
+        .filter((item) => item.qty > 0)
+    );
+  };
+
+  const handleRemoveItem = (itemId) => {
+    setCartItems((previous) => previous.filter((item) => item.id !== itemId));
+  };
+
+  const persistCheckoutOrders = (orderId, checkedOutItems) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const storageKey = "customerOrders";
+    const checkoutOrders = checkedOutItems.map((item, index) => ({
+      id: `${orderId}-${index + 1}`,
+      store: "SAD Plant Hub",
+      productId: item.id,
+      productName: item.name,
+      image: item.image || "",
+      variation: "Checkout Item",
+      quantity: item.qty,
+      originalPrice: item.price,
+      price: item.price,
+      status: "to-ship",
+      deliveryNote: "Seller is preparing your parcel"
+    }));
+
+    let existingOrders = [];
+    try {
+      const parsedValue = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
+      existingOrders = Array.isArray(parsedValue) ? parsedValue : [];
+    } catch {
+      existingOrders = [];
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify([...checkoutOrders, ...existingOrders].slice(0, 100)));
+  };
+
+  const handleCheckout = () => {
+    if (cartItems.length === 0) {
+      return false;
+    }
+    return true;
+  };
+
+  const handleOrderPlaced = (order) => {
+    const orderId = `ORD-${new Date().getFullYear()}-${String(order?.id ?? Date.now()).padStart(6, "0")}`;
+    persistCheckoutOrders(orderId, cartItems);
+    setCartItems([]);
+  };
+
+  const customerLayout = (
+    <div className="min-h-screen flex flex-col bg-white text-black">
+      <Navbar
+        cartItems={cartItems}
+        onIncreaseQty={handleIncreaseQty}
+        onDecreaseQty={handleDecreaseQty}
+        onRemoveItem={handleRemoveItem}
+        onCheckout={handleCheckout}
+      />
+      <div className="flex-1 flex flex-col">
+        <Outlet />
+      </div>
+      <Footer />
+    </div>
+  );
+
   return (
-    <BrowserRouter>
+    <Router>
+      <ScrollToTop />
       <Routes>
-        {/* Customer (public) */}
-        <Route
-          element={
-            <CustomerStoreProvider>
-              <CustomerLayout />
-            </CustomerStoreProvider>
-          }
-        >
-          <Route path="/" element={<HomePage />} />
-          <Route path="/shop" element={<ShopPage />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/contact" element={<ContactPage />} />
-          <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/cart" element={<CartPage />} />
-          <Route path="/checkout" element={<CheckoutPage />} />
+        <Route element={customerLayout}>
+          <Route path="/" element={<Home />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/contact" element={<Contact />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/products" element={<Products onAddToCart={handleAddToCart} />} />
+          <Route path="/product/:id" element={<ProductDetail onAddToCart={handleAddToCart} />} />
+          <Route
+            path="/checkout"
+            element={<CheckoutPage cartItems={cartItems} onOrderPlaced={handleOrderPlaced} />}
+          />
+          <Route path="/dashboard" element={<UserDashboard />} />
+          <Route path="/orders" element={<Order />} />
+          <Route path="/profile" element={<UserAccountPage />} />
+          <Route path="/account-details" element={<UserAccountPage />} />
         </Route>
 
-        {/* Admin */}
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route
           path="/admin"
@@ -47,7 +169,7 @@ function App() {
           }
         >
           <Route index element={<AdminDashboard />} />
-          <Route path="orders" element={<AdminPlaceholder title="Orders" />} />
+          <Route path="orders" element={<AdminOrders />} />
           <Route path="inventory" element={<AdminInventory />} />
           <Route path="customers" element={<AdminPlaceholder title="Customers" />} />
           <Route path="reports" element={<AdminPlaceholder title="Reports" />} />
@@ -56,7 +178,7 @@ function App() {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
+    </Router>
   );
 }
 

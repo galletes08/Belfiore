@@ -3,10 +3,15 @@ import { formatPrice, useCustomerStore } from '../../context/CustomerStore';
 import { apiPlaceOrder } from '../../../api/client';
 
 export default function CheckoutPage() {
-  const { cartItems, cartTotal, clearCart } = useCustomerStore();
+  const { cartItems, cartTotal, clearCart, rememberOrder } = useCustomerStore();
 
   async function placeOrder(payload) {
     return apiPlaceOrder(payload);
+  }
+
+  function handleOrderPlaced(order) {
+    rememberOrder(order);
+    clearCart();
   }
 
   return (
@@ -14,7 +19,7 @@ export default function CheckoutPage() {
       items={cartItems}
       total={cartTotal}
       formatPrice={formatPrice}
-      onOrderPlaced={clearCart}
+      onOrderPlaced={handleOrderPlaced}
       onPlaceOrder={placeOrder}
     />
   );

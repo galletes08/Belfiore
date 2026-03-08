@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { apiProducts } from '../../api/client';
 
 const CART_KEY = 'customerCart';
+const ORDER_HISTORY_KEY = 'customerOrderHistory';
 const CustomerStoreContext = createContext(null);
 
 function loadCart() {
@@ -17,6 +18,19 @@ function saveCart(items) {
   localStorage.setItem(CART_KEY, JSON.stringify(items));
 }
 
+function loadOrderHistory() {
+  try {
+    const raw = localStorage.getItem(ORDER_HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOrderHistory(items) {
+  localStorage.setItem(ORDER_HISTORY_KEY, JSON.stringify(items));
+}
+
 export function formatPrice(value) {
   if (!Number.isFinite(value)) return 'PHP 0.00';
   return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value);
@@ -27,9 +41,11 @@ export function CustomerStoreProvider({ children }) {
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
   const [cartItems, setCartItems] = useState([]);
+  const [orderHistory, setOrderHistory] = useState([]);
 
   useEffect(() => {
     setCartItems(loadCart());
+    setOrderHistory(loadOrderHistory());
   }, []);
 
   useEffect(() => {
@@ -54,6 +70,10 @@ export function CustomerStoreProvider({ children }) {
   useEffect(() => {
     saveCart(cartItems);
   }, [cartItems]);
+
+  useEffect(() => {
+    saveOrderHistory(orderHistory);
+  }, [orderHistory]);
 
   const cartCount = useMemo(
     () => cartItems.reduce((total, item) => total + Number(item.qty || 0), 0),
@@ -104,6 +124,17 @@ export function CustomerStoreProvider({ children }) {
     setCartItems([]);
   }
 
+  function rememberOrder(order) {
+    setOrderHistory((prev) => {
+      const nextOrder = {
+        id: Number(order.id),
+        createdAt: order.createdAt || new Date().toISOString(),
+      };
+      const withoutDuplicate = prev.filter((item) => Number(item.id) !== nextOrder.id);
+      return [nextOrder, ...withoutDuplicate].slice(0, 20);
+    });
+  }
+
   const value = {
     products,
     status,
@@ -116,6 +147,8 @@ export function CustomerStoreProvider({ children }) {
     decreaseCartItem,
     removeCartItem,
     clearCart,
+    orderHistory,
+    rememberOrder,
   };
 
   return <CustomerStoreContext.Provider value={value}>{children}</CustomerStoreContext.Provider>;

@@ -1,11 +1,37 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const STORAGE_KEYS = {
+  adminToken: 'adminToken',
+  adminUser: 'adminUser',
+  customerToken: 'customerToken',
+  customerUser: 'customerUser',
+  riderToken: 'riderToken',
+  riderUser: 'riderUser',
+};
 
 function getToken() {
-  return localStorage.getItem('adminToken');
+  return localStorage.getItem(STORAGE_KEYS.adminToken);
+}
+
+function getCustomerToken() {
+  return localStorage.getItem(STORAGE_KEYS.customerToken);
+}
+
+function getRiderToken() {
+  return localStorage.getItem(STORAGE_KEYS.riderToken);
 }
 
 function getAuthHeader() {
   const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function getCustomerAuthHeader() {
+  const token = getCustomerToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function getRiderAuthHeader() {
+  const token = getRiderToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -93,6 +119,43 @@ export async function apiAdminOrders() {
   return data;
 }
 
+export async function apiAdminRiders() {
+  const res = await fetch(`${API_URL}/api/admin/riders`, {
+    headers: getAuthHeader(),
+  });
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error(data.error || 'Failed to load riders');
+  return data;
+}
+
+export async function apiCreateRider(payload) {
+  const res = await fetch(`${API_URL}/api/admin/riders`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeader(),
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to create rider');
+  return data;
+}
+
+export async function apiUpdateRider(id, payload) {
+  const res = await fetch(`${API_URL}/api/admin/riders/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeader(),
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update rider');
+  return data;
+}
+
 export async function apiUpdateOrder(id, payload) {
   const res = await fetch(`${API_URL}/api/admin/orders/${id}`, {
     method: 'PATCH',
@@ -118,6 +181,33 @@ export async function apiCustomerOrders(ids) {
   return data;
 }
 
+export async function apiDriverOrder(token) {
+  const res = await fetch(`${API_URL}/api/driver/orders/${token}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load driver order');
+  return data;
+}
+
+export async function apiUpdateDriverOrder(token, payload) {
+  const res = await fetch(`${API_URL}/api/driver/orders/${token}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update driver order');
+  return data;
+}
+
+export async function apiRiderOrders() {
+  const res = await fetch(`${API_URL}/api/rider/orders`, {
+    headers: getRiderAuthHeader(),
+  });
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error(data.error || 'Failed to load rider orders');
+  return data;
+}
+
 export async function apiPlaceOrder(payload) {
   const res = await fetch(`${API_URL}/api/orders`, {
     method: 'POST',
@@ -136,19 +226,66 @@ export function getImageUrl(imageUrl) {
 }
 
 export function setToken(token) {
-  localStorage.setItem('adminToken', token);
+  localStorage.setItem(STORAGE_KEYS.adminToken, token);
 }
 
 export function setCustomerToken(token) {
-  localStorage.setItem('customerToken', token);
+  localStorage.setItem(STORAGE_KEYS.customerToken, token);
+}
+
+export function setRiderToken(token) {
+  localStorage.setItem(STORAGE_KEYS.riderToken, token);
+}
+
+function setStoredValue(key, value) {
+  localStorage.setItem(key, JSON.stringify(value || null));
+}
+
+function getStoredValue(key) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+export function setAdminUser(user) {
+  setStoredValue(STORAGE_KEYS.adminUser, user);
+}
+
+export function getAdminUser() {
+  return getStoredValue(STORAGE_KEYS.adminUser);
+}
+
+export function setCustomerUser(user) {
+  setStoredValue(STORAGE_KEYS.customerUser, user);
+}
+
+export function getCustomerUser() {
+  return getStoredValue(STORAGE_KEYS.customerUser);
+}
+
+export function setRiderUser(user) {
+  setStoredValue(STORAGE_KEYS.riderUser, user);
+}
+
+export function getRiderUser() {
+  return getStoredValue(STORAGE_KEYS.riderUser);
 }
 
 export function clearToken() {
-  localStorage.removeItem('adminToken');
+  localStorage.removeItem(STORAGE_KEYS.adminToken);
+  localStorage.removeItem(STORAGE_KEYS.adminUser);
 }
 
 export function clearCustomerToken() {
-  localStorage.removeItem('customerToken');
+  localStorage.removeItem(STORAGE_KEYS.customerToken);
+  localStorage.removeItem(STORAGE_KEYS.customerUser);
+}
+
+export function clearRiderToken() {
+  localStorage.removeItem(STORAGE_KEYS.riderToken);
+  localStorage.removeItem(STORAGE_KEYS.riderUser);
 }
 
 export function hasToken() {
@@ -156,5 +293,17 @@ export function hasToken() {
 }
 
 export function hasCustomerToken() {
-  return !!localStorage.getItem('customerToken');
+  return !!getCustomerToken();
+}
+
+export function hasRiderToken() {
+  return !!getRiderToken();
+}
+
+export function hasCustomerRole(role) {
+  return getCustomerUser()?.role === role;
+}
+
+export function hasRiderRole(role) {
+  return getRiderUser()?.role === role;
 }

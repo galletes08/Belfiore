@@ -3,6 +3,7 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { Menu, Search, ShoppingCart, User, X } from "lucide-react";
 import CartSidebar from "./CartSidebar";
 import logoImage from "../assets/Logo.png";
+import { getCustomerUser, hasCustomerToken } from "../api/client";
 
 const navItems = [
   { to: "/", label: "Home" },
@@ -22,7 +23,12 @@ export default function Navbar({
   const [cartOpen, setCartOpen] = useState(false);
 
   const navigate = useNavigate();
-  const isLoggedIn = typeof window !== "undefined" && window.localStorage.getItem("isLoggedIn") === "true";
+  const customerUser = getCustomerUser();
+  const isLoggedIn =
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("isLoggedIn") === "true" &&
+    hasCustomerToken() &&
+    (customerUser?.role ?? "customer") === "customer";
   const userRoute = isLoggedIn ? "/dashboard" : "/login";
   const userLabel = isLoggedIn ? "Dashboard" : "Login";
   const cartItemCount = cartItems.reduce((sum, item) => sum + item.qty, 0);

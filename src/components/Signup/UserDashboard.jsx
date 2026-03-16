@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Package, Truck, CircleCheckBig, MapPinned, UserRound } from "lucide-react";
+import { clearCustomerToken } from "../../api/client";
 
 const orders = [
   { id: "ORD-1001", date: "March 5, 2026", total: 1250, status: "Out for Delivery", courier: "Personal Rider" },
@@ -27,6 +28,7 @@ export default function UserDashboard() {
   const activeOrder = orders.find((order) => order.status !== "Delivered") || orders[0];
   const handleLogout = () => {
     localStorage.removeItem("isLoggedIn");
+    clearCustomerToken();
   };
 
   return (

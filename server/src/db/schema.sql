@@ -22,6 +22,31 @@ ALTER TABLE users
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(LOWER(email));
 
+CREATE TABLE IF NOT EXISTS riders (
+  id BIGSERIAL PRIMARY KEY,
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  email TEXT UNIQUE,
+  phone TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  is_available BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE riders
+  ADD COLUMN IF NOT EXISTS first_name TEXT,
+  ADD COLUMN IF NOT EXISTS last_name TEXT,
+  ADD COLUMN IF NOT EXISTS email TEXT,
+  ADD COLUMN IF NOT EXISTS phone TEXT,
+  ADD COLUMN IF NOT EXISTS user_id BIGINT UNIQUE REFERENCES users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS is_available BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_riders_email ON riders(LOWER(email)) WHERE email IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS products (
   id BIGSERIAL PRIMARY KEY,
   category TEXT,
@@ -64,12 +89,26 @@ CREATE TABLE IF NOT EXISTS orders (
   gmail TEXT,
   mobile_num TEXT,
   location TEXT,
+  customer_latitude DOUBLE PRECISION,
+  customer_longitude DOUBLE PRECISION,
   payment_method TEXT NOT NULL DEFAULT 'COD',
   payment_status TEXT NOT NULL DEFAULT 'Unpaid',
   status TEXT NOT NULL DEFAULT 'Pending',
+  rider_id BIGINT REFERENCES riders(id) ON DELETE SET NULL,
   courier_name TEXT,
+  driver_phone TEXT,
+  driver_access_token TEXT,
+  driver_assigned_at TIMESTAMPTZ,
+  driver_accepted_at TIMESTAMPTZ,
+  driver_latitude DOUBLE PRECISION,
+  driver_longitude DOUBLE PRECISION,
+  driver_location_updated_at TIMESTAMPTZ,
   tracking_code TEXT,
   tracking_status TEXT NOT NULL DEFAULT 'Pending',
+  paymongo_checkout_session_id TEXT,
+  paymongo_payment_id TEXT,
+  paymongo_payment_intent_id TEXT,
+  paymongo_paid_at TIMESTAMPTZ,
   total_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   status_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -80,13 +119,31 @@ ALTER TABLE orders
   ADD COLUMN IF NOT EXISTS gmail TEXT,
   ADD COLUMN IF NOT EXISTS mobile_num TEXT,
   ADD COLUMN IF NOT EXISTS location TEXT,
+  ADD COLUMN IF NOT EXISTS customer_latitude DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS customer_longitude DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'COD',
   ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'Unpaid',
+  ADD COLUMN IF NOT EXISTS rider_id BIGINT REFERENCES riders(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS courier_name TEXT,
+  ADD COLUMN IF NOT EXISTS driver_phone TEXT,
+  ADD COLUMN IF NOT EXISTS driver_access_token TEXT,
+  ADD COLUMN IF NOT EXISTS driver_assigned_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS driver_accepted_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS driver_latitude DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS driver_longitude DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS driver_location_updated_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS tracking_code TEXT,
   ADD COLUMN IF NOT EXISTS tracking_status TEXT NOT NULL DEFAULT 'Pending',
+  ADD COLUMN IF NOT EXISTS paymongo_checkout_session_id TEXT,
+  ADD COLUMN IF NOT EXISTS paymongo_payment_id TEXT,
+  ADD COLUMN IF NOT EXISTS paymongo_payment_intent_id TEXT,
+  ADD COLUMN IF NOT EXISTS paymongo_paid_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_driver_access_token
+  ON orders(driver_access_token)
+  WHERE driver_access_token IS NOT NULL;
 
 DO $$
 BEGIN

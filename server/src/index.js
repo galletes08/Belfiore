@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './config/env.js';
 import cors from 'cors';
 import express from 'express';
 import path from 'node:path';
@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 import authRoutes from './routes/auth.js';
 import dashboardRoutes from './routes/dashboard.js';
 import ordersRoutes from './routes/orders.js';
+import { handlePayMongoWebhook } from './routes/paymongo.js';
 import productsRoutes from './routes/products.js';
+import ridersRoutes from './routes/riders.js';
 import { pool } from './config/db.js';
 
 const app = express();
@@ -16,6 +18,7 @@ const __dirname = path.dirname(__filename);
 const uploadsDir = path.resolve(__dirname, '../uploads');
 
 app.use(cors());
+app.post('/api/paymongo/webhook', express.raw({ type: 'application/json' }), handlePayMongoWebhook);
 app.use(express.json());
 app.use('/uploads', express.static(uploadsDir));
 
@@ -36,6 +39,7 @@ app.use(authRoutes);
 app.use(dashboardRoutes);
 app.use(productsRoutes);
 app.use(ordersRoutes);
+app.use(ridersRoutes);
 
 app.use((err, _req, res, _next) => {
   res.status(500).json({ error: err.message || 'Internal server error' });

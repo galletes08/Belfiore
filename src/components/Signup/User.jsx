@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { UserRound } from "lucide-react";
+import { clearCustomerToken } from "../../api/client";
 
 const PROFILE_STORAGE_KEY = "customerProfile";
 
@@ -41,6 +42,7 @@ export default function UserAccountPage() {
   const fileInputRef = useRef(null);
   const handleLogout = () => {
     localStorage.removeItem("isLoggedIn");
+    clearCustomerToken();
   };
 
   const handleFieldChange = (field, value) => {

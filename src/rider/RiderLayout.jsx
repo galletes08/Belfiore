@@ -1,22 +1,16 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { clearToken } from '../api/client';
+import { clearRiderToken } from '../api/client';
 
-export default function AdminLayout() {
+export default function RiderLayout() {
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    clearToken();
-    navigate('/admin/login', { replace: true });
+    clearRiderToken();
+    navigate('/rider/login', { replace: true });
   };
 
   const navItems = [
-    { to: '/admin', end: true, label: 'Dashboard', icon: 'DB' },
-    { to: '/admin/orders', end: false, label: 'Orders', icon: 'OR' },
-    { to: '/admin/riders', end: false, label: 'Riders', icon: 'RD' },
-    { to: '/admin/inventory', end: false, label: 'Inventory', icon: 'IN' },
-    { to: '/admin/customers', end: false, label: 'Customers', icon: 'CU' },
-    { to: '/admin/reports', end: false, label: 'Reports', icon: 'RP' },
-    { to: '/admin/settings', end: false, label: 'Settings', icon: 'ST' },
+    { to: '/rider', end: true, label: 'Dashboard', icon: 'DB' },
   ];
 
   return (
@@ -24,7 +18,7 @@ export default function AdminLayout() {
       <aside className="flex w-60 flex-shrink-0 flex-col bg-[#1a3d2e] text-white">
         <div className="flex items-center gap-2 p-6 text-xl font-bold">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-sm">BF</span>
-          <span>PlantDelivery</span>
+          <span>Rider Portal</span>
         </div>
         <nav className="flex-1 py-3">
           {navItems.map(({ to, end, label, icon }) => (

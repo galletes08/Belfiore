@@ -16,8 +16,11 @@ export default function CheckoutPage({ cartItems, onOrderPlaced }) {
     return apiPlaceOrder(payload);
   }
 
-  function handleCheckoutComplete(order) {
+  function handleCheckoutComplete(order, options = {}) {
     onOrderPlaced?.(order);
+    if (options.redirectToOrders === false) {
+      return;
+    }
     navigate("/orders");
   }
 

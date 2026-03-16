@@ -1,0 +1,355 @@
+import { Router } from 'express';
+import { pool } from '../config/db.js';
+import { verifyRequestToken } from '../utils/auth.js';
+
+const router = Router();
+let ensureRidersTablePromise;
+
+function formatRiderRow(row) {
+  return {
+    id: Number(row.id),
+    firstName: row.first_name || '',
+    lastName: row.last_name || '',
+    fullName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
+    email: row.email || '',
+    phone: row.phone || '',
+    status: row.status || 'active',
+    isAvailable: Boolean(row.is_available),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function findLinkedRiderForUser(authUser) {
+  const directMatch = await pool.query(
+    `
+    SELECT id
+    FROM riders
+    WHERE user_id = $1
+    LIMIT 1
+    `,
+    [authUser.userId]
+  );
+
+  if (directMatch.rows.length) {
+    return Number(directMatch.rows[0].id);
+  }
+
+  const email = String(authUser.email || '').trim().toLowerCase();
+  if (!email) {
+    return null;
+  }
+
+  const linkedByEmail = await pool.query(
+    `
+    UPDATE riders
+    SET user_id = $1, updated_at = NOW()
+    WHERE id = (
+      SELECT id
+      FROM riders
+      WHERE user_id IS NULL
+        AND LOWER(email) = $2
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT 1
+    )
+    RETURNING id
+    `,
+    [authUser.userId, email]
+  );
+
+  if (linkedByEmail.rows.length) {
+    return Number(linkedByEmail.rows[0].id);
+  }
+
+  return null;
+}
+
+async function ensureRidersTable() {
+  if (!ensureRidersTablePromise) {
+    ensureRidersTablePromise = pool.query(`
+      CREATE TABLE IF NOT EXISTS riders (
+        id BIGSERIAL PRIMARY KEY,
+        first_name TEXT NOT NULL,
+        last_name TEXT NOT NULL,
+        email TEXT UNIQUE,
+        phone TEXT NOT NULL,
+        user_id BIGINT UNIQUE REFERENCES users(id) ON DELETE SET NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        is_available BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).then(() =>
+      pool.query(`
+        ALTER TABLE riders
+          ADD COLUMN IF NOT EXISTS first_name TEXT,
+          ADD COLUMN IF NOT EXISTS last_name TEXT,
+          ADD COLUMN IF NOT EXISTS email TEXT,
+          ADD COLUMN IF NOT EXISTS phone TEXT,
+          ADD COLUMN IF NOT EXISTS user_id BIGINT UNIQUE REFERENCES users(id) ON DELETE SET NULL,
+          ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
+          ADD COLUMN IF NOT EXISTS is_available BOOLEAN NOT NULL DEFAULT true,
+          ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      `)
+    ).then(() =>
+      pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_riders_email
+        ON riders(LOWER(email))
+        WHERE email IS NOT NULL
+      `)
+    );
+  }
+
+  await ensureRidersTablePromise;
+}
+
+router.get('/api/admin/riders', async (_req, res) => {
+  try {
+    await ensureRidersTable();
+
+    const result = await pool.query(`
+      SELECT id, first_name, last_name, email, phone, status, is_available, created_at, updated_at
+      FROM riders
+      ORDER BY updated_at DESC, created_at DESC
+    `);
+
+    res.json(result.rows.map(formatRiderRow));
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to load riders' });
+  }
+});
+
+router.post('/api/admin/riders', async (req, res) => {
+  try {
+    await ensureRidersTable();
+
+    const firstName = String(req.body?.firstName || '').trim();
+    const lastName = String(req.body?.lastName || '').trim();
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const phone = String(req.body?.phone || '').trim();
+    const status = String(req.body?.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active';
+    const isAvailable = req.body?.isAvailable == null ? true : Boolean(req.body.isAvailable);
+
+    if (!firstName || !lastName || !phone) {
+      return res.status(400).json({ error: 'First name, last name, and phone are required' });
+    }
+
+    let linkedUserId = null;
+    if (email) {
+      const userResult = await pool.query(
+        `
+        SELECT id, role
+        FROM users
+        WHERE LOWER(email) = $1
+        LIMIT 1
+        `,
+        [email]
+      );
+
+      if (userResult.rows.length && userResult.rows[0].role === 'rider') {
+        linkedUserId = Number(userResult.rows[0].id);
+      }
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO riders (first_name, last_name, email, phone, user_id, status, is_available, updated_at)
+      VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, NOW())
+      RETURNING id, first_name, last_name, email, phone, status, is_available, created_at, updated_at
+      `,
+      [firstName, lastName, email, phone, linkedUserId, status, isAvailable]
+    );
+
+    res.status(201).json(formatRiderRow(result.rows[0]));
+  } catch (error) {
+    if (String(error.message || '').toLowerCase().includes('duplicate')) {
+      return res.status(409).json({ error: 'A rider with that email already exists' });
+    }
+    res.status(500).json({ error: error.message || 'Failed to create rider' });
+  }
+});
+
+router.patch('/api/admin/riders/:id', async (req, res) => {
+  try {
+    await ensureRidersTable();
+
+    const riderId = Number(req.params.id);
+    if (!Number.isInteger(riderId) || riderId <= 0) {
+      return res.status(400).json({ error: 'Invalid rider id' });
+    }
+
+    const firstName = String(req.body?.firstName || '').trim();
+    const lastName = String(req.body?.lastName || '').trim();
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const phone = String(req.body?.phone || '').trim();
+    const status = String(req.body?.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active';
+    const isAvailable = Boolean(req.body?.isAvailable);
+
+    if (!firstName || !lastName || !phone) {
+      return res.status(400).json({ error: 'First name, last name, and phone are required' });
+    }
+
+    let linkedUserId = null;
+    if (email) {
+      const userResult = await pool.query(
+        `
+        SELECT id, role
+        FROM users
+        WHERE LOWER(email) = $1
+        LIMIT 1
+        `,
+        [email]
+      );
+
+      if (userResult.rows.length && userResult.rows[0].role === 'rider') {
+        linkedUserId = Number(userResult.rows[0].id);
+      }
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE riders
+      SET
+        first_name = $2,
+        last_name = $3,
+        email = NULLIF($4, ''),
+        phone = $5,
+        user_id = COALESCE($6, user_id),
+        status = $7,
+        is_available = $8,
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING id, first_name, last_name, email, phone, status, is_available, created_at, updated_at
+      `,
+      [riderId, firstName, lastName, email, phone, linkedUserId, status, isAvailable]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Rider not found' });
+    }
+
+    res.json(formatRiderRow(result.rows[0]));
+  } catch (error) {
+    if (String(error.message || '').toLowerCase().includes('duplicate')) {
+      return res.status(409).json({ error: 'A rider with that email already exists' });
+    }
+    res.status(500).json({ error: error.message || 'Failed to update rider' });
+  }
+});
+
+router.get('/api/rider/orders', async (req, res) => {
+  try {
+    await ensureRidersTable();
+
+    const authUser = verifyRequestToken(req);
+    if (authUser.role !== 'rider') {
+      return res.status(403).json({ error: 'Rider access only' });
+    }
+
+    const riderId = await findLinkedRiderForUser(authUser);
+    if (!riderId) {
+      return res.status(404).json({ error: 'No rider profile is linked to this account' });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        o.id,
+        o.customer_name,
+        o.gmail,
+        o.mobile_num,
+        o.location,
+        o.customer_latitude,
+        o.customer_longitude,
+        o.payment_method,
+        o.payment_status,
+        o.status,
+        COALESCE(NULLIF(TRIM(o.courier_name), ''), CONCAT_WS(' ', r.first_name, r.last_name)) AS courier_name,
+        COALESCE(NULLIF(TRIM(o.driver_phone), ''), r.phone) AS driver_phone,
+        o.driver_access_token,
+        o.driver_assigned_at,
+        o.driver_accepted_at,
+        o.driver_latitude,
+        o.driver_longitude,
+        o.driver_location_updated_at,
+        o.tracking_code,
+        o.tracking_status,
+        o.total_amount,
+        o.created_at,
+        o.updated_at,
+        o.status_updated_at,
+        COALESCE(SUM(oi.qty), 0)::int AS item_count,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id', oi.id,
+              'productId', oi.product_id,
+              'productName', oi.product_name,
+              'imageUrl', oi.image_url,
+              'qty', oi.qty,
+              'unitPrice', oi.unit_price,
+              'lineTotal', oi.line_total
+            )
+            ORDER BY oi.id
+          ) FILTER (WHERE oi.id IS NOT NULL),
+          '[]'::json
+        ) AS items
+      FROM orders o
+      LEFT JOIN riders r ON r.id = o.rider_id
+      LEFT JOIN order_items oi ON oi.order_id = o.id
+      WHERE o.rider_id = $1
+      GROUP BY o.id, r.first_name, r.last_name, r.phone
+      ORDER BY o.created_at DESC
+      `,
+      [riderId]
+    );
+
+    const formatted = result.rows.map((row) => ({
+      id: Number(row.id),
+      orderCode: `ORD-${String(row.id).padStart(3, '0')}`,
+      customerName: row.customer_name,
+      gmail: row.gmail || '',
+      mobileNumber: row.mobile_num || '',
+      location: row.location || '',
+      customerLatitude: row.customer_latitude == null ? null : Number(row.customer_latitude),
+      customerLongitude: row.customer_longitude == null ? null : Number(row.customer_longitude),
+      paymentMethod: row.payment_method,
+      paymentStatus: row.payment_status,
+      status: row.status,
+      courierName: row.courier_name || '',
+      driverPhone: row.driver_phone || '',
+      driverAccessToken: row.driver_access_token || '',
+      driverAssignedAt: row.driver_assigned_at || null,
+      driverAcceptedAt: row.driver_accepted_at || null,
+      driverLatitude: row.driver_latitude == null ? null : Number(row.driver_latitude),
+      driverLongitude: row.driver_longitude == null ? null : Number(row.driver_longitude),
+      driverLocationUpdatedAt: row.driver_location_updated_at || null,
+      trackingCode: row.tracking_code || '',
+      trackingStatus: row.tracking_status || 'Pending',
+      totalAmount: Number(row.total_amount || 0),
+      itemCount: Number(row.item_count || 0),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      statusUpdatedAt: row.status_updated_at,
+      items: Array.isArray(row.items)
+        ? row.items.map((item) => ({
+          id: Number(item.id),
+          productId: item.productId == null ? null : Number(item.productId),
+          productName: item.productName,
+          imageUrl: item.imageUrl || '',
+          qty: Number(item.qty || 0),
+          unitPrice: Number(item.unitPrice || 0),
+          lineTotal: Number(item.lineTotal || 0),
+        }))
+        : [],
+    }));
+
+    res.json(formatted);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || 'Failed to load rider orders' });
+  }
+});
+
+export { ensureRidersTable };
+export default router;

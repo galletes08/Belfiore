@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Leaf, Lock, Mail, UserRound } from "lucide-react";
-import { apiRegister, setCustomerToken } from "../../api/client";
+import { apiRegister, clearCustomerToken, setCustomerToken, setCustomerUser } from "../../api/client";
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -34,6 +34,8 @@ export default function Signup() {
     setIsSubmitting(true);
 
     try {
+      clearCustomerToken();
+
       const response = await apiRegister({
         firstName: formValues.firstName,
         lastName: formValues.lastName,
@@ -50,6 +52,7 @@ export default function Signup() {
       if (response.token) {
         setCustomerToken(response.token);
       }
+      setCustomerUser(response.user || null);
       navigate("/dashboard");
     } catch (error) {
       setErrorMessage(error.message || "Failed to create account.");

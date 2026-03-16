@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { KeyRound, Leaf, Mail } from "lucide-react";
-import { apiLogin, setCustomerToken } from "../../api/client";
+import { apiLogin, clearCustomerToken, setCustomerToken, setCustomerUser } from "../../api/client";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -28,6 +28,8 @@ export default function LoginPage() {
       const response = await apiLogin(formValues.email, formValues.password);
       const fullName = response.user?.name || [response.user?.firstName, response.user?.lastName].filter(Boolean).join(" ");
 
+      clearCustomerToken();
+
       if (fullName) {
         localStorage.setItem("customerName", fullName);
       }
@@ -36,6 +38,7 @@ export default function LoginPage() {
       if (response.token) {
         setCustomerToken(response.token);
       }
+      setCustomerUser(response.user || null);
       navigate("/dashboard");
     } catch (error) {
       setErrorMessage(error.message || "Login failed.");

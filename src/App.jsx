@@ -7,11 +7,13 @@ import AdminLogin from "./admin/AdminLogin";
 import AdminOrders from "./admin/AdminOrders";
 import AdminPlaceholder from "./admin/AdminPlaceholder";
 import AdminProtectedRoute from "./admin/AdminProtectedRoute";
+import AdminRiders from "./admin/AdminRiders";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footerlink/Footer";
 import ScrollToTop from "./components/ScrollToTop";
 import Home from "./components/Pages/Home";
 import Login from "./components/Signup/Login";
+import CustomerProtectedRoute from "./components/Signup/CustomerProtectedRoute";
 import About from "./components/Pages/About";
 import Contact from "./components/Pages/Contact";
 import Signup from "./components/Signup/Signup";
@@ -22,8 +24,13 @@ import CheckoutPage from "./components/Pages/CheckoutPage";
 import UserDashboard from "./components/Signup/UserDashboard";
 import UserAccountPage from "./components/Signup/User";
 import Order from "./components/Signup/Order";
+import DriverOrderPage from "./driver/DriverOrderPage";
+import RiderHomePage from "./rider/RiderHomePage";
+import RiderLayout from "./rider/RiderLayout";
+import RiderProtectedRoute from "./rider/RiderProtectedRoute";
 import plantsImage from "./assets/Plants.jpg";
 import { getImageUrl } from "./api/client";
+import { savePlacedOrder } from "./utils/customerOrders";
 
 const parsePrice = (value) => Number(String(value).replace(/[^\d.]/g, ""));
 
@@ -76,37 +83,6 @@ function App() {
     setCartItems((previous) => previous.filter((item) => item.id !== itemId));
   };
 
-  const persistCheckoutOrders = (orderId, checkedOutItems) => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const storageKey = "customerOrders";
-    const checkoutOrders = checkedOutItems.map((item, index) => ({
-      id: `${orderId}-${index + 1}`,
-      store: "SAD Plant Hub",
-      productId: item.id,
-      productName: item.name,
-      image: item.image || "",
-      variation: "Checkout Item",
-      quantity: item.qty,
-      originalPrice: item.price,
-      price: item.price,
-      status: "to-ship",
-      deliveryNote: "Seller is preparing your parcel"
-    }));
-
-    let existingOrders = [];
-    try {
-      const parsedValue = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
-      existingOrders = Array.isArray(parsedValue) ? parsedValue : [];
-    } catch {
-      existingOrders = [];
-    }
-
-    window.localStorage.setItem(storageKey, JSON.stringify([...checkoutOrders, ...existingOrders].slice(0, 100)));
-  };
-
   const handleCheckout = () => {
     if (cartItems.length === 0) {
       return false;
@@ -115,8 +91,7 @@ function App() {
   };
 
   const handleOrderPlaced = (order) => {
-    const orderId = `ORD-${new Date().getFullYear()}-${String(order?.id ?? Date.now()).padStart(6, "0")}`;
-    persistCheckoutOrders(orderId, cartItems);
+    savePlacedOrder(order);
     setCartItems([]);
   };
 
@@ -153,13 +128,25 @@ function App() {
             path="/checkout"
             element={<CheckoutPage cartItems={cartItems} onOrderPlaced={handleOrderPlaced} />}
           />
-          <Route path="/dashboard" element={<UserDashboard />} />
-          <Route path="/orders" element={<Order />} />
-          <Route path="/profile" element={<UserAccountPage />} />
-          <Route path="/account-details" element={<UserAccountPage />} />
+          <Route path="/dashboard" element={<CustomerProtectedRoute><UserDashboard /></CustomerProtectedRoute>} />
+          <Route path="/orders" element={<CustomerProtectedRoute><Order /></CustomerProtectedRoute>} />
+          <Route path="/profile" element={<CustomerProtectedRoute><UserAccountPage /></CustomerProtectedRoute>} />
+          <Route path="/account-details" element={<CustomerProtectedRoute><UserAccountPage /></CustomerProtectedRoute>} />
         </Route>
 
         <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/rider/login" element={<AdminLogin />} />
+        <Route path="/driver/:token" element={<DriverOrderPage />} />
+        <Route
+          path="/rider"
+          element={
+            <RiderProtectedRoute>
+              <RiderLayout />
+            </RiderProtectedRoute>
+          }
+        >
+          <Route index element={<RiderHomePage />} />
+        </Route>
         <Route
           path="/admin"
           element={
@@ -170,6 +157,7 @@ function App() {
         >
           <Route index element={<AdminDashboard />} />
           <Route path="orders" element={<AdminOrders />} />
+          <Route path="riders" element={<AdminRiders />} />
           <Route path="inventory" element={<AdminInventory />} />
           <Route path="customers" element={<AdminPlaceholder title="Customers" />} />
           <Route path="reports" element={<AdminPlaceholder title="Reports" />} />

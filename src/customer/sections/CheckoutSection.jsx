@@ -32,6 +32,8 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
   const [errors, setErrors] = useState({});
   const [confirmation, setConfirmation] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCapturingLocation, setIsCapturingLocation] = useState(false);
+  const [locationCaptureMessage, setLocationCaptureMessage] = useState('');
 
   const totalItems = useMemo(
     () => items.reduce((count, item) => count + Number(item.qty || 0), 0),
@@ -55,6 +57,33 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
   function handleChange(event) {
     const { name, value } = event.target;
     setForm((prev) => ({ ...prev, [name]: value }));
+  }
+
+  function handleCaptureMapLocation() {
+    if (!navigator.geolocation) {
+      setLocationCaptureMessage('This device does not support GPS location sharing.');
+      return;
+    }
+
+    setIsCapturingLocation(true);
+    setLocationCaptureMessage('');
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setForm((prev) => ({
+          ...prev,
+          customerLatitude: position.coords.latitude,
+          customerLongitude: position.coords.longitude,
+        }));
+        setLocationCaptureMessage('Your current map pin was saved for live rider tracking.');
+        setIsCapturingLocation(false);
+      },
+      () => {
+        setLocationCaptureMessage('Unable to get your current location. Please allow GPS permission and try again.');
+        setIsCapturingLocation(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
   }
 
   async function handleSubmit(event) {
@@ -93,11 +122,27 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
         gmail: form.gmail.trim(),
         mobileNumber: form.mobileNumber.trim(),
         location: form.location.trim(),
+        customerLatitude: form.customerLatitude ?? null,
+        customerLongitude: form.customerLongitude ?? null,
         paymentMethod: form.paymentMethod,
         items: items.map((item) => ({ id: item.id, qty: item.qty })),
       });
 
       const reference = `BF-${String(order.id).padStart(6, '0')}`;
+
+      if (form.paymentMethod === 'ONLINE') {
+        if (!order?.checkoutUrl) {
+          throw new Error('Unable to start the PayMongo checkout session.');
+        }
+
+        setConfirmation({
+          type: 'success',
+          message: `Order ${reference} was created. Redirecting you to PayMongo checkout...`,
+        });
+        onOrderPlaced(order, { redirectToOrders: false });
+        window.location.href = order.checkoutUrl;
+        return;
+      }
       const paymentText =
         form.paymentMethod === 'COD'
           ? 'Cash on Delivery selected. Please prepare exact amount on delivery.'
@@ -112,8 +157,11 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
         ...getStoredCustomerDetails(),
         location: '',
         paymentMethod: prev.paymentMethod,
+        customerLatitude: null,
+        customerLongitude: null,
       }));
       setErrors({});
+      setLocationCaptureMessage('');
     } catch (error) {
       setConfirmation({
         type: 'error',
@@ -212,6 +260,32 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                   placeholder="House number, street, barangay, city, province"
                 />
                 {errors.location ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.location}</p> : null}
+
+                <div className="mt-3 rounded-xl border border-dashed border-[#c7d5c5] bg-white px-4 py-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-[#0f4d2e]">Map Pin for Rider Tracking</p>
+                      <p className="mt-1 text-xs text-[#5e6f65]">
+                        Save your current GPS position so the rider and customer map can show your location.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCaptureMapLocation}
+                      disabled={isCapturingLocation}
+                      className="rounded-full border border-[#0b7a3c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7a3c] transition hover:bg-[#0b7a3c] hover:text-white disabled:cursor-not-allowed disabled:border-[#9eb1a5] disabled:text-[#9eb1a5]"
+                    >
+                      {isCapturingLocation ? 'Getting GPS...' : form.customerLatitude != null && form.customerLongitude != null ? 'Update Map Pin' : 'Use Current Location'}
+                    </button>
+                  </div>
+
+                  <p className="mt-3 text-xs text-[#5e6f65]">
+                    {form.customerLatitude != null && form.customerLongitude != null
+                      ? `Saved coordinates: ${Number(form.customerLatitude).toFixed(5)}, ${Number(form.customerLongitude).toFixed(5)}`
+                      : 'No GPS pin saved yet. The typed address above is still required.'}
+                  </p>
+                  {locationCaptureMessage ? <p className="mt-2 text-xs text-[#0f4d2e]">{locationCaptureMessage}</p> : null}
+                </div>
               </div>
             </div>
           </div>
@@ -250,7 +324,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
             type="submit"
             disabled={isSubmitting}
           >
-            {isSubmitting ? 'Placing Order...' : 'Place Order'}
+            {isSubmitting ? form.paymentMethod === 'ONLINE' ? 'Preparing PayMongo...' : 'Placing Order...' : form.paymentMethod === 'ONLINE' ? 'Continue to PayMongo' : 'Place Order'}
           </button>
 
           {confirmation ? (

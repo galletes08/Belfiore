@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { apiAdminOrders, apiUpdateOrder } from '../api/client';
+import { apiAdminOrders, apiAdminRiders, apiUpdateOrder } from '../api/client';
 
 const STATUS_FILTERS = [
   { key: 'All', label: 'All' },
@@ -31,7 +31,9 @@ const badgeStyles = {
 const emptyForm = {
   status: 'Pending',
   paymentStatus: 'Unpaid',
+  riderId: '',
   courierName: '',
+  driverPhone: '',
   trackingCode: '',
   trackingStatus: 'Pending',
 };
@@ -53,9 +55,15 @@ function badgeClass(value) {
   return badgeStyles[value] || 'bg-gray-100 text-gray-700';
 }
 
+function buildDriverPortalUrl(token) {
+  if (!token || typeof window === 'undefined') return '';
+  return `${window.location.origin}/driver/${token}`;
+}
+
 export default function AdminOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [riders, setRiders] = useState([]);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
@@ -69,9 +77,10 @@ export default function AdminOrders() {
     async function loadOrders() {
       setLoading(true);
       try {
-        const data = await apiAdminOrders();
+        const [ordersData, ridersData] = await Promise.all([apiAdminOrders(), apiAdminRiders()]);
         if (!isMounted) return;
-        setOrders(Array.isArray(data) ? data : []);
+        setOrders(Array.isArray(ordersData) ? ordersData : []);
+        setRiders(Array.isArray(ridersData) ? ridersData : []);
         setError('');
       } catch (err) {
         if (!isMounted) return;
@@ -125,7 +134,9 @@ export default function AdminOrders() {
     setForm({
       status: order.status || 'Pending',
       paymentStatus: order.paymentStatus || 'Unpaid',
+      riderId: order.riderId ? String(order.riderId) : '',
       courierName: order.courierName || '',
+      driverPhone: order.driverPhone || '',
       trackingCode: order.trackingCode || '',
       trackingStatus: order.trackingStatus || 'Pending',
     });
@@ -152,7 +163,9 @@ export default function AdminOrders() {
       setForm({
         status: updatedOrder.status,
         paymentStatus: updatedOrder.paymentStatus,
+        riderId: updatedOrder.riderId ? String(updatedOrder.riderId) : '',
         courierName: updatedOrder.courierName || '',
+        driverPhone: updatedOrder.driverPhone || '',
         trackingCode: updatedOrder.trackingCode || '',
         trackingStatus: updatedOrder.trackingStatus || 'Pending',
       });
@@ -230,6 +243,7 @@ export default function AdminOrders() {
                   <th className="px-5 py-4 font-medium">Order Status</th>
                   <th className="px-5 py-4 font-medium">Payment</th>
                   <th className="px-5 py-4 font-medium">Courier</th>
+                  <th className="px-5 py-4 font-medium">Driver Status</th>
                   <th className="px-5 py-4 font-medium">Tracking Code</th>
                   <th className="px-5 py-4 font-medium">Tracking Status</th>
                   <th className="px-5 py-4 font-medium">Last Update</th>
@@ -255,6 +269,7 @@ export default function AdminOrders() {
                       </span>
                     </td>
                     <td className="px-5 py-4 text-gray-700">{order.courierName || '-'}</td>
+                    <td className="px-5 py-4 text-gray-700">{order.driverAcceptedAt ? 'Accepted' : order.courierName ? 'Assigned' : '-'}</td>
                     <td className="px-5 py-4 text-gray-700">{order.trackingCode || '-'}</td>
                     <td className="px-5 py-4">
                       <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(order.trackingStatus)}`}>
@@ -314,6 +329,8 @@ export default function AdminOrders() {
                     <p><span className="font-medium text-gray-900">Phone:</span> {selectedOrder.mobileNumber || '-'}</p>
                     <p><span className="font-medium text-gray-900">Payment:</span> {selectedOrder.paymentMethod}</p>
                     <p className="md:col-span-2"><span className="font-medium text-gray-900">Address:</span> {selectedOrder.location || '-'}</p>
+                    <p><span className="font-medium text-gray-900">Customer Pin:</span> {selectedOrder.customerLatitude != null && selectedOrder.customerLongitude != null ? `${selectedOrder.customerLatitude.toFixed(5)}, ${selectedOrder.customerLongitude.toFixed(5)}` : 'Not saved yet'}</p>
+                    <p><span className="font-medium text-gray-900">Rider GPS:</span> {selectedOrder.driverLatitude != null && selectedOrder.driverLongitude != null ? `${selectedOrder.driverLatitude.toFixed(5)}, ${selectedOrder.driverLongitude.toFixed(5)}` : 'No live location yet'}</p>
                   </div>
                 </div>
 
@@ -343,7 +360,7 @@ export default function AdminOrders() {
               <form onSubmit={handleSave} className="space-y-4 rounded-2xl border border-gray-200 bg-[#f7faf8] px-5 py-4">
                 <div>
                   <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">Track Order</h3>
-                  <p className="mt-1 text-sm text-gray-500">Update the fulfillment status and shipping details for this order.</p>
+                  <p className="mt-1 text-sm text-gray-500">Assign the rider, update the order, and share the private driver link.</p>
                 </div>
 
                 {error ? (
@@ -383,13 +400,49 @@ export default function AdminOrders() {
                 </label>
 
                 <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-gray-700">Courier</span>
+                  <span className="mb-1 block text-sm font-medium text-gray-700">Assigned Rider</span>
+                  <select
+                    value={form.riderId}
+                    onChange={(event) => {
+                      const nextRiderId = event.target.value;
+                      const nextRider = riders.find((rider) => String(rider.id) === nextRiderId);
+                      setForm((current) => ({
+                        ...current,
+                        riderId: nextRiderId,
+                        courierName: nextRider?.fullName || '',
+                        driverPhone: nextRider?.phone || '',
+                      }));
+                    }}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
+                  >
+                    <option value="">No rider assigned</option>
+                    {riders.map((rider) => (
+                      <option key={rider.id} value={rider.id}>
+                        {rider.fullName} {rider.isAvailable ? '(Available)' : '(Busy)'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-gray-700">Rider Name</span>
                   <input
                     type="text"
                     value={form.courierName}
-                    onChange={(event) => setForm((current) => ({ ...current, courierName: event.target.value }))}
-                    placeholder="LBC, DHL, Local Rider"
-                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
+                    readOnly
+                    placeholder="Juan Rider"
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-700 outline-none"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-gray-700">Rider Phone</span>
+                  <input
+                    type="text"
+                    value={form.driverPhone}
+                    readOnly
+                    placeholder="09XXXXXXXXX"
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-700 outline-none"
                   />
                 </label>
 
@@ -433,10 +486,40 @@ export default function AdminOrders() {
                     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(selectedOrder.trackingStatus)}`}>{selectedOrder.trackingStatus}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
+                    <span>Rider accepted</span>
+                    <span>{selectedOrder.driverAcceptedAt ? formatDateTime(selectedOrder.driverAcceptedAt) : 'Waiting for rider'}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span>Live GPS update</span>
+                    <span>{formatDateTime(selectedOrder.driverLocationUpdatedAt)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
                     <span>Last updated</span>
                     <span>{formatDateTime(selectedOrder.statusUpdatedAt || selectedOrder.updatedAt)}</span>
                   </div>
                 </div>
+
+                {selectedOrder.driverAccessToken ? (
+                  <div className="rounded-2xl border border-dashed border-[#1f5a43]/25 bg-white px-4 py-3 text-sm text-gray-600">
+                    <p className="font-medium text-gray-900">Private Driver Link</p>
+                    <p className="mt-2 break-all text-xs text-gray-500">{buildDriverPortalUrl(selectedOrder.driverAccessToken)}</p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const driverUrl = buildDriverPortalUrl(selectedOrder.driverAccessToken);
+                        if (!driverUrl) return;
+                        await navigator.clipboard.writeText(driverUrl);
+                      }}
+                      className="mt-3 rounded-full border border-[#1f5a43]/20 px-4 py-2 text-xs font-medium text-[#1f5a43] transition hover:bg-[#1f5a43] hover:text-white"
+                    >
+                      Copy Driver Link
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+                    Save the order with a rider name first to generate the private driver link.
+                  </div>
+                )}
 
                 <button
                   type="submit"

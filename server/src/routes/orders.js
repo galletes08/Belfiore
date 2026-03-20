@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { pool } from '../config/db.js';
 import { ensureRidersTable } from './riders.js';
 import { createPayMongoCheckoutSession, isPayMongoConfigured } from '../utils/paymongo.js';
+import { isTrack123Configured, queryTrack123TrackingDetails, syncTrack123Tracking } from '../utils/track123.js';
 
 const router = Router();
 let ensureOrdersAdminColumnsPromise;
@@ -10,6 +11,7 @@ let ensureOrdersAdminColumnsPromise;
 const ORDER_STATUSES = ['Pending', 'Preparing', 'Out for Delivery', 'Delivered', 'Cancelled'];
 const TRACKING_STATUSES = ['Pending', 'Preparing', 'Packed', 'In Transit', 'Out for Delivery', 'Delivered', 'Cancelled'];
 const PAYMENT_STATUSES = ['Pending', 'Paid', 'Unpaid', 'Failed', 'Refunded'];
+const DELIVERY_MODES = ['rider', 'logistics'];
 
 const BASE_ORDER_SELECT = `
   SELECT
@@ -20,6 +22,7 @@ const BASE_ORDER_SELECT = `
     o.location,
     o.customer_latitude,
     o.customer_longitude,
+    o.delivery_mode,
     o.payment_method,
     o.payment_status,
     o.status,
@@ -33,7 +36,11 @@ const BASE_ORDER_SELECT = `
     o.driver_longitude,
     o.driver_location_updated_at,
     o.tracking_code,
+    o.tracking_courier_code,
     o.tracking_status,
+    o.track123_tracking_id,
+    o.track123_last_checkpoint_at,
+    o.track123_last_synced_at,
     o.paymongo_checkout_session_id,
     o.paymongo_payment_id,
     o.paymongo_payment_intent_id,
@@ -82,6 +89,11 @@ function normalizeCoordinate(value, min, max) {
   return numeric;
 }
 
+function normalizeDeliveryMode(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return DELIVERY_MODES.includes(normalized) ? normalized : 'rider';
+}
+
 function deriveTrackingStatus(orderStatus) {
   switch (orderStatus) {
     case 'Preparing':
@@ -109,6 +121,7 @@ function formatOrderRow(row, options = {}) {
     location: row.location || '',
     customerLatitude: row.customer_latitude == null ? null : Number(row.customer_latitude),
     customerLongitude: row.customer_longitude == null ? null : Number(row.customer_longitude),
+    deliveryMode: row.delivery_mode || 'rider',
     paymentMethod: row.payment_method,
     paymentStatus: row.payment_status,
     status: row.status,
@@ -121,7 +134,11 @@ function formatOrderRow(row, options = {}) {
     driverLongitude: row.driver_longitude == null ? null : Number(row.driver_longitude),
     driverLocationUpdatedAt: row.driver_location_updated_at || null,
     trackingCode: row.tracking_code || '',
+    trackingCourierCode: row.tracking_courier_code || '',
     trackingStatus: row.tracking_status || deriveTrackingStatus(row.status),
+    track123TrackingId: row.track123_tracking_id || '',
+    track123LastCheckpointAt: row.track123_last_checkpoint_at || null,
+    track123LastSyncedAt: row.track123_last_synced_at || null,
     paymongoCheckoutSessionId: row.paymongo_checkout_session_id || '',
     paymongoPaymentId: row.paymongo_payment_id || '',
     paymongoPaymentIntentId: row.paymongo_payment_intent_id || '',
@@ -157,12 +174,17 @@ async function ensureOrderAdminColumns() {
         ADD COLUMN IF NOT EXISTS driver_accepted_at TIMESTAMPTZ,
         ADD COLUMN IF NOT EXISTS customer_latitude DOUBLE PRECISION,
         ADD COLUMN IF NOT EXISTS customer_longitude DOUBLE PRECISION,
+        ADD COLUMN IF NOT EXISTS delivery_mode TEXT NOT NULL DEFAULT 'rider',
         ADD COLUMN IF NOT EXISTS driver_latitude DOUBLE PRECISION,
         ADD COLUMN IF NOT EXISTS driver_longitude DOUBLE PRECISION,
         ADD COLUMN IF NOT EXISTS driver_location_updated_at TIMESTAMPTZ,
         ADD COLUMN IF NOT EXISTS rider_id BIGINT REFERENCES riders(id) ON DELETE SET NULL,
         ADD COLUMN IF NOT EXISTS tracking_code TEXT,
+        ADD COLUMN IF NOT EXISTS tracking_courier_code TEXT,
         ADD COLUMN IF NOT EXISTS tracking_status TEXT NOT NULL DEFAULT 'Pending',
+        ADD COLUMN IF NOT EXISTS track123_tracking_id TEXT,
+        ADD COLUMN IF NOT EXISTS track123_last_checkpoint_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS track123_last_synced_at TIMESTAMPTZ,
         ADD COLUMN IF NOT EXISTS paymongo_checkout_session_id TEXT,
         ADD COLUMN IF NOT EXISTS paymongo_payment_id TEXT,
         ADD COLUMN IF NOT EXISTS paymongo_payment_intent_id TEXT,
@@ -204,6 +226,7 @@ router.post('/api/orders', async (req, res) => {
     const gmail = String(req.body?.gmail || '').trim();
     const mobileNumber = String(req.body?.mobileNumber || '').trim();
     const location = String(req.body?.location || '').trim();
+    const deliveryMode = normalizeDeliveryMode(req.body?.deliveryMode);
     const paymentMethod = normalizePaymentMethod(req.body?.paymentMethod);
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     const customerLatitude = normalizeCoordinate(req.body?.customerLatitude, -90, 90);
@@ -289,10 +312,10 @@ router.post('/api/orders', async (req, res) => {
       `
       INSERT INTO orders (
         customer_name, gmail, mobile_num, location, customer_latitude, customer_longitude,
-        payment_method, payment_status, status, tracking_status, total_amount, status_updated_at, updated_at
+        delivery_mode, payment_method, payment_status, status, tracking_status, total_amount, status_updated_at, updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Pending', 'Pending', $9, NOW(), NOW())
-      RETURNING id, status, tracking_status, total_amount, created_at, updated_at, status_updated_at
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Pending', 'Pending', $10, NOW(), NOW())
+      RETURNING id, delivery_mode, status, tracking_status, total_amount, created_at, updated_at, status_updated_at
       `,
       [
         fullName,
@@ -301,6 +324,7 @@ router.post('/api/orders', async (req, res) => {
         location,
         customerLatitude,
         customerLongitude,
+        deliveryMode,
         paymentMethod,
         paymentMethod === 'ONLINE' ? 'Pending' : 'Unpaid',
         totalAmount,
@@ -365,6 +389,7 @@ router.post('/api/orders', async (req, res) => {
     res.status(201).json({
       id: Number(order.id),
       orderCode: `ORD-${String(order.id).padStart(3, '0')}`,
+      deliveryMode: order.delivery_mode || deliveryMode,
       paymentMethod,
       paymentStatus: paymentMethod === 'ONLINE' ? 'Pending' : 'Unpaid',
       checkoutUrl: checkoutSession?.checkoutUrl || '',
@@ -442,12 +467,14 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
     const status = normalizeOption(req.body?.status, ORDER_STATUSES);
     const trackingStatus = normalizeOption(req.body?.trackingStatus, TRACKING_STATUSES);
     const paymentStatus = normalizeOption(req.body?.paymentStatus, PAYMENT_STATUSES);
+    const deliveryMode = normalizeDeliveryMode(req.body?.deliveryMode);
     const riderId = req.body?.riderId == null || req.body?.riderId === ''
       ? null
       : Number(req.body.riderId);
     const courierName = String(req.body?.courierName || '').trim();
     const driverPhone = String(req.body?.driverPhone || '').trim();
     const trackingCode = String(req.body?.trackingCode || '').trim();
+    const trackingCourierCode = String(req.body?.trackingCourierCode || '').trim();
 
     if (!status) {
       return res.status(400).json({ error: 'Valid order status is required' });
@@ -467,7 +494,7 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
     let resolvedRiderName = courierName;
     let resolvedDriverPhone = driverPhone;
 
-    if (riderId) {
+    if (deliveryMode === 'rider' && riderId) {
       const riderResult = await pool.query(
         `
         SELECT id, first_name, last_name, phone
@@ -502,8 +529,14 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
     }
 
     const existing = existingResult.rows[0];
+    const finalRiderId = deliveryMode === 'logistics' ? null : riderId;
+    if (deliveryMode === 'logistics') {
+      resolvedRiderName = '';
+      resolvedDriverPhone = '';
+    }
+
     const assignmentChanged =
-      riderId !== (existing.rider_id == null ? null : Number(existing.rider_id)) ||
+      finalRiderId !== (existing.rider_id == null ? null : Number(existing.rider_id)) ||
       resolvedRiderName !== String(existing.courier_name || '') ||
       resolvedDriverPhone !== String(existing.driver_phone || '');
 
@@ -521,33 +554,35 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
       SET
         status = $2,
         payment_status = COALESCE(NULLIF($3, ''), payment_status),
-        rider_id = $4,
-        courier_name = $5,
-        driver_phone = $6,
-        driver_access_token = $7,
+        delivery_mode = $4,
+        rider_id = $5,
+        courier_name = $6,
+        driver_phone = $7,
+        driver_access_token = $8,
         driver_assigned_at = CASE
-          WHEN NULLIF($5, '') IS NULL THEN NULL
-          WHEN $8::boolean OR driver_assigned_at IS NULL THEN NOW()
+          WHEN NULLIF($6, '') IS NULL THEN NULL
+          WHEN $9::boolean OR driver_assigned_at IS NULL THEN NOW()
           ELSE driver_assigned_at
         END,
         driver_accepted_at = CASE
-          WHEN NULLIF($5, '') IS NULL OR $8::boolean THEN NULL
+          WHEN NULLIF($6, '') IS NULL OR $9::boolean THEN NULL
           ELSE driver_accepted_at
         END,
         driver_latitude = CASE
-          WHEN NULLIF($5, '') IS NULL OR $8::boolean THEN NULL
+          WHEN NULLIF($6, '') IS NULL OR $9::boolean THEN NULL
           ELSE driver_latitude
         END,
         driver_longitude = CASE
-          WHEN NULLIF($5, '') IS NULL OR $8::boolean THEN NULL
+          WHEN NULLIF($6, '') IS NULL OR $9::boolean THEN NULL
           ELSE driver_longitude
         END,
         driver_location_updated_at = CASE
-          WHEN NULLIF($5, '') IS NULL OR $8::boolean THEN NULL
+          WHEN NULLIF($6, '') IS NULL OR $9::boolean THEN NULL
           ELSE driver_location_updated_at
         END,
-        tracking_code = $9,
-        tracking_status = $10,
+        tracking_code = $10,
+        tracking_courier_code = $11,
+        tracking_status = $12,
         status_updated_at = NOW(),
         updated_at = NOW()
       WHERE id = $1
@@ -556,12 +591,14 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
         orderId,
         status,
         paymentStatus,
-        riderId,
+        deliveryMode,
+        finalRiderId,
         resolvedRiderName,
         resolvedDriverPhone,
         nextDriverAccessToken,
         assignmentChanged,
         trackingCode,
+        trackingCourierCode,
         finalTrackingStatus,
       ]
     );
@@ -671,6 +708,145 @@ router.patch('/api/driver/orders/:token', async (req, res) => {
     res.json(updatedOrder);
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to update driver order' });
+  }
+});
+
+router.post('/api/admin/orders/:id/track123/sync', async (req, res) => {
+  try {
+    await ensureOrderAdminColumns();
+    await ensureRidersTable();
+
+    if (!isTrack123Configured()) {
+      return res.status(503).json({ error: 'Track123 is not configured yet. Set TRACK123_API_KEY in server/.env.' });
+    }
+
+    const orderId = Number(req.params.id);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ error: 'Invalid order id' });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT id, tracking_code, tracking_courier_code
+      FROM orders
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [orderId]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const order = result.rows[0];
+    const trackingCode = String(order.tracking_code || '').trim();
+    const trackingCourierCode = String(order.tracking_courier_code || '').trim();
+
+    if (!trackingCode) {
+      return res.status(400).json({ error: 'Save a tracking code on the order before syncing Track123.' });
+    }
+
+    const tracking = await syncTrack123Tracking({
+      trackingNumber: trackingCode,
+      courierCode: trackingCourierCode,
+    });
+
+    await pool.query(
+      `
+      UPDATE orders
+      SET
+        tracking_code = $2,
+        tracking_courier_code = NULLIF($3, ''),
+        tracking_status = $4,
+        track123_tracking_id = NULLIF($5, ''),
+        track123_last_checkpoint_at = $6::timestamptz,
+        track123_last_synced_at = NOW(),
+        updated_at = NOW()
+      WHERE id = $1
+      `,
+      [
+        orderId,
+        tracking.trackingNumber || trackingCode,
+        tracking.courierCode || trackingCourierCode,
+        tracking.trackingStatus,
+        tracking.trackingId,
+        tracking.checkpointTime,
+      ]
+    );
+
+    const updatedOrder = await fetchOrderById(orderId, { includeDriverAccessToken: true });
+    res.json(updatedOrder);
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to sync Track123 tracking' });
+  }
+});
+
+router.get('/api/orders/:id/logistics-updates', async (req, res) => {
+  try {
+    await ensureOrderAdminColumns();
+
+    if (!isTrack123Configured()) {
+      return res.status(503).json({ error: 'Track123 is not configured yet. Set TRACK123_API_KEY in server/.env.' });
+    }
+
+    const orderId = Number(req.params.id);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ error: 'Invalid order id' });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT id, tracking_code, tracking_courier_code
+      FROM orders
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [orderId]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const order = result.rows[0];
+    const trackingCode = String(order.tracking_code || '').trim();
+    const trackingCourierCode = String(order.tracking_courier_code || '').trim();
+
+    if (!trackingCode) {
+      return res.status(400).json({ error: 'This order does not have a tracking code yet.' });
+    }
+
+    const tracking = await queryTrack123TrackingDetails({
+      trackingNumber: trackingCode,
+      courierCode: trackingCourierCode,
+    });
+
+    await pool.query(
+      `
+      UPDATE orders
+      SET
+        tracking_courier_code = COALESCE(NULLIF($2, ''), tracking_courier_code),
+        tracking_status = COALESCE(NULLIF($3, ''), tracking_status),
+        track123_tracking_id = COALESCE(NULLIF($4, ''), track123_tracking_id),
+        track123_last_checkpoint_at = COALESCE($5::timestamptz, track123_last_checkpoint_at),
+        track123_last_synced_at = NOW(),
+        updated_at = NOW()
+      WHERE id = $1
+      `,
+      [orderId, tracking.courierCode || trackingCourierCode, tracking.trackingStatus, tracking.trackingId, tracking.checkpointTime]
+    );
+
+    res.json({
+      trackingCode,
+      courierCode: tracking.courierCode || trackingCourierCode,
+      trackingStatus: tracking.trackingStatus,
+      lastCheckpointAt: tracking.checkpointTime,
+      lastSyncedAt: new Date().toISOString(),
+      updates: tracking.updates,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to load logistics updates' });
   }
 });
 

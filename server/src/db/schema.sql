@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS orders (
   location TEXT,
   customer_latitude DOUBLE PRECISION,
   customer_longitude DOUBLE PRECISION,
+  delivery_mode TEXT NOT NULL DEFAULT 'rider',
   payment_method TEXT NOT NULL DEFAULT 'COD',
   payment_status TEXT NOT NULL DEFAULT 'Unpaid',
   status TEXT NOT NULL DEFAULT 'Pending',
@@ -121,6 +122,7 @@ ALTER TABLE orders
   ADD COLUMN IF NOT EXISTS location TEXT,
   ADD COLUMN IF NOT EXISTS customer_latitude DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS customer_longitude DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS delivery_mode TEXT NOT NULL DEFAULT 'rider',
   ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'COD',
   ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'Unpaid',
   ADD COLUMN IF NOT EXISTS rider_id BIGINT REFERENCES riders(id) ON DELETE SET NULL,
@@ -133,7 +135,11 @@ ALTER TABLE orders
   ADD COLUMN IF NOT EXISTS driver_longitude DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS driver_location_updated_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS tracking_code TEXT,
+  ADD COLUMN IF NOT EXISTS tracking_courier_code TEXT,
   ADD COLUMN IF NOT EXISTS tracking_status TEXT NOT NULL DEFAULT 'Pending',
+  ADD COLUMN IF NOT EXISTS track123_tracking_id TEXT,
+  ADD COLUMN IF NOT EXISTS track123_last_checkpoint_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS track123_last_synced_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS paymongo_checkout_session_id TEXT,
   ADD COLUMN IF NOT EXISTS paymongo_payment_id TEXT,
   ADD COLUMN IF NOT EXISTS paymongo_payment_intent_id TEXT,
@@ -155,6 +161,19 @@ BEGIN
     ALTER TABLE orders
       ADD CONSTRAINT orders_payment_method_check
       CHECK (payment_method IN ('COD', 'ONLINE'));
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'orders_delivery_mode_check'
+  ) THEN
+    ALTER TABLE orders
+      ADD CONSTRAINT orders_delivery_mode_check
+      CHECK (delivery_mode IN ('rider', 'logistics'));
   END IF;
 END $$;
 

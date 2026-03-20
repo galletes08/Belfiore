@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { apiAdminOrders, apiAdminRiders, apiUpdateOrder } from '../api/client';
+import { apiAdminOrders, apiAdminRiders, apiSyncOrderTrack123, apiUpdateOrder } from '../api/client';
 
 const STATUS_FILTERS = [
   { key: 'All', label: 'All' },
@@ -31,10 +31,12 @@ const badgeStyles = {
 const emptyForm = {
   status: 'Pending',
   paymentStatus: 'Unpaid',
+  deliveryMode: 'rider',
   riderId: '',
   courierName: '',
   driverPhone: '',
   trackingCode: '',
+  trackingCourierCode: '',
   trackingStatus: 'Pending',
 };
 
@@ -70,6 +72,7 @@ export default function AdminOrders() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [syncingTrack123, setSyncingTrack123] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -134,10 +137,12 @@ export default function AdminOrders() {
     setForm({
       status: order.status || 'Pending',
       paymentStatus: order.paymentStatus || 'Unpaid',
+      deliveryMode: order.deliveryMode || 'rider',
       riderId: order.riderId ? String(order.riderId) : '',
       courierName: order.courierName || '',
       driverPhone: order.driverPhone || '',
       trackingCode: order.trackingCode || '',
+      trackingCourierCode: order.trackingCourierCode || '',
       trackingStatus: order.trackingStatus || 'Pending',
     });
     setError('');
@@ -147,6 +152,7 @@ export default function AdminOrders() {
     setSelectedOrder(null);
     setForm(emptyForm);
     setSaving(false);
+    setSyncingTrack123(false);
   };
 
   const handleSave = async (event) => {
@@ -163,16 +169,47 @@ export default function AdminOrders() {
       setForm({
         status: updatedOrder.status,
         paymentStatus: updatedOrder.paymentStatus,
+        deliveryMode: updatedOrder.deliveryMode || 'rider',
         riderId: updatedOrder.riderId ? String(updatedOrder.riderId) : '',
         courierName: updatedOrder.courierName || '',
         driverPhone: updatedOrder.driverPhone || '',
         trackingCode: updatedOrder.trackingCode || '',
+        trackingCourierCode: updatedOrder.trackingCourierCode || '',
         trackingStatus: updatedOrder.trackingStatus || 'Pending',
       });
     } catch (err) {
       setError(err.message || 'Failed to update order');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTrack123Sync = async () => {
+    if (!selectedOrder) return;
+
+    setSyncingTrack123(true);
+    setError('');
+
+    try {
+      const savedOrder = await apiUpdateOrder(selectedOrder.id, form);
+      const updatedOrder = await apiSyncOrderTrack123(savedOrder.id);
+      setOrders((current) => current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)));
+      setSelectedOrder(updatedOrder);
+      setForm({
+        status: updatedOrder.status,
+        paymentStatus: updatedOrder.paymentStatus,
+        deliveryMode: updatedOrder.deliveryMode || 'rider',
+        riderId: updatedOrder.riderId ? String(updatedOrder.riderId) : '',
+        courierName: updatedOrder.courierName || '',
+        driverPhone: updatedOrder.driverPhone || '',
+        trackingCode: updatedOrder.trackingCode || '',
+        trackingCourierCode: updatedOrder.trackingCourierCode || '',
+        trackingStatus: updatedOrder.trackingStatus || 'Pending',
+      });
+    } catch (err) {
+      setError(err.message || 'Failed to sync Track123 tracking');
+    } finally {
+      setSyncingTrack123(false);
     }
   };
 
@@ -268,8 +305,8 @@ export default function AdminOrders() {
                         {order.paymentStatus}
                       </span>
                     </td>
-                    <td className="px-5 py-4 text-gray-700">{order.courierName || '-'}</td>
-                    <td className="px-5 py-4 text-gray-700">{order.driverAcceptedAt ? 'Accepted' : order.courierName ? 'Assigned' : '-'}</td>
+                    <td className="px-5 py-4 text-gray-700">{order.deliveryMode === 'logistics' ? 'Logistics only' : order.courierName || '-'}</td>
+                    <td className="px-5 py-4 text-gray-700">{order.deliveryMode === 'logistics' ? 'Not applicable' : order.driverAcceptedAt ? 'Accepted' : order.courierName ? 'Assigned' : '-'}</td>
                     <td className="px-5 py-4 text-gray-700">{order.trackingCode || '-'}</td>
                     <td className="px-5 py-4">
                       <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(order.trackingStatus)}`}>
@@ -329,8 +366,8 @@ export default function AdminOrders() {
                     <p><span className="font-medium text-gray-900">Phone:</span> {selectedOrder.mobileNumber || '-'}</p>
                     <p><span className="font-medium text-gray-900">Payment:</span> {selectedOrder.paymentMethod}</p>
                     <p className="md:col-span-2"><span className="font-medium text-gray-900">Address:</span> {selectedOrder.location || '-'}</p>
-                    <p><span className="font-medium text-gray-900">Customer Pin:</span> {selectedOrder.customerLatitude != null && selectedOrder.customerLongitude != null ? `${selectedOrder.customerLatitude.toFixed(5)}, ${selectedOrder.customerLongitude.toFixed(5)}` : 'Not saved yet'}</p>
-                    <p><span className="font-medium text-gray-900">Rider GPS:</span> {selectedOrder.driverLatitude != null && selectedOrder.driverLongitude != null ? `${selectedOrder.driverLatitude.toFixed(5)}, ${selectedOrder.driverLongitude.toFixed(5)}` : 'No live location yet'}</p>
+                    <p><span className="font-medium text-gray-900">Customer Pin:</span> {selectedOrder.deliveryMode === 'logistics' ? 'Hidden for logistics tracking' : selectedOrder.customerLatitude != null && selectedOrder.customerLongitude != null ? `${selectedOrder.customerLatitude.toFixed(5)}, ${selectedOrder.customerLongitude.toFixed(5)}` : 'Not saved yet'}</p>
+                    <p><span className="font-medium text-gray-900">Rider GPS:</span> {selectedOrder.deliveryMode === 'logistics' ? 'Not used for logistics orders' : selectedOrder.driverLatitude != null && selectedOrder.driverLongitude != null ? `${selectedOrder.driverLatitude.toFixed(5)}, ${selectedOrder.driverLongitude.toFixed(5)}` : 'No live location yet'}</p>
                   </div>
                 </div>
 
@@ -400,9 +437,30 @@ export default function AdminOrders() {
                 </label>
 
                 <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-gray-700">Delivery Mode</span>
+                  <select
+                    value={form.deliveryMode}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        deliveryMode: event.target.value,
+                        riderId: event.target.value === 'logistics' ? '' : current.riderId,
+                        courierName: event.target.value === 'logistics' ? '' : current.courierName,
+                        driverPhone: event.target.value === 'logistics' ? '' : current.driverPhone,
+                      }))
+                    }
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
+                  >
+                    <option value="rider">Rider delivery</option>
+                    <option value="logistics">Logistics only</option>
+                  </select>
+                </label>
+
+                <label className="block">
                   <span className="mb-1 block text-sm font-medium text-gray-700">Assigned Rider</span>
                   <select
                     value={form.riderId}
+                    disabled={form.deliveryMode === 'logistics'}
                     onChange={(event) => {
                       const nextRiderId = event.target.value;
                       const nextRider = riders.find((rider) => String(rider.id) === nextRiderId);
@@ -413,7 +471,7 @@ export default function AdminOrders() {
                         driverPhone: nextRider?.phone || '',
                       }));
                     }}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43] disabled:cursor-not-allowed disabled:bg-gray-100"
                   >
                     <option value="">No rider assigned</option>
                     {riders.map((rider) => (
@@ -430,7 +488,7 @@ export default function AdminOrders() {
                     type="text"
                     value={form.courierName}
                     readOnly
-                    placeholder="Juan Rider"
+                    placeholder={form.deliveryMode === 'logistics' ? 'Not used for logistics orders' : 'Juan Rider'}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-700 outline-none"
                   />
                 </label>
@@ -441,7 +499,7 @@ export default function AdminOrders() {
                     type="text"
                     value={form.driverPhone}
                     readOnly
-                    placeholder="09XXXXXXXXX"
+                    placeholder={form.deliveryMode === 'logistics' ? 'Not used for logistics orders' : '09XXXXXXXXX'}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-700 outline-none"
                   />
                 </label>
@@ -455,6 +513,18 @@ export default function AdminOrders() {
                     placeholder="LBC123456789PH"
                     className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
                   />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-gray-700">Courier Code</span>
+                  <input
+                    type="text"
+                    value={form.trackingCourierCode}
+                    onChange={(event) => setForm((current) => ({ ...current, trackingCourierCode: event.target.value }))}
+                    placeholder="fedex"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Optional. Leave this blank if you want Track123 to try carrier auto-detection.</p>
                 </label>
 
                 <label className="block">
@@ -482,16 +552,28 @@ export default function AdminOrders() {
                     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(selectedOrder.paymentStatus)}`}>{selectedOrder.paymentStatus}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
+                    <span>Delivery mode</span>
+                    <span>{selectedOrder.deliveryMode === 'logistics' ? 'Logistics only' : 'Rider delivery'}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
                     <span>Tracking status</span>
                     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(selectedOrder.trackingStatus)}`}>{selectedOrder.trackingStatus}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
+                    <span>Courier code</span>
+                    <span>{selectedOrder.trackingCourierCode || 'Auto detect'}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span>Track123 sync</span>
+                    <span>{formatDateTime(selectedOrder.track123LastSyncedAt)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
                     <span>Rider accepted</span>
-                    <span>{selectedOrder.driverAcceptedAt ? formatDateTime(selectedOrder.driverAcceptedAt) : 'Waiting for rider'}</span>
+                    <span>{selectedOrder.deliveryMode === 'logistics' ? 'Not applicable' : selectedOrder.driverAcceptedAt ? formatDateTime(selectedOrder.driverAcceptedAt) : 'Waiting for rider'}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
                     <span>Live GPS update</span>
-                    <span>{formatDateTime(selectedOrder.driverLocationUpdatedAt)}</span>
+                    <span>{selectedOrder.deliveryMode === 'logistics' ? 'Not applicable' : formatDateTime(selectedOrder.driverLocationUpdatedAt)}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
                     <span>Last updated</span>
@@ -499,7 +581,16 @@ export default function AdminOrders() {
                   </div>
                 </div>
 
-                {selectedOrder.driverAccessToken ? (
+                <button
+                  type="button"
+                  disabled={syncingTrack123 || saving || !form.trackingCode.trim()}
+                  onClick={handleTrack123Sync}
+                  className="w-full rounded-xl border border-[#1f5a43] px-4 py-3 text-sm font-medium text-[#1f5a43] transition hover:bg-[#1f5a43] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {syncingTrack123 ? 'Syncing Track123...' : 'Sync Tracking With Track123'}
+                </button>
+
+                {selectedOrder.deliveryMode !== 'logistics' && selectedOrder.driverAccessToken ? (
                   <div className="rounded-2xl border border-dashed border-[#1f5a43]/25 bg-white px-4 py-3 text-sm text-gray-600">
                     <p className="font-medium text-gray-900">Private Driver Link</p>
                     <p className="mt-2 break-all text-xs text-gray-500">{buildDriverPortalUrl(selectedOrder.driverAccessToken)}</p>
@@ -514,6 +605,10 @@ export default function AdminOrders() {
                     >
                       Copy Driver Link
                     </button>
+                  </div>
+                ) : selectedOrder.deliveryMode === 'logistics' ? (
+                  <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+                    Logistics orders do not create rider links or live GPS tracking.
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">

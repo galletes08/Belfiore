@@ -9,6 +9,7 @@ import ordersRoutes from './routes/orders.js';
 import { handlePayMongoWebhook } from './routes/paymongo.js';
 import productsRoutes from './routes/products.js';
 import ridersRoutes from './routes/riders.js';
+import track123Routes from './routes/track123.js';
 import { pool } from './config/db.js';
 
 const app = express();
@@ -40,6 +41,7 @@ app.use(dashboardRoutes);
 app.use(productsRoutes);
 app.use(ordersRoutes);
 app.use(ridersRoutes);
+app.use(track123Routes);
 
 app.use((err, _req, res, _next) => {
   res.status(500).json({ error: err.message || 'Internal server error' });

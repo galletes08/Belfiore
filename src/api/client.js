@@ -170,6 +170,16 @@ export async function apiUpdateOrder(id, payload) {
   return data;
 }
 
+export async function apiSyncOrderTrack123(id) {
+  const res = await fetch(`${API_URL}/api/admin/orders/${id}/track123/sync`, {
+    method: 'POST',
+    headers: getAuthHeader(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to sync Track123 tracking');
+  return data;
+}
+
 export async function apiCustomerOrders(ids) {
   const res = await fetch(`${API_URL}/api/orders/lookup`, {
     method: 'POST',
@@ -216,6 +226,13 @@ export async function apiPlaceOrder(payload) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to place order');
+  return data;
+}
+
+export async function apiLogisticsUpdates(id) {
+  const res = await fetch(`${API_URL}/api/orders/${id}/logistics-updates`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load logistics updates');
   return data;
 }
 

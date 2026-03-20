@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { CircleCheckBig, Clock3, MapPinned, Package, Truck, UserRound } from 'lucide-react';
-import { apiCustomerOrders, clearCustomerToken, getImageUrl } from '../../api/client';
+import { apiCustomerOrders, apiLogisticsUpdates, clearCustomerToken, getImageUrl } from '../../api/client';
 import TrackingMap from '../TrackingMap';
 import { getStoredOrderIds } from '../../utils/customerOrders';
 
@@ -32,6 +32,7 @@ function formatPhp(amount) {
 }
 
 function formatDate(value) {
+  if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
   return date.toLocaleString([], {
@@ -47,7 +48,14 @@ function badgeClass(value) {
   return trackingConfig[value] || 'bg-stone-100 text-stone-700';
 }
 
+function isLogisticsOrder(order) {
+  return order?.deliveryMode === 'logistics';
+}
+
 function buildDriverNote(order) {
+  if (isLogisticsOrder(order)) {
+    return 'This order is tracked through logistics status updates only.';
+  }
   if (!order.courierName) return 'Waiting for admin to assign a rider.';
   if (!order.driverAcceptedAt) return `${order.courierName} has been assigned and is waiting to accept the order.`;
   if (!order.driverLatitude || !order.driverLongitude) return `${order.courierName} accepted the order and has not shared a live location yet.`;
@@ -63,12 +71,13 @@ export default function Order() {
   const [orders, setOrders] = useState([]);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
+  const [logisticsUpdatesByOrder, setLogisticsUpdatesByOrder] = useState({});
 
   const orderIds = useMemo(() => getStoredOrderIds(), []);
   const totalOrders = orders.length;
   const activeOrdersCount = orders.filter((order) => !['Delivered', 'Cancelled'].includes(order.status)).length;
   const completedCount = orders.filter((order) => order.status === 'Delivered').length;
-  const liveTrackedOrders = orders.filter((order) => order.driverLatitude != null && order.driverLongitude != null).length;
+  const liveTrackedOrders = orders.filter((order) => !isLogisticsOrder(order) && order.driverLatitude != null && order.driverLongitude != null).length;
   const paymongoStatus = new URLSearchParams(location.search).get('paymongo');
 
   useEffect(() => {
@@ -102,6 +111,37 @@ export default function Order() {
       window.clearInterval(intervalId);
     };
   }, [orderIds]);
+
+  useEffect(() => {
+    const logisticsOrders = orders.filter((order) => isLogisticsOrder(order) && order.trackingCode);
+    if (!logisticsOrders.length) return undefined;
+
+    let isMounted = true;
+
+    async function loadLogisticsUpdates() {
+      const results = await Promise.all(
+        logisticsOrders.map(async (order) => {
+          try {
+            const data = await apiLogisticsUpdates(order.id);
+            return [order.id, { status: 'success', data }];
+          } catch (err) {
+            return [order.id, { status: 'error', error: err.message || 'Failed to load logistics updates.' }];
+          }
+        })
+      );
+
+      if (!isMounted) return;
+      setLogisticsUpdatesByOrder((current) => ({
+        ...current,
+        ...Object.fromEntries(results),
+      }));
+    }
+
+    loadLogisticsUpdates();
+    return () => {
+      isMounted = false;
+    };
+  }, [orders]);
 
   const handleLogout = () => {
     localStorage.removeItem('isLoggedIn');
@@ -174,7 +214,7 @@ export default function Order() {
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Order Center</p>
                 <h1 className="mt-2 text-2xl font-bold text-gray-900 md:text-3xl">Track your deliveries</h1>
                 <p className="mt-2 text-sm text-gray-600">
-                  Orders refresh every 15 seconds so you can see when your rider accepts and shares a live location.
+                  Orders refresh every 15 seconds so you can see rider updates or logistics tracking status changes.
                 </p>
               </div>
 
@@ -221,12 +261,14 @@ export default function Order() {
           {status === 'success'
             ? orders.map((order) => {
               const orderStatus = statusConfig[order.status] || statusConfig.Pending;
+              const logisticsOnly = isLogisticsOrder(order);
+              const logisticsData = logisticsUpdatesByOrder[order.id];
               const customerPosition =
-                  order.customerLatitude != null && order.customerLongitude != null
+                  !logisticsOnly && order.customerLatitude != null && order.customerLongitude != null
                     ? [order.customerLatitude, order.customerLongitude]
                     : null;
               const driverPosition =
-                  order.driverLatitude != null && order.driverLongitude != null
+                  !logisticsOnly && order.driverLatitude != null && order.driverLongitude != null
                     ? [order.driverLatitude, order.driverLongitude]
                     : null;
 
@@ -257,8 +299,8 @@ export default function Order() {
                       <div className="grid gap-4 rounded-2xl bg-gray-50/80 p-4 md:grid-cols-2">
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Rider</p>
-                          <p className="mt-2 text-sm font-semibold text-gray-900">{order.courierName || 'Waiting for assignment'}</p>
-                          <p className="mt-1 text-sm text-gray-600">{order.driverPhone || 'No rider contact yet'}</p>
+                          <p className="mt-2 text-sm font-semibold text-gray-900">{logisticsOnly ? 'Logistics provider' : order.courierName || 'Waiting for assignment'}</p>
+                          <p className="mt-1 text-sm text-gray-600">{logisticsOnly ? order.trackingCourierCode || 'External logistics tracking' : order.driverPhone || 'No rider contact yet'}</p>
                         </div>
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Latest Update</p>
@@ -304,10 +346,10 @@ export default function Order() {
                     <div className="rounded-2xl border border-gray-200 bg-[#f8faf8] p-4">
                       <div className="mb-4 flex items-center gap-2">
                         <MapPinned size={16} className="text-emerald-700" />
-                        <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">Live Tracking Map</h3>
+                        <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">{logisticsOnly ? 'Tracking Updates' : 'Live Tracking Map'}</h3>
                       </div>
 
-                      {customerPosition || driverPosition ? (
+                      {!logisticsOnly && (customerPosition || driverPosition) ? (
                         <TrackingMap
                           customerPosition={customerPosition}
                           driverPosition={driverPosition}
@@ -317,9 +359,11 @@ export default function Order() {
                       ) : (
                         <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed border-gray-300 bg-white text-center text-sm text-gray-500">
                           <div className="max-w-xs">
-                            <p className="font-semibold text-gray-700">Tracking map is not ready yet</p>
+                            <p className="font-semibold text-gray-700">{logisticsOnly ? 'Logistics tracking only' : 'Tracking map is not ready yet'}</p>
                             <p className="mt-2">
-                              Save a checkout GPS pin and wait for the rider to accept the order and share a location.
+                              {logisticsOnly
+                                ? 'This shipment uses logistics updates only, so no rider map or GPS is shown here.'
+                                : 'Save a checkout GPS pin and wait for the rider to accept the order and share a location.'}
                             </p>
                           </div>
                         </div>
@@ -329,16 +373,16 @@ export default function Order() {
                         <article className="rounded-xl border border-emerald-100 bg-white p-3">
                           <p className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
                             <Truck size={15} />
-                            Rider Status
+                            {logisticsOnly ? 'Delivery Mode' : 'Rider Status'}
                           </p>
-                          <p className="mt-2 text-sm text-gray-900">{order.driverAcceptedAt ? 'Accepted order' : 'Waiting for acceptance'}</p>
+                          <p className="mt-2 text-sm text-gray-900">{logisticsOnly ? 'Logistics only' : order.driverAcceptedAt ? 'Accepted order' : 'Waiting for acceptance'}</p>
                         </article>
                         <article className="rounded-xl border border-sky-100 bg-white p-3">
                           <p className="flex items-center gap-2 text-sm font-semibold text-sky-700">
                             <Clock3 size={15} />
-                            Location Update
+                            {logisticsOnly ? 'Last Sync' : 'Location Update'}
                           </p>
-                          <p className="mt-2 text-sm text-gray-900">{formatDate(order.driverLocationUpdatedAt)}</p>
+                          <p className="mt-2 text-sm text-gray-900">{formatDate(logisticsOnly ? order.track123LastSyncedAt : order.driverLocationUpdatedAt)}</p>
                         </article>
                         <article className="rounded-xl border border-emerald-100 bg-white p-3">
                           <p className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
@@ -348,6 +392,46 @@ export default function Order() {
                           <p className="mt-2 text-sm text-gray-900">{order.trackingCode || 'Not assigned yet'}</p>
                         </article>
                       </div>
+
+                      {logisticsOnly ? (
+                        <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">Logistics Updates</p>
+                              <p className="mt-1 text-sm text-gray-500">Latest carrier updates based on the tracking number.</p>
+                            </div>
+                          </div>
+
+                          {logisticsData?.status === 'error' ? (
+                            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                              {logisticsData.error}
+                            </div>
+                          ) : null}
+
+                          {logisticsData?.status === 'success' && Array.isArray(logisticsData.data?.updates) && logisticsData.data.updates.length > 0 ? (
+                            <div className="mt-4 space-y-3">
+                              {logisticsData.data.updates.slice(0, 8).map((update) => (
+                                <div key={update.id} className="rounded-xl bg-gray-50 px-4 py-3">
+                                  <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <p className="text-sm font-semibold text-gray-900">{update.status}</p>
+                                    <p className="text-xs text-gray-500">{formatDate(update.happenedAt)}</p>
+                                  </div>
+                                  <p className="mt-2 text-sm text-gray-700">{update.description}</p>
+                                  {update.location ? <p className="mt-1 text-xs text-gray-500">{update.location}</p> : null}
+                                </div>
+                              ))}
+                            </div>
+                          ) : logisticsData?.status === 'success' ? (
+                            <div className="mt-4 rounded-xl border border-dashed border-gray-300 px-4 py-3 text-sm text-gray-500">
+                              No logistics events were returned for this tracking number yet.
+                            </div>
+                          ) : (
+                            <div className="mt-4 rounded-xl border border-dashed border-gray-300 px-4 py-3 text-sm text-gray-500">
+                              Loading logistics updates...
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </article>

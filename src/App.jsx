@@ -146,6 +146,7 @@ function App() {
           }
         >
           <Route index element={<RiderHomePage />} />
+          <Route path="delivery/:token" element={<DriverOrderPage />} />
         </Route>
         <Route
           path="/admin"

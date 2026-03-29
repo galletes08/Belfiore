@@ -65,27 +65,27 @@ export default function RiderHomePage() {
   );
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <section className="rounded-[10px] bg-white p-6 shadow-sm">
+    <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
+      <section className="rounded-[10px] bg-white p-5 shadow-sm sm:p-6">
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#2d5a45]">Rider Dashboard</p>
-        <h1 className="mt-2 text-3xl font-bold text-gray-900">{riderUser?.name || 'Assigned Deliveries'}</h1>
+        <h1 className="mt-2 text-2xl font-bold text-gray-900 sm:text-3xl">{riderUser?.name || 'Assigned Deliveries'}</h1>
         <p className="mt-2 text-sm text-gray-500">
           Manage orders assigned to your rider account and open live delivery pages from here.
         </p>
       </section>
 
-      <section className="grid grid-cols-1 gap-6 md:grid-cols-3">
-        <article className="rounded-[10px] bg-white p-6 shadow-sm">
+      <section className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-3">
+        <article className="rounded-[10px] bg-white p-5 shadow-sm sm:p-6">
           <h2 className="text-[0.95rem] font-semibold text-gray-500">Assigned Orders</h2>
           <p className="mt-2 text-2xl font-bold text-gray-800">{orders.length}</p>
           <p className="mt-1 text-sm text-gray-500">All orders linked to your rider profile</p>
         </article>
-        <article className="rounded-[10px] bg-white p-6 shadow-sm">
+        <article className="rounded-[10px] bg-white p-5 shadow-sm sm:p-6">
           <h2 className="text-[0.95rem] font-semibold text-gray-500">Active Deliveries</h2>
           <p className="mt-2 text-2xl font-bold text-[#2d5a45]">{activeOrders.length}</p>
           <p className="mt-1 text-sm text-gray-500">Orders still in progress</p>
         </article>
-        <article className="rounded-[10px] bg-white p-6 shadow-sm">
+        <article className="rounded-[10px] bg-white p-5 shadow-sm sm:p-6">
           <h2 className="text-[0.95rem] font-semibold text-gray-500">Delivered</h2>
           <p className="mt-2 text-2xl font-bold text-gray-800">{deliveredOrders.length}</p>
           <p className="mt-1 text-sm text-gray-500">Completed deliveries</p>
@@ -111,8 +111,8 @@ export default function RiderHomePage() {
       ) : null}
 
       {status === 'success' && orders.length > 0 ? (
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.25fr_0.95fr]">
-          <div className="overflow-hidden rounded-[10px] bg-white shadow-sm">
+        <section className="grid grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-[1.25fr_0.95fr]">
+          <div className="hidden overflow-hidden rounded-[10px] bg-white shadow-sm lg:block">
             <div className="border-b border-gray-100 px-6 py-4">
               <h2 className="text-[1.1rem] font-bold text-gray-800">Assigned Orders</h2>
             </div>
@@ -152,49 +152,75 @@ export default function RiderHomePage() {
           </div>
 
           <div className="space-y-4">
+            <div className="rounded-[10px] bg-white p-4 shadow-sm lg:hidden">
+              <h2 className="text-base font-bold text-gray-800">Assigned Orders</h2>
+              <div className="mt-4 space-y-3">
+                {orders.map((order) => (
+                  <div key={`summary-${order.id}`} className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{order.orderCode}</p>
+                        <p className="mt-1 truncate text-sm text-gray-600">{order.customerName}</p>
+                        <p className="mt-1 text-xs text-gray-500">{order.location || 'No delivery location yet'}</p>
+                      </div>
+                      <p className="text-sm font-semibold text-gray-800">{formatPhp(order.totalAmount)}</p>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className="inline-block rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-800">
+                        {order.status}
+                      </span>
+                      <span className="inline-block rounded-full bg-sky-100 px-2.5 py-1 text-xs font-medium text-sky-800">
+                        {order.trackingStatus}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {orders.map((order) => (
-              <article key={`detail-${order.id}`} className="rounded-[10px] bg-white p-5 shadow-sm">
+              <article key={`detail-${order.id}`} className="flex flex-col rounded-[10px] bg-white p-4 shadow-sm sm:p-5">
                 <div className="flex items-start justify-between gap-4">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">{order.orderCode}</p>
                     <h3 className="mt-2 text-lg font-semibold text-gray-900">{order.customerName}</h3>
-                    <p className="mt-1 text-sm text-gray-500">{order.location || 'No delivery location yet'}</p>
+                    <p className="mt-1 break-words text-sm text-gray-500">{order.location || 'No delivery location yet'}</p>
                   </div>
-                  <span className="rounded-full bg-[#eaf3ef] px-3 py-1 text-xs font-semibold text-[#2d5a45]">
+                  <span className="whitespace-nowrap rounded-full bg-[#eaf3ef] px-3 py-1 text-xs font-semibold text-[#2d5a45]">
                     {order.itemCount} item{order.itemCount === 1 ? '' : 's'}
                   </span>
                 </div>
 
                 <div className="mt-4 space-y-3">
                   {order.items.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-3">
-                      <div className="flex items-center gap-3">
+                    <div key={item.id} className="flex flex-col gap-3 rounded-lg bg-gray-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-center gap-3">
                         <div className="h-11 w-11 overflow-hidden rounded-md bg-[#eef2ea]">
                           {getImageUrl(item.imageUrl) ? (
                             <img src={getImageUrl(item.imageUrl)} alt={item.productName} className="h-full w-full object-cover" />
                           ) : null}
                         </div>
-                        <div>
-                          <p className="text-sm font-semibold text-gray-800">{item.productName}</p>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-gray-800">{item.productName}</p>
                           <p className="text-xs text-gray-500">Qty {item.qty}</p>
                         </div>
                       </div>
-                      <p className="text-sm font-semibold text-gray-800">{formatPhp(item.lineTotal)}</p>
+                      <p className="text-sm font-semibold text-gray-800 sm:text-right">{formatPhp(item.lineTotal)}</p>
                     </div>
                   ))}
                 </div>
 
-                <div className="mt-4 rounded-lg border border-gray-200 bg-[#f8faf8] p-4">
+                <div className="mt-4 rounded-lg border border-gray-200 bg-[#f8faf8] p-4 sm:mt-auto">
                   <div className="space-y-2 text-sm text-gray-700">
-                    <p className="flex items-center gap-2"><Truck size={15} className="text-[#2d5a45]" /> Assigned: {formatDate(order.driverAssignedAt)}</p>
-                    <p className="flex items-center gap-2"><MapPinned size={15} className="text-[#2d5a45]" /> Accepted: {formatDate(order.driverAcceptedAt)}</p>
-                    <p className="flex items-center gap-2"><Package size={15} className="text-[#2d5a45]" /> Total: {formatPhp(order.totalAmount)}</p>
+                    <p className="flex items-start gap-2"><Truck size={15} className="mt-0.5 shrink-0 text-[#2d5a45]" /> <span>Assigned: {formatDate(order.driverAssignedAt)}</span></p>
+                    <p className="flex items-start gap-2"><MapPinned size={15} className="mt-0.5 shrink-0 text-[#2d5a45]" /> <span>Accepted: {formatDate(order.driverAcceptedAt)}</span></p>
+                    <p className="flex items-start gap-2"><Package size={15} className="mt-0.5 shrink-0 text-[#2d5a45]" /> <span>Total: {formatPhp(order.totalAmount)}</span></p>
                   </div>
 
                   {order.driverAccessToken ? (
                     <Link
-                      to={`/driver/${order.driverAccessToken}`}
-                      className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#2d5a45] px-4 py-3 text-sm font-medium text-white transition hover:bg-[#1a3d2e]"
+                      to={`/rider/delivery/${order.driverAccessToken}`}
+                      className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#2d5a45] px-4 py-3 text-center text-sm font-medium text-white transition hover:bg-[#1a3d2e]"
                     >
                       Open Delivery Page
                       <ExternalLink size={16} />

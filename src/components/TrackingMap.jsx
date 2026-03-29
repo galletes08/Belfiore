@@ -12,22 +12,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-const customerIcon = new L.DivIcon({
-  className: 'tracking-map-marker-shell',
-  html: '<div class="tracking-map-marker tracking-map-marker-customer"><span></span></div>',
-  iconSize: [26, 26],
-  iconAnchor: [13, 13],
-  popupAnchor: [0, -14],
-});
-
-const driverIcon = new L.DivIcon({
-  className: 'tracking-map-marker-shell',
-  html: '<div class="tracking-map-marker tracking-map-marker-driver"><span></span></div>',
-  iconSize: [30, 30],
-  iconAnchor: [15, 15],
-  popupAnchor: [0, -16],
-});
-
 function FitBounds({ points }) {
   const map = useMap();
 
@@ -124,56 +108,50 @@ export default function TrackingMap({
           : 'Waiting for live pins';
 
   return (
-    <div className={`relative overflow-hidden rounded-3xl border border-[#dbe4d7] bg-[#eff5ec] ${className}`}>
-      <div className="pointer-events-none absolute left-4 top-4 z-[500] rounded-2xl bg-white/92 px-4 py-3 shadow-lg shadow-[#173d2b]/10 backdrop-blur">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#5f7463]">Delivery route</p>
-        <p className="mt-1 text-sm font-semibold text-[#173d2b]">{statusLabel}</p>
+    <div className={`overflow-hidden rounded-2xl border border-gray-200 bg-white ${className}`}>
+      <div className="border-b border-gray-100 px-4 py-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">Delivery Map</p>
+        <p className="mt-1 text-sm font-medium text-gray-800">{statusLabel}</p>
         {routeMeta.distanceKm != null || routeMeta.durationMin != null ? (
-          <p className="mt-1 text-xs text-[#5f7463]">
+          <p className="mt-1 text-xs text-gray-500">
             {routeMeta.distanceKm != null ? `${routeMeta.distanceKm.toFixed(1)} km` : 'Distance n/a'}
-            {' · '}
+            {' | '}
             {routeMeta.durationMin != null ? `${Math.max(1, Math.round(routeMeta.durationMin))} min est.` : 'ETA n/a'}
           </p>
         ) : null}
       </div>
 
-      <div className="pointer-events-none absolute bottom-4 left-4 z-[500] flex gap-2">
-        <span className="rounded-full bg-white/92 px-3 py-1.5 text-xs font-medium text-[#173d2b] shadow-md">Customer</span>
-        <span className="rounded-full bg-[#173d2b]/92 px-3 py-1.5 text-xs font-medium text-white shadow-md">Rider</span>
-      </div>
-
       <MapContainer center={center} zoom={14} scrollWheelZoom className="h-[360px] w-full">
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <FitBounds points={validPoints} />
 
         {customerPosition ? (
-          <Marker position={customerPosition} icon={customerIcon}>
+          <Marker position={customerPosition}>
             <Popup>{customerLabel}</Popup>
           </Marker>
         ) : null}
 
         {driverPosition ? (
-          <Marker position={driverPosition} icon={driverIcon}>
+          <Marker position={driverPosition}>
             <Popup>{driverLabel}</Popup>
           </Marker>
         ) : null}
 
         {displayedLine.length > 1 ? (
-          <>
-            <Polyline
-              positions={displayedLine}
-              pathOptions={{ color: '#d3efe3', weight: 10, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }}
-            />
-            <Polyline
-              positions={displayedLine}
-              pathOptions={{ color: '#0f8f63', weight: 5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }}
-            />
-          </>
+          <Polyline
+            positions={displayedLine}
+            pathOptions={{ color: '#2563eb', weight: 4, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }}
+          />
         ) : null}
       </MapContainer>
+
+      <div className="flex flex-wrap gap-2 border-t border-gray-100 px-4 py-3 text-xs text-gray-600">
+        <span className="rounded-full bg-gray-100 px-3 py-1">Customer pin</span>
+        <span className="rounded-full bg-gray-100 px-3 py-1">Rider pin</span>
+      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { MapPinned, Navigation, RefreshCw, ShieldCheck, Truck } from 'lucide-react';
 import { apiDriverOrder, apiUpdateDriverOrder } from '../api/client';
 import TrackingMap from '../components/TrackingMap';
@@ -69,6 +69,7 @@ function getDriverCoordinates() {
 
 export default function DriverOrderPage() {
   const { token = '' } = useParams();
+  const location = useLocation();
   const [order, setOrder] = useState(null);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
@@ -190,6 +191,9 @@ export default function DriverOrderPage() {
     order?.driverLatitude != null && order?.driverLongitude != null
       ? [order.driverLatitude, order.driverLongitude]
       : null;
+  const isInsideRiderPortal = location.pathname.startsWith('/rider/');
+  const backLink = isInsideRiderPortal ? '/rider' : '/';
+  const backLabel = isInsideRiderPortal ? 'Back to Rider Dashboard' : 'Back to Store';
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#edf8f2_0%,#f8fafc_50%,#eef3f1_100%)] px-4 py-8 sm:px-6">
@@ -203,8 +207,8 @@ export default function DriverOrderPage() {
                 Accept the assigned order, share your live GPS location, and keep the customer updated on the map.
               </p>
             </div>
-            <Link to="/" className="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
-              Back to Store
+            <Link to={backLink} className="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
+              {backLabel}
             </Link>
           </div>
         </section>

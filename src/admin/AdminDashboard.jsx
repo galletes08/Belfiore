@@ -61,7 +61,7 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-[10px] p-6 shadow-sm">
           <h3 className="m-0 mb-2 text-[0.95rem] font-semibold text-gray-500">Total Sales</h3>
           <p className="m-0 text-2xl font-bold text-[#2d5a45]">
-            ${totals.monthlySales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            ₱{totals.monthlySales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <p className="mt-1 text-sm text-gray-500">This Month</p>
         </div>
@@ -93,10 +93,10 @@ export default function AdminDashboard() {
           </div>
           <div className="flex flex-col gap-2">
             <div className="flex justify-end gap-4 text-xs text-gray-500 h-4">
-              <span>$0</span>
-              <span>$1k</span>
-              <span>$2k</span>
-              <span>$4k</span>
+              <span>₱0</span>
+              <span>₱1k</span>
+              <span>₱2k</span>
+              <span>₱4k</span>
             </div>
             <div className="h-[140px] w-full">
               <svg viewBox="0 0 400 120" className="w-full h-full" preserveAspectRatio="none">
@@ -189,7 +189,7 @@ export default function AdminDashboard() {
                     {order.status}
                   </span>
                 </td>
-                <td className="py-3 px-4">${Number(order.total || 0).toFixed(2)}</td>
+                <td className="py-3 px-4">₱{Number(order.total || 0).toFixed(2)}</td>
               </tr>
             ))}
           </tbody>

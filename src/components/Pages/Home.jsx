@@ -32,13 +32,19 @@ const collectionCards = [
   { key: "white", label: "White Tags", image: awardImage, accent: "text-gray-700", bg: "bg-gray-100" },
   { key: "green", label: "Green Tags", image: plantsImage, accent: "text-emerald-700", bg: "bg-emerald-100" },
   { key: "red", label: "Red Tags", image: blogImage, accent: "text-rose-700", bg: "bg-rose-100" },
-  { key: "others", label: "Others", image: plantsImage, accent: "text-amber-700", bg: "bg-amber-100" }
+  { key: "aquaponics", label: "Aquaponics", image: plantsImage, accent: "text-amber-700", bg: "bg-amber-100" }
 ];
 
 const featuredProducts = productsData.filter((item) => item.tag === "red").slice(0, 4);
 const featuredImages = [plantsImage, awardImage, blogImage, plantsImage];
 
-const getTagCount = (tag) => productsData.filter((item) => item.tag === tag).length;
+const normalizeTag = (tag) => {
+  const normalizedTag = String(tag || "").trim().toLowerCase();
+  if (normalizedTag === "others") return "aquaponics";
+  return normalizedTag;
+};
+
+const getTagCount = (tag) => productsData.filter((item) => normalizeTag(item.tag) === tag).length;
 
 export default function Home() {
   return (
@@ -56,7 +62,7 @@ export default function Home() {
             Build your collection with healthy succulents, careful delivery, and reliable support from our team.
           </p>
 
-          <div className="mt-7 flex flex-wrap items-center gap-3">
+          <div className="mt-9 flex flex-wrap items-center gap-3">
             <Link
               to="/products"
               className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"

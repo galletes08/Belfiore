@@ -11,7 +11,7 @@ const tagTabs = [
   { key: "white", label: "White Tags" },
   { key: "green", label: "Green Tags" },
   { key: "red", label: "Red Tags" },
-  { key: "others", label: "Others" }
+  { key: "aquaponics", label: "Aquaponics" }
 ];
 
 const sortOptions = [
@@ -27,7 +27,7 @@ const badgeStyles = {
   white: "bg-gray-100 text-gray-700 ring-gray-200",
   green: "bg-emerald-100 text-emerald-700 ring-emerald-200",
   red: "bg-rose-100 text-rose-700 ring-rose-200",
-  others: "bg-amber-100 text-amber-700 ring-amber-200"
+  aquaponics: "bg-amber-100 text-amber-700 ring-amber-200"
 };
 
 const cardImages = [plantsImage, awardImage, blogImage, plantsImage];
@@ -44,11 +44,25 @@ const getPriceNumber = (value) => {
   return Number(String(value).replace(/[^\d.]/g, ""));
 };
 
+const AQUAPONICS_TAG = "aquaponics";
+
 const normalizeTag = (tag, category) => {
   const normalizedTag = String(tag || "").trim().toLowerCase();
-  if (["white", "green", "red", "others"].includes(normalizedTag)) return normalizedTag;
-  if (String(category || "").trim().toLowerCase() === "aquaponics") return "others";
-  return "others";
+  const normalizedCategory = String(category || "").trim().toLowerCase();
+
+  if (["white", "green", "red"].includes(normalizedTag)) return normalizedTag;
+  if ([AQUAPONICS_TAG, "others"].includes(normalizedTag)) return AQUAPONICS_TAG;
+  if (normalizedCategory === AQUAPONICS_TAG) return AQUAPONICS_TAG;
+  return AQUAPONICS_TAG;
+};
+
+const getDisplayTag = (tag, category) => {
+  const normalizedTag = String(tag || "").trim().toLowerCase();
+  const normalizedCategory = String(category || "").trim().toLowerCase();
+
+  if (normalizedTag === "others") return "Aquaponics";
+  if (!normalizedTag && normalizedCategory === AQUAPONICS_TAG) return "Aquaponics";
+  return tag || category || "Plant";
 };
 
 export default function Products({ onAddToCart }) {
@@ -226,7 +240,7 @@ export default function Products({ onAddToCart }) {
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
                     <span className={`absolute left-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${badgeStyles[product.tagKey]}`}>
-                      {(product.tag || product.category || "Plant").toUpperCase()}
+                      {getDisplayTag(product.tag, product.category).toUpperCase()}
                     </span>
                   </div>
 

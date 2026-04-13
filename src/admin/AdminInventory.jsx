@@ -8,10 +8,10 @@ import {
 } from '../api/client';
 
 const CATEGORY_OPTIONS = ['Aquaponics', 'Aloe Hybrids'];
-const AQUAPONICS_NAME_OPTIONS = ['Lollo Bionda', 'Butterhead', 'Romaine'];
 const TAG_OPTIONS = ['White', 'Green', 'Red', 'Clumps', 'Bundles'];
 const ALOE_CATEGORY = 'Aloe Hybrids';
 const AQUAPONICS_CATEGORY = 'Aquaponics';
+const AQUAPONICS_TAG = 'aquaponics';
 
 const initialForm = {
   category: ALOE_CATEGORY,
@@ -67,7 +67,7 @@ export default function AdminInventory() {
     setForm({
       category,
       name: product.name || '',
-      tag: product.tag || 'Green',
+      tag: category === AQUAPONICS_CATEGORY ? AQUAPONICS_TAG : product.tag || 'Green',
       price: product.price != null ? String(product.price) : '',
       stock: product.stock != null ? String(product.stock) : '1',
       description: product.description || '',
@@ -96,14 +96,13 @@ export default function AdminInventory() {
           return {
             ...prev,
             category: value,
-            name: AQUAPONICS_NAME_OPTIONS.includes(prev.name) ? prev.name : '',
-            tag: '',
+            tag: AQUAPONICS_TAG,
           };
         }
         return {
           ...prev,
           category: value,
-          tag: prev.tag || 'Green',
+          tag: TAG_OPTIONS.includes(prev.tag) ? prev.tag : 'Green',
         };
       }
       return { ...prev, [field]: value };
@@ -118,8 +117,8 @@ export default function AdminInventory() {
 
     try {
       const category = form.category;
-      const name = form.name.trim();
-      const tag = category === AQUAPONICS_CATEGORY ? '' : form.tag;
+      const tag = category === AQUAPONICS_CATEGORY ? AQUAPONICS_TAG : form.tag;
+      const name = (category === ALOE_CATEGORY && !editingId ? tag : form.name).trim();
       const price = parseFloat(form.price);
       const stock = parseInt(form.stock, 10);
       const description = form.description.trim();
@@ -130,7 +129,7 @@ export default function AdminInventory() {
         return;
       }
       if (!name) {
-        setError('Product name is required');
+        setError(category === ALOE_CATEGORY ? 'Tag / Type is required' : 'Product name is required');
         setSaving(false);
         return;
       }
@@ -177,6 +176,14 @@ export default function AdminInventory() {
     } catch (err) {
       setError(err.message || 'Failed to delete');
     }
+  };
+
+  const getDisplayTag = (tag, category) => {
+    const normalizedTag = String(tag || '').trim().toLowerCase();
+    const normalizedCategory = String(category || '').trim().toLowerCase();
+    if (normalizedTag === 'others') return AQUAPONICS_TAG;
+    if (!normalizedTag && normalizedCategory === AQUAPONICS_CATEGORY.toLowerCase()) return AQUAPONICS_TAG;
+    return tag || '-';
   };
 
   return (
@@ -241,10 +248,10 @@ export default function AdminInventory() {
                     <td className="py-3 px-5 font-medium text-gray-900">{p.name}</td>
                     <td className="py-3 px-5">
                       <span className="inline-flex px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700">
-                        {p.tag || '-'}
+                        {getDisplayTag(p.tag, p.category)}
                       </span>
                     </td>
-                    <td className="py-3 px-5 text-gray-700">${Number(p.price).toFixed(2)}</td>
+                    <td className="py-3 px-5 text-gray-700">₱{Number(p.price).toFixed(2)}</td>
                     <td className="py-3 px-5">
                       <span
                         className={
@@ -320,35 +327,21 @@ export default function AdminInventory() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Product Name
-                </label>
-                {form.category === AQUAPONICS_CATEGORY ? (
-                  <select
-                    value={form.name}
-                    onChange={(e) => handleChange('name', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2d5a45]/30 focus:border-[#2d5a45]"
-                    required
-                  >
-                    <option value="">Select aquaponics type</option>
-                    {AQUAPONICS_NAME_OPTIONS.map((nameOption) => (
-                      <option key={nameOption} value={nameOption}>
-                        {nameOption}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
+              {form.category === AQUAPONICS_CATEGORY && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Product Name
+                  </label>
                   <input
                     type="text"
                     value={form.name}
                     onChange={(e) => handleChange('name', e.target.value)}
-                    placeholder="e.g. White Echeveria A"
+                    placeholder="e.g. Lollo Bionda Lettuce"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2d5a45]/30 focus:border-[#2d5a45]"
                     required
                   />
-                )}
-              </div>
+                </div>
+              )}
 
               {form.category !== AQUAPONICS_CATEGORY && (
                 <div>

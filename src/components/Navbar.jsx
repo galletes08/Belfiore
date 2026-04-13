@@ -53,10 +53,13 @@ export default function Navbar({
 
   return (
     <header className="sticky top-0 z-50 border-b border-emerald-100/70 bg-white/95 backdrop-blur">
-      <div className="bg-[linear-gradient(90deg,#0f766e_0%,#047857_50%,#065f46_100%)] px-4 py-2 text-center md:py-2.5">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-50 md:text-sm">
-          Free shipping on orders over Php2,000
-        </p>
+      <div className="overflow-hidden bg-[linear-gradient(90deg,#0f766e_0%,#047857_50%,#065f46_100%)] px-4 py-2 md:py-2.5">
+        <div className="announcement-loop" aria-label="Free shipping notice">
+          <p className="announcement-loop-text">Free shipping on orders over Php2,000</p>
+          <p className="announcement-loop-text" aria-hidden="true">
+            Free shipping on orders over Php2,000
+          </p>
+        </div>
       </div>
 
       <nav className="mx-auto max-w-7xl px-4 py-4 md:px-6 md:py-5">

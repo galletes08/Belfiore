@@ -12,7 +12,6 @@ const STATUS_FILTERS = [
 
 const ORDER_STATUS_OPTIONS = ['Pending', 'Preparing', 'Out for Delivery', 'Delivered', 'Cancelled'];
 const TRACKING_STATUS_OPTIONS = ['Pending', 'Preparing', 'Packed', 'In Transit', 'Out for Delivery', 'Delivered', 'Cancelled'];
-const PAYMENT_STATUS_OPTIONS = ['Pending', 'Paid', 'Unpaid', 'Failed', 'Refunded'];
 
 const badgeStyles = {
   Pending: 'bg-amber-100 text-amber-800',
@@ -20,21 +19,14 @@ const badgeStyles = {
   'Out for Delivery': 'bg-violet-100 text-violet-800',
   Delivered: 'bg-emerald-100 text-emerald-800',
   Cancelled: 'bg-rose-100 text-rose-700',
-  Paid: 'bg-emerald-100 text-emerald-800',
-  Unpaid: 'bg-gray-100 text-gray-700',
-  Failed: 'bg-rose-100 text-rose-700',
-  Refunded: 'bg-orange-100 text-orange-800',
   Packed: 'bg-cyan-100 text-cyan-800',
   'In Transit': 'bg-indigo-100 text-indigo-800',
 };
 
 const emptyForm = {
   status: 'Pending',
-  paymentStatus: 'Unpaid',
   deliveryMode: 'rider',
   riderId: '',
-  courierName: '',
-  driverPhone: '',
   trackingCode: '',
   trackingCourierCode: '',
   trackingStatus: 'Pending',
@@ -136,11 +128,8 @@ export default function AdminOrders() {
     setSelectedOrder(order);
     setForm({
       status: order.status || 'Pending',
-      paymentStatus: order.paymentStatus || 'Unpaid',
       deliveryMode: order.deliveryMode || 'rider',
       riderId: order.riderId ? String(order.riderId) : '',
-      courierName: order.courierName || '',
-      driverPhone: order.driverPhone || '',
       trackingCode: order.trackingCode || '',
       trackingCourierCode: order.trackingCourierCode || '',
       trackingStatus: order.trackingStatus || 'Pending',
@@ -168,11 +157,8 @@ export default function AdminOrders() {
       setSelectedOrder(updatedOrder);
       setForm({
         status: updatedOrder.status,
-        paymentStatus: updatedOrder.paymentStatus,
         deliveryMode: updatedOrder.deliveryMode || 'rider',
         riderId: updatedOrder.riderId ? String(updatedOrder.riderId) : '',
-        courierName: updatedOrder.courierName || '',
-        driverPhone: updatedOrder.driverPhone || '',
         trackingCode: updatedOrder.trackingCode || '',
         trackingCourierCode: updatedOrder.trackingCourierCode || '',
         trackingStatus: updatedOrder.trackingStatus || 'Pending',
@@ -197,11 +183,8 @@ export default function AdminOrders() {
       setSelectedOrder(updatedOrder);
       setForm({
         status: updatedOrder.status,
-        paymentStatus: updatedOrder.paymentStatus,
         deliveryMode: updatedOrder.deliveryMode || 'rider',
         riderId: updatedOrder.riderId ? String(updatedOrder.riderId) : '',
-        courierName: updatedOrder.courierName || '',
-        driverPhone: updatedOrder.driverPhone || '',
         trackingCode: updatedOrder.trackingCode || '',
         trackingCourierCode: updatedOrder.trackingCourierCode || '',
         trackingStatus: updatedOrder.trackingStatus || 'Pending',
@@ -278,7 +261,6 @@ export default function AdminOrders() {
                   <th className="px-5 py-4 font-medium">Order ID</th>
                   <th className="px-5 py-4 font-medium">Customer</th>
                   <th className="px-5 py-4 font-medium">Order Status</th>
-                  <th className="px-5 py-4 font-medium">Payment</th>
                   <th className="px-5 py-4 font-medium">Courier</th>
                   <th className="px-5 py-4 font-medium">Driver Status</th>
                   <th className="px-5 py-4 font-medium">Tracking Code</th>
@@ -298,11 +280,6 @@ export default function AdminOrders() {
                     <td className="px-5 py-4">
                       <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(order.status)}`}>
                         {order.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(order.paymentStatus)}`}>
-                        {order.paymentStatus}
                       </span>
                     </td>
                     <td className="px-5 py-4 text-gray-700">{order.deliveryMode === 'logistics' ? 'Logistics only' : order.courierName || '-'}</td>
@@ -333,23 +310,34 @@ export default function AdminOrders() {
 
       {selectedOrder ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#06110d]/55 p-4 backdrop-blur-[1px]"
           onClick={(event) => {
             if (event.target === event.currentTarget) closeEditor();
           }}
         >
-          <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
-            <div className="border-b border-gray-100 px-6 py-5">
+          <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-emerald-100/80 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdfb_52%,#f5f9f7_100%)] shadow-[0_24px_80px_rgba(5,35,25,0.36)]">
+            <div className="border-b border-emerald-100/90 bg-[linear-gradient(120deg,#f6fffa_0%,#ecf8f1_48%,#e5f4ec_100%)] px-6 py-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm font-medium uppercase tracking-[0.2em] text-[#1f5a43]">Order Details</p>
-                  <h2 className="mt-1 text-2xl font-semibold text-gray-900">{selectedOrder.orderCode}</h2>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#1f5a43]">Order Details</p>
+                  <h2 className="mt-1 text-2xl font-semibold text-gray-900 md:text-3xl">{selectedOrder.orderCode}</h2>
                   <p className="mt-1 text-sm text-gray-500">Created {formatDateTime(selectedOrder.createdAt)}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(selectedOrder.status)}`}>
+                      {selectedOrder.status}
+                    </span>
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(selectedOrder.trackingStatus)}`}>
+                      {selectedOrder.trackingStatus}
+                    </span>
+                    <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-xs font-medium text-[#1f5a43] ring-1 ring-[#1f5a43]/15">
+                      {selectedOrder.deliveryMode === 'logistics' ? 'Logistics Only' : 'Rider Delivery'}
+                    </span>
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={closeEditor}
-                  className="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+                  className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-emerald-50"
                 >
                   Close
                 </button>
@@ -358,7 +346,7 @@ export default function AdminOrders() {
 
             <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.2fr_0.8fr]">
               <div className="space-y-6">
-                <div className="rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4">
+                <div className="rounded-2xl border border-emerald-100 bg-[linear-gradient(180deg,#f8fcfa_0%,#f2f8f4_100%)] px-5 py-4 shadow-sm">
                   <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">Customer</h3>
                   <div className="mt-3 grid gap-3 text-sm text-gray-700 md:grid-cols-2">
                     <p><span className="font-medium text-gray-900">Name:</span> {selectedOrder.customerName}</p>
@@ -371,7 +359,7 @@ export default function AdminOrders() {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-gray-200 bg-white px-5 py-4">
+                <div className="rounded-2xl border border-gray-200/80 bg-white px-5 py-4 shadow-sm">
                   <div className="flex items-center justify-between gap-4">
                     <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">Items</h3>
                     <span className="text-sm text-gray-500">{selectedOrder.itemCount} item{selectedOrder.itemCount === 1 ? '' : 's'}</span>
@@ -381,23 +369,23 @@ export default function AdminOrders() {
                       <div key={item.id} className="flex items-center justify-between rounded-2xl bg-gray-50 px-4 py-3">
                         <div>
                           <div className="font-medium text-gray-900">{item.productName}</div>
-                          <div className="mt-1 text-xs text-gray-500">Qty {item.qty} x ${item.unitPrice.toFixed(2)}</div>
+                          <div className="mt-1 text-xs text-gray-500">Qty {item.qty} x ₱{item.unitPrice.toFixed(2)}</div>
                         </div>
-                        <div className="text-sm font-semibold text-gray-900">${item.lineTotal.toFixed(2)}</div>
+                        <div className="text-sm font-semibold text-gray-900">₱{item.lineTotal.toFixed(2)}</div>
                       </div>
                     ))}
                   </div>
                   <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-4">
                     <span className="text-sm text-gray-500">Order Total</span>
-                    <span className="text-lg font-semibold text-gray-900">${selectedOrder.totalAmount.toFixed(2)}</span>
+                    <span className="text-lg font-semibold text-gray-900">₱{selectedOrder.totalAmount.toFixed(2)}</span>
                   </div>
                 </div>
               </div>
 
-              <form onSubmit={handleSave} className="space-y-4 rounded-2xl border border-gray-200 bg-[#f7faf8] px-5 py-4">
+              <form onSubmit={handleSave} className="space-y-4 rounded-2xl border border-emerald-100/80 bg-white/90 px-5 py-4 shadow-sm">
                 <div>
                   <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">Track Order</h3>
-                  <p className="mt-1 text-sm text-gray-500">Assign the rider, update the order, and share the private driver link.</p>
+                  <p className="mt-1 text-sm text-gray-500">Update delivery and tracking details in one place.</p>
                 </div>
 
                 {error ? (
@@ -422,21 +410,6 @@ export default function AdminOrders() {
                 </label>
 
                 <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-gray-700">Payment Status</span>
-                  <select
-                    value={form.paymentStatus}
-                    onChange={(event) => setForm((current) => ({ ...current, paymentStatus: event.target.value }))}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
-                  >
-                    {PAYMENT_STATUS_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="block">
                   <span className="mb-1 block text-sm font-medium text-gray-700">Delivery Mode</span>
                   <select
                     value={form.deliveryMode}
@@ -445,8 +418,6 @@ export default function AdminOrders() {
                         ...current,
                         deliveryMode: event.target.value,
                         riderId: event.target.value === 'logistics' ? '' : current.riderId,
-                        courierName: event.target.value === 'logistics' ? '' : current.courierName,
-                        driverPhone: event.target.value === 'logistics' ? '' : current.driverPhone,
                       }))
                     }
                     className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
@@ -463,12 +434,9 @@ export default function AdminOrders() {
                     disabled={form.deliveryMode === 'logistics'}
                     onChange={(event) => {
                       const nextRiderId = event.target.value;
-                      const nextRider = riders.find((rider) => String(rider.id) === nextRiderId);
                       setForm((current) => ({
                         ...current,
                         riderId: nextRiderId,
-                        courierName: nextRider?.fullName || '',
-                        driverPhone: nextRider?.phone || '',
                       }));
                     }}
                     className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43] disabled:cursor-not-allowed disabled:bg-gray-100"
@@ -480,28 +448,6 @@ export default function AdminOrders() {
                       </option>
                     ))}
                   </select>
-                </label>
-
-                <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-gray-700">Rider Name</span>
-                  <input
-                    type="text"
-                    value={form.courierName}
-                    readOnly
-                    placeholder={form.deliveryMode === 'logistics' ? 'Not used for logistics orders' : 'Juan Rider'}
-                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-700 outline-none"
-                  />
-                </label>
-
-                <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-gray-700">Rider Phone</span>
-                  <input
-                    type="text"
-                    value={form.driverPhone}
-                    readOnly
-                    placeholder={form.deliveryMode === 'logistics' ? 'Not used for logistics orders' : '09XXXXXXXXX'}
-                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-700 outline-none"
-                  />
                 </label>
 
                 <label className="block">
@@ -542,14 +488,10 @@ export default function AdminOrders() {
                   </select>
                 </label>
 
-                <div className="rounded-2xl bg-white px-4 py-3 text-sm text-gray-600">
+                <div className="rounded-2xl border border-emerald-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fcfa_100%)] px-4 py-3 text-sm text-gray-600">
                   <div className="flex items-center justify-between">
                     <span>Order status</span>
                     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(selectedOrder.status)}`}>{selectedOrder.status}</span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span>Payment status</span>
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(selectedOrder.paymentStatus)}`}>{selectedOrder.paymentStatus}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
                     <span>Delivery mode</span>
@@ -612,7 +554,7 @@ export default function AdminOrders() {
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
-                    Save the order with a rider name first to generate the private driver link.
+                    Save the order with an assigned rider first to generate the private driver link.
                   </div>
                 )}
 

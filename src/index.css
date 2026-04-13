@@ -1,2 +1,88 @@
 @import "leaflet/dist/leaflet.css";
 @import "tailwindcss";
+<<<<<<< HEAD
+=======
+
+.tracking-map-marker-shell {
+  background: transparent;
+  border: 0;
+}
+
+.tracking-map-marker {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  box-shadow: 0 10px 24px rgba(23, 61, 43, 0.22);
+}
+
+.tracking-map-marker::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, 0.88);
+}
+
+.tracking-map-marker span {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: #ffffff;
+}
+
+.tracking-map-marker-customer {
+  background: linear-gradient(135deg, #7bc9aa 0%, #2f8f69 100%);
+}
+
+.tracking-map-marker-driver {
+  background: linear-gradient(135deg, #173d2b 0%, #0f8f63 100%);
+}
+
+.tracking-map-driver-marker,
+.tracking-map-customer-marker {
+  filter: none;
+}
+
+.announcement-loop {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  white-space: nowrap;
+  will-change: transform;
+  animation: announcement-scroll 12s linear infinite;
+}
+
+.announcement-loop-text {
+  flex: 0 0 100%;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgb(236 253 245);
+}
+
+@media (min-width: 768px) {
+  .announcement-loop-text {
+    font-size: 0.875rem;
+  }
+}
+
+@keyframes announcement-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .announcement-loop {
+    animation: none;
+  }
+}
+>>>>>>> c946f4c (latest)

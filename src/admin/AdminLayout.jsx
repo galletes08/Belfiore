@@ -1,4 +1,13 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import {
+  BarChart3,
+  Bike,
+  LayoutDashboard,
+  PackageSearch,
+  Settings,
+  ShoppingCart,
+  Users,
+} from 'lucide-react';
 import { clearToken } from '../api/client';
 
 export default function AdminLayout() {
@@ -10,13 +19,13 @@ export default function AdminLayout() {
   };
 
   const navItems = [
-    { to: '/admin', end: true, label: 'Dashboard', icon: 'DB' },
-    { to: '/admin/orders', end: false, label: 'Orders', icon: 'OR' },
-    { to: '/admin/riders', end: false, label: 'Riders', icon: 'RD' },
-    { to: '/admin/inventory', end: false, label: 'Inventory', icon: 'IN' },
-    { to: '/admin/customers', end: false, label: 'Customers', icon: 'CU' },
-    { to: '/admin/reports', end: false, label: 'Reports', icon: 'RP' },
-    { to: '/admin/settings', end: false, label: 'Settings', icon: 'ST' },
+    { to: '/admin', end: true, label: 'Dashboard', icon: LayoutDashboard },
+    { to: '/admin/orders', end: false, label: 'Orders', icon: ShoppingCart },
+    { to: '/admin/riders', end: false, label: 'Riders', icon: Bike },
+    { to: '/admin/inventory', end: false, label: 'Inventory', icon: PackageSearch },
+    { to: '/admin/customers', end: false, label: 'Customers', icon: Users },
+    { to: '/admin/reports', end: false, label: 'Reports', icon: BarChart3 },
+    { to: '/admin/settings', end: false, label: 'Settings', icon: Settings },
   ];
 
   return (
@@ -27,7 +36,7 @@ export default function AdminLayout() {
           <span>PlantDelivery</span>
         </div>
         <nav className="flex-1 py-3">
-          {navItems.map(({ to, end, label, icon }) => (
+          {navItems.map(({ to, end, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -36,8 +45,8 @@ export default function AdminLayout() {
                 `flex items-center gap-3 px-6 py-3 text-white/85 no-underline transition-colors hover:bg-white/10 hover:text-white ${isActive ? 'bg-[#2d5a45] text-white' : ''}`
               }
             >
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-[11px] font-semibold">
-                {icon}
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/10">
+                <Icon size={15} strokeWidth={2.2} />
               </span>
               {label}
             </NavLink>

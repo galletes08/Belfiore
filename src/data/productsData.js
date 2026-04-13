@@ -22,11 +22,11 @@ export const productsData = [
   { id: 19, name: "Maroon Echeveria", price: "Php600", tag: "red", stock: 5, note: "Unique red-tag variety", image: "#" },
   { id: 20, name: "Crimson Jade", price: "Php700", tag: "red", stock: 4, note: "Unique red-tag variety", image: "#" },
 
-  { id: 21, name: "Lollo Bionda Lettuce", price: "Php320", tag: "others", stock: 140, note: "400 grams per pack", image: "#" },
-  { id: 22, name: "Butterhead Lettuce", price: "Php320", tag: "others", stock: 130, note: "400 grams per pack", image: "#" },
-  { id: 23, name: "Crystal Lettuce", price: "Php320", tag: "others", stock: 125, note: "400 grams per pack", image: "#" },
-  { id: 24, name: "Romaine Lettuce", price: "Php320", tag: "others", stock: 118, note: "400 grams per pack", image: "#" },
-  { id: 25, name: "Red Oak Leaf Lettuce", price: "Php320", tag: "others", stock: 110, note: "400 grams per pack", image: "#" },
-  { id: 26, name: "Jonction Lettuce", price: "Php320", tag: "others", stock: 104, note: "400 grams per pack", image: "#" },
-  { id: 27, name: "Ruby Sky Lettuce", price: "Php320", tag: "others", stock: 99, note: "400 grams per pack", image: "#" }
+  { id: 21, name: "Lollo Bionda Lettuce", price: "Php320", tag: "aquaponics", stock: 140, note: "400 grams per pack", image: "#" },
+  { id: 22, name: "Butterhead Lettuce", price: "Php320", tag: "aquaponics", stock: 130, note: "400 grams per pack", image: "#" },
+  { id: 23, name: "Crystal Lettuce", price: "Php320", tag: "aquaponics", stock: 125, note: "400 grams per pack", image: "#" },
+  { id: 24, name: "Romaine Lettuce", price: "Php320", tag: "aquaponics", stock: 118, note: "400 grams per pack", image: "#" },
+  { id: 25, name: "Red Oak Leaf Lettuce", price: "Php320", tag: "aquaponics", stock: 110, note: "400 grams per pack", image: "#" },
+  { id: 26, name: "Jonction Lettuce", price: "Php320", tag: "aquaponics", stock: 104, note: "400 grams per pack", image: "#" },
+  { id: 27, name: "Ruby Sky Lettuce", price: "Php320", tag: "aquaponics", stock: 99, note: "400 grams per pack", image: "#" }
 ];

@@ -10,7 +10,7 @@ const badgeStyles = {
   white: "bg-gray-100 text-gray-700 ring-gray-200",
   green: "bg-emerald-100 text-emerald-700 ring-emerald-200",
   red: "bg-rose-100 text-rose-700 ring-rose-200",
-  others: "bg-amber-100 text-amber-700 ring-amber-200"
+  aquaponics: "bg-amber-100 text-amber-700 ring-amber-200"
 };
 
 const productImages = [plantsImage, awardImage, blogImage];
@@ -27,11 +27,25 @@ const getPriceNumber = (value) => {
   return Number(String(value).replace(/[^\d.]/g, ""));
 };
 
+const AQUAPONICS_TAG = "aquaponics";
+
 const normalizeTag = (tag, category) => {
   const normalizedTag = String(tag || "").trim().toLowerCase();
-  if (["white", "green", "red", "others"].includes(normalizedTag)) return normalizedTag;
-  if (String(category || "").trim().toLowerCase() === "aquaponics") return "others";
-  return "others";
+  const normalizedCategory = String(category || "").trim().toLowerCase();
+
+  if (["white", "green", "red"].includes(normalizedTag)) return normalizedTag;
+  if ([AQUAPONICS_TAG, "others"].includes(normalizedTag)) return AQUAPONICS_TAG;
+  if (normalizedCategory === AQUAPONICS_TAG) return AQUAPONICS_TAG;
+  return AQUAPONICS_TAG;
+};
+
+const getDisplayTag = (tag, category) => {
+  const normalizedTag = String(tag || "").trim().toLowerCase();
+  const normalizedCategory = String(category || "").trim().toLowerCase();
+
+  if (normalizedTag === "others") return "Aquaponics";
+  if (!normalizedTag && normalizedCategory === AQUAPONICS_TAG) return "Aquaponics";
+  return tag || category || "Plant";
 };
 
 export default function ProductDetail({ onAddToCart }) {
@@ -136,7 +150,7 @@ export default function ProductDetail({ onAddToCart }) {
 
           <div className="flex flex-col">
             <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ring-1 ${badgeStyles[tagKey]}`}>
-              {(product.tag || product.category || "Plant").toUpperCase()}
+              {getDisplayTag(product.tag, product.category).toUpperCase()}
             </span>
 
             <h1 className="mt-3 text-3xl font-bold text-gray-900">{product.name}</h1>

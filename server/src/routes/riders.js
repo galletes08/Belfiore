@@ -1,9 +1,11 @@
 import { Router } from 'express';
+import bcrypt from 'bcryptjs';
 import { pool } from '../config/db.js';
 import { verifyRequestToken } from '../utils/auth.js';
 
 const router = Router();
 let ensureRidersTablePromise;
+let ensureUsersTablePromise;
 
 function formatRiderRow(row) {
   return {
@@ -18,6 +20,102 @@ function formatRiderRow(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+async function ensureUserForRider({ firstName, lastName, email, password }) {
+  if (!ensureUsersTablePromise) {
+    ensureUsersTablePromise = pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id BIGSERIAL PRIMARY KEY,
+        first_name TEXT,
+        last_name TEXT,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT,
+        password TEXT,
+        role TEXT NOT NULL DEFAULT 'customer',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).then(() =>
+      pool.query(`
+        ALTER TABLE users
+          ADD COLUMN IF NOT EXISTS first_name TEXT,
+          ADD COLUMN IF NOT EXISTS last_name TEXT,
+          ADD COLUMN IF NOT EXISTS email TEXT,
+          ADD COLUMN IF NOT EXISTS password_hash TEXT,
+          ADD COLUMN IF NOT EXISTS password TEXT,
+          ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'customer',
+          ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      `)
+    );
+  }
+
+  await ensureUsersTablePromise;
+
+  const riderEmail = normalizeEmail(email);
+  const riderPassword = String(password || '');
+  const riderFirstName = String(firstName || '').trim();
+  const riderLastName = String(lastName || '').trim();
+
+  if (!riderEmail) {
+    return null;
+  }
+
+  const existingUser = await pool.query(
+    `
+    SELECT id, role
+    FROM users
+    WHERE LOWER(email) = $1
+    LIMIT 1
+    `,
+    [riderEmail]
+  );
+
+  if (existingUser.rows.length) {
+    const user = existingUser.rows[0];
+    if (user.role !== 'rider') {
+      throw new Error('That email is already used by a non-rider account');
+    }
+
+    const updateValues = [user.id, riderFirstName, riderLastName];
+    const updateSql = [
+      'UPDATE users',
+      'SET first_name = $2,',
+      '    last_name = $3,',
+    ];
+
+    if (riderPassword) {
+      const passwordHash = await bcrypt.hash(riderPassword, 10);
+      updateValues.push(passwordHash);
+      updateSql.push(`    password_hash = $${updateValues.length},`);
+    }
+
+    updateSql.push('    updated_at = NOW()', 'WHERE id = $1');
+    await pool.query(updateSql.join('\n'), updateValues);
+
+    return Number(user.id);
+  }
+
+  if (!riderPassword) {
+    throw new Error('Password is required when creating a rider login');
+  }
+
+  const passwordHash = await bcrypt.hash(riderPassword, 10);
+  const insertedUser = await pool.query(
+    `
+    INSERT INTO users (first_name, last_name, email, password_hash, role, updated_at)
+    VALUES ($1, $2, $3, $4, 'rider', NOW())
+    RETURNING id
+    `,
+    [riderFirstName, riderLastName, riderEmail, passwordHash]
+  );
+
+  return Number(insertedUser.rows[0].id);
 }
 
 async function findLinkedRiderForUser(authUser) {
@@ -128,29 +226,21 @@ router.post('/api/admin/riders', async (req, res) => {
     const lastName = String(req.body?.lastName || '').trim();
     const email = String(req.body?.email || '').trim().toLowerCase();
     const phone = String(req.body?.phone || '').trim();
+    const password = String(req.body?.password || '').trim();
     const status = String(req.body?.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active';
     const isAvailable = req.body?.isAvailable == null ? true : Boolean(req.body.isAvailable);
 
     if (!firstName || !lastName || !phone) {
       return res.status(400).json({ error: 'First name, last name, and phone are required' });
     }
-
-    let linkedUserId = null;
-    if (email) {
-      const userResult = await pool.query(
-        `
-        SELECT id, role
-        FROM users
-        WHERE LOWER(email) = $1
-        LIMIT 1
-        `,
-        [email]
-      );
-
-      if (userResult.rows.length && userResult.rows[0].role === 'rider') {
-        linkedUserId = Number(userResult.rows[0].id);
-      }
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required for rider login' });
     }
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required for rider login' });
+    }
+
+    const linkedUserId = await ensureUserForRider({ firstName, lastName, email, password });
 
     const result = await pool.query(
       `
@@ -183,6 +273,7 @@ router.patch('/api/admin/riders/:id', async (req, res) => {
     const lastName = String(req.body?.lastName || '').trim();
     const email = String(req.body?.email || '').trim().toLowerCase();
     const phone = String(req.body?.phone || '').trim();
+    const password = String(req.body?.password || '').trim();
     const status = String(req.body?.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active';
     const isAvailable = Boolean(req.body?.isAvailable);
 
@@ -192,19 +283,7 @@ router.patch('/api/admin/riders/:id', async (req, res) => {
 
     let linkedUserId = null;
     if (email) {
-      const userResult = await pool.query(
-        `
-        SELECT id, role
-        FROM users
-        WHERE LOWER(email) = $1
-        LIMIT 1
-        `,
-        [email]
-      );
-
-      if (userResult.rows.length && userResult.rows[0].role === 'rider') {
-        linkedUserId = Number(userResult.rows[0].id);
-      }
+      linkedUserId = await ensureUserForRider({ firstName, lastName, email, password });
     }
 
     const result = await pool.query(

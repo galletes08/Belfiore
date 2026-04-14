@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { BrowserRouter as Router, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import AdminDashboard from "./admin/AdminDashboard";
+import AdminCustomers from "./admin/AdminCustomers";
 import AdminInventory from "./admin/AdminInventory";
 import AdminLayout from "./admin/AdminLayout";
 import AdminLogin from "./admin/AdminLogin";
 import AdminOrders from "./admin/AdminOrders";
-import AdminPlaceholder from "./admin/AdminPlaceholder";
+import AdminReports from "./admin/AdminReports";
 import AdminProtectedRoute from "./admin/AdminProtectedRoute";
 import AdminRiders from "./admin/AdminRiders";
 import Navbar from "./components/Navbar";
@@ -59,7 +60,8 @@ function App() {
           name: product.name,
           price: productPrice,
           qty: safeQuantity,
-          image: productImage
+          image: productImage,
+          imageUrl: product.imageUrl || null
         }
       ];
     });
@@ -160,9 +162,8 @@ function App() {
           <Route path="orders" element={<AdminOrders />} />
           <Route path="riders" element={<AdminRiders />} />
           <Route path="inventory" element={<AdminInventory />} />
-          <Route path="customers" element={<AdminPlaceholder title="Customers" />} />
-          <Route path="reports" element={<AdminPlaceholder title="Reports" />} />
-          <Route path="settings" element={<AdminPlaceholder title="Settings" />} />
+          <Route path="customers" element={<AdminCustomers />} />
+          <Route path="reports" element={<AdminReports />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

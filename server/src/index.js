@@ -1,9 +1,11 @@
+/* global process */
 import './config/env.js';
 import cors from 'cors';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import authRoutes from './routes/auth.js';
+import customersRoutes from './routes/customers.js';
 import dashboardRoutes from './routes/dashboard.js';
 import ordersRoutes from './routes/orders.js';
 import { handlePayMongoWebhook } from './routes/paymongo.js';
@@ -38,12 +40,14 @@ app.get('/api/db-check', async (_req, res) => {
 
 app.use(authRoutes);
 app.use(dashboardRoutes);
+app.use(customersRoutes);
 app.use(productsRoutes);
 app.use(ordersRoutes);
 app.use(ridersRoutes);
 app.use(track123Routes);
 
 app.use((err, _req, res, _next) => {
+  void _next;
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 

@@ -5,6 +5,7 @@ const emptyForm = {
   firstName: '',
   lastName: '',
   email: '',
+  password: '',
   phone: '',
   status: 'active',
   isAvailable: true,
@@ -80,6 +81,7 @@ export default function AdminRiders() {
       firstName: rider.firstName || '',
       lastName: rider.lastName || '',
       email: rider.email || '',
+      password: '',
       phone: rider.phone || '',
       status: rider.status || 'active',
       isAvailable: Boolean(rider.isAvailable),
@@ -97,6 +99,7 @@ export default function AdminRiders() {
         firstName: form.firstName,
         lastName: form.lastName,
         email: form.email,
+        password: form.password,
         phone: form.phone,
         status: form.status,
         isAvailable: form.isAvailable,
@@ -125,14 +128,6 @@ export default function AdminRiders() {
           <h1 className="text-3xl font-semibold text-gray-900">Riders</h1>
           <p className="mt-2 text-sm text-gray-500">Create rider records here, then assign them from the Orders page.</p>
         </div>
-
-        <button
-          type="button"
-          onClick={openCreateForm}
-          className="rounded-xl bg-[#1f5a43] px-4 py-3 text-sm font-medium text-white transition hover:bg-[#163f2f]"
-        >
-          Add Rider
-        </button>
       </div>
 
       {error && !saving ? (
@@ -207,8 +202,21 @@ export default function AdminRiders() {
         </div>
 
         <form onSubmit={handleSubmit} className="rounded-3xl border border-gray-200 bg-white px-5 py-5 shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-900">{selectedRider ? 'Edit Rider' : 'New Rider'}</h2>
-          <p className="mt-2 text-sm text-gray-500">Riders created here will appear as assignable options in Admin Orders.</p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">{selectedRider ? 'Edit Rider' : 'New Rider'}</h2>
+              <p className="mt-2 text-sm text-gray-500">Riders created here will appear as assignable options in Admin Orders.</p>
+            </div>
+            {selectedRider ? (
+              <button
+                type="button"
+                onClick={openCreateForm}
+                className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              >
+                Back
+              </button>
+            ) : null}
+          </div>
 
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <label className="block">
@@ -238,6 +246,22 @@ export default function AdminRiders() {
                 value={form.email}
                 onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
                 className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
+                required
+              />
+            </label>
+
+            <label className="block md:col-span-2">
+              <span className="mb-1 block text-sm font-medium text-gray-700">
+                Password {selectedRider ? '(leave blank to keep current password)' : ''}
+              </span>
+              <input
+                type="password"
+                value={form.password}
+                onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
+                placeholder={selectedRider ? 'Optional new password' : 'Create rider password'}
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
+                autoComplete="new-password"
+                required={!selectedRider}
               />
             </label>
 
@@ -274,15 +298,15 @@ export default function AdminRiders() {
             Rider is currently available for new orders
           </label>
 
-          <button
-            type="submit"
-            disabled={saving}
-            className="mt-5 w-full rounded-xl bg-[#1f5a43] px-4 py-3 text-sm font-medium text-white transition hover:bg-[#163f2f] disabled:cursor-not-allowed disabled:opacity-70"
-          >
+            <button
+              type="submit"
+              disabled={saving}
+              className="mt-5 w-full rounded-xl bg-[#1f5a43] px-4 py-3 text-sm font-medium text-white transition hover:bg-[#163f2f] disabled:cursor-not-allowed disabled:opacity-70"
+            >
             {saving ? 'Saving Rider...' : selectedRider ? 'Update Rider' : 'Create Rider'}
-          </button>
-        </form>
-      </div>
+            </button>
+          </form>
+        </div>
     </div>
   );
 }

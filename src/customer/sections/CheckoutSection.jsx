@@ -50,8 +50,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
   }, []);
 
   function resolveItemImage(item) {
-    if (item.image) return item.image;
-    return getImageUrl(item.imageUrl);
+    return item.image || getImageUrl(item.imageUrl);
   }
 
   function handleChange(event) {

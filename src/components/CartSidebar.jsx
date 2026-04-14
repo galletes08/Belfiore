@@ -24,6 +24,7 @@ export default function CartSidebar({
   const shippingFee = cartItems.length === 0 || subtotal >= 2000 ? 0 : 120;
   const total = subtotal + shippingFee;
   const amountToFreeShipping = Math.max(0, 2000 - subtotal);
+  const resolveItemImage = (item) => item.image || item.imageUrl || null;
 
   useEffect(() => {
     if (!portalTarget) {
@@ -114,7 +115,11 @@ export default function CartSidebar({
                 className="rounded-2xl border border-[#d8e4da] bg-white p-3.5 shadow-[0_16px_34px_rgba(15,23,42,0.06)]"
               >
                 <div className="flex gap-3">
-                  <img src={item.image} alt={item.name} className="h-16 w-16 rounded-2xl object-cover sm:h-20 sm:w-20" />
+                  {resolveItemImage(item) ? (
+                    <img src={resolveItemImage(item)} alt={item.name} className="h-16 w-16 rounded-2xl object-cover sm:h-20 sm:w-20" />
+                  ) : (
+                    <div className="h-16 w-16 rounded-2xl bg-[#eef2ea] sm:h-20 sm:w-20" />
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">

@@ -4,7 +4,6 @@ import {
   Bike,
   LayoutDashboard,
   PackageSearch,
-  Settings,
   ShoppingCart,
   Users,
 } from 'lucide-react';
@@ -25,7 +24,6 @@ export default function AdminLayout() {
     { to: '/admin/inventory', end: false, label: 'Inventory', icon: PackageSearch },
     { to: '/admin/customers', end: false, label: 'Customers', icon: Users },
     { to: '/admin/reports', end: false, label: 'Reports', icon: BarChart3 },
-    { to: '/admin/settings', end: false, label: 'Settings', icon: Settings },
   ];
 
   return (
@@ -36,21 +34,25 @@ export default function AdminLayout() {
           <span>PlantDelivery</span>
         </div>
         <nav className="flex-1 py-3">
-          {navItems.map(({ to, end, label, icon: Icon }) => (
+          {navItems.map((item) => {
+            const NavIcon = item.icon;
+
+            return (
             <NavLink
-              key={to}
-              to={to}
-              end={end}
+              key={item.to}
+              to={item.to}
+              end={item.end}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-6 py-3 text-white/85 no-underline transition-colors hover:bg-white/10 hover:text-white ${isActive ? 'bg-[#2d5a45] text-white' : ''}`
               }
             >
               <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/10">
-                <Icon size={15} strokeWidth={2.2} />
+                <NavIcon size={15} strokeWidth={2.2} />
               </span>
-              {label}
+              {item.label}
             </NavLink>
-          ))}
+            );
+          })}
         </nav>
         <button
           type="button"

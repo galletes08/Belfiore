@@ -25,11 +25,6 @@ function getAuthHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function getCustomerAuthHeader() {
-  const token = getCustomerToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 function getRiderAuthHeader() {
   const token = getRiderToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -125,6 +120,15 @@ export async function apiAdminRiders() {
   });
   const data = await res.json().catch(() => ([]));
   if (!res.ok) throw new Error(data.error || 'Failed to load riders');
+  return data;
+}
+
+export async function apiAdminCustomers() {
+  const res = await fetch(`${API_URL}/api/admin/customers`, {
+    headers: getAuthHeader(),
+  });
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error(data.error || 'Failed to load customers');
   return data;
 }
 
@@ -239,7 +243,9 @@ export async function apiLogisticsUpdates(id) {
 export function getImageUrl(imageUrl) {
   if (!imageUrl) return null;
   if (imageUrl.startsWith('http')) return imageUrl;
-  return `${API_URL}${imageUrl}`;
+  const normalizedBase = String(API_URL || '').replace(/\/$/, '');
+  const normalizedPath = imageUrl.startsWith('/') ? imageUrl : `/${imageUrl}`;
+  return `${normalizedBase}${normalizedPath}`;
 }
 
 export function setToken(token) {

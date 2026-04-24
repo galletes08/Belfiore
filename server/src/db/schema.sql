@@ -39,6 +39,7 @@ ALTER TABLE riders
   ADD COLUMN IF NOT EXISTS last_name TEXT,
   ADD COLUMN IF NOT EXISTS email TEXT,
   ADD COLUMN IF NOT EXISTS phone TEXT,
+  ADD COLUMN IF NOT EXISTS password_hash TEXT,
   ADD COLUMN IF NOT EXISTS user_id BIGINT UNIQUE REFERENCES users(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
   ADD COLUMN IF NOT EXISTS is_available BOOLEAN NOT NULL DEFAULT true,
@@ -46,6 +47,18 @@ ALTER TABLE riders
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_riders_email ON riders(LOWER(email)) WHERE email IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS categories (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS types (
+  id BIGSERIAL PRIMARY KEY,
+  category_id BIGINT NOT NULL REFERENCES categories(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  name TEXT NOT NULL,
+  UNIQUE (category_id, name)
+);
 
 CREATE TABLE IF NOT EXISTS products (
   id BIGSERIAL PRIMARY KEY,
@@ -56,6 +69,7 @@ CREATE TABLE IF NOT EXISTS products (
   price NUMERIC(10, 2) NOT NULL DEFAULT 0,
   description TEXT,
   image_url TEXT,
+  type_id BIGINT REFERENCES types(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -66,6 +80,7 @@ ALTER TABLE products
   ADD COLUMN IF NOT EXISTS stock INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS description TEXT,
   ADD COLUMN IF NOT EXISTS image_url TEXT,
+  ADD COLUMN IF NOT EXISTS type_id BIGINT REFERENCES types(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 UPDATE products
@@ -151,6 +166,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_driver_access_token
   ON orders(driver_access_token)
   WHERE driver_access_token IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS order_rider_assignments (
+  id BIGSERIAL PRIMARY KEY,
+  order_id BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  rider_id BIGINT NOT NULL REFERENCES riders(id) ON DELETE CASCADE,
+  assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  accepted_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'assigned'
+);
+
+CREATE TABLE IF NOT EXISTS rider_locations (
+  id BIGSERIAL PRIMARY KEY,
+  rider_id BIGINT NOT NULL REFERENCES riders(id) ON DELETE CASCADE,
+  order_id BIGINT REFERENCES orders(id) ON DELETE SET NULL,
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -191,4 +225,9 @@ CREATE TABLE IF NOT EXISTS order_items (
 
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_products_stock ON products(stock);
+CREATE INDEX IF NOT EXISTS idx_products_type_id ON products(type_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_rider_assignments_order_id ON order_rider_assignments(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_rider_assignments_rider_id ON order_rider_assignments(rider_id);
+CREATE INDEX IF NOT EXISTS idx_rider_locations_rider_id ON rider_locations(rider_id);
+CREATE INDEX IF NOT EXISTS idx_rider_locations_order_id ON rider_locations(order_id);

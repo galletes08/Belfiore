@@ -1,3 +1,5 @@
+import { getSupabaseConfig, isSupabaseConfigured } from "../lib/supabase";
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const STORAGE_KEYS = {
   adminToken: 'adminToken',
@@ -30,6 +32,46 @@ function getRiderAuthHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function normalizeProductRow(row) {
+  return {
+    id: row.id,
+    category: row.category || '',
+    name: row.name,
+    tag: row.tag || '',
+    price: Number(row.price || 0),
+    stock: Number(row.stock || 0),
+    description: row.description || '',
+    imageUrl: row.image_url || '',
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+async function fetchSupabaseProducts() {
+  if (!isSupabaseConfigured()) return null;
+
+  const { url, anonKey } = getSupabaseConfig();
+  const endpoint = new URL('/rest/v1/products', url);
+  endpoint.searchParams.set('select', 'id,category,name,tag,stock,price,description,image_url,created_at,updated_at');
+  endpoint.searchParams.set('order', 'id.desc');
+
+  const res = await fetch(endpoint.toString(), {
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) {
+    const message = Array.isArray(data) ? 'Failed to load products' : (data.message || data.error || 'Failed to load products');
+    throw new Error(message);
+  }
+
+  return Array.isArray(data) ? data.map(normalizeProductRow) : [];
+}
+
 export async function apiLogin(email, password) {
   const res = await fetch(`${API_URL}/api/auth/login`, {
     method: 'POST',
@@ -53,6 +95,15 @@ export async function apiRegister(payload) {
 }
 
 export async function apiProducts() {
+  try {
+    const supabaseProducts = await fetchSupabaseProducts();
+    if (supabaseProducts) {
+      return supabaseProducts;
+    }
+  } catch (error) {
+    console.warn('Supabase products lookup failed, falling back to API:', error);
+  }
+
   const res = await fetch(`${API_URL}/api/products`, {
     headers: getAuthHeader(),
   });

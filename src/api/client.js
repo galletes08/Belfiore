@@ -246,6 +246,32 @@ export async function apiCustomerOrders(ids) {
   return data;
 }
 
+export async function apiLocationCountries() {
+  const res = await fetch(`${API_URL}/api/location/countries`);
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error(data.error || 'Failed to load countries');
+  return data;
+}
+
+export async function apiLocationProvinces(countryCode) {
+  const res = await fetch(`${API_URL}/api/location/${encodeURIComponent(countryCode)}/provinces`);
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error(data.error || 'Failed to load provinces');
+  return data;
+}
+
+export async function apiLocationCities(countryCode, provinceCode = '') {
+  const endpoint = new URL(`${API_URL}/api/location/${encodeURIComponent(countryCode)}/cities`);
+  if (provinceCode) {
+    endpoint.searchParams.set('provinceCode', provinceCode);
+  }
+
+  const res = await fetch(endpoint.toString());
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error(data.error || 'Failed to load cities');
+  return data;
+}
+
 export async function apiDriverOrder(token) {
   const res = await fetch(`${API_URL}/api/driver/orders/${token}`);
   const data = await res.json().catch(() => ({}));
@@ -270,6 +296,27 @@ export async function apiRiderOrders() {
   });
   const data = await res.json().catch(() => ([]));
   if (!res.ok) throw new Error(data.error || 'Failed to load rider orders');
+  return data;
+}
+
+export async function apiRiderProfile() {
+  const res = await fetch(`${API_URL}/api/rider/profile`, {
+    headers: getRiderAuthHeader(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load rider profile');
+  return data;
+}
+
+export async function apiUpdateRiderProfile(payload) {
+  const isFormData = payload instanceof FormData;
+  const res = await fetch(`${API_URL}/api/rider/profile`, {
+    method: 'PATCH',
+    headers: isFormData ? getRiderAuthHeader() : { 'Content-Type': 'application/json', ...getRiderAuthHeader() },
+    body: isFormData ? payload : JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update rider profile');
   return data;
 }
 

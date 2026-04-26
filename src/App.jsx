@@ -28,6 +28,7 @@ import Order from "./components/Signup/Order";
 import DriverOrderPage from "./driver/DriverOrderPage";
 import RiderHomePage from "./rider/RiderHomePage";
 import RiderLayout from "./rider/RiderLayout";
+import RiderProfilePage from "./rider/RiderProfilePage";
 import RiderProtectedRoute from "./rider/RiderProtectedRoute";
 import plantsImage from "./assets/Plants.jpg";
 import { getImageUrl } from "./api/client";
@@ -148,6 +149,7 @@ function App() {
           }
         >
           <Route index element={<RiderHomePage />} />
+          <Route path="profile" element={<RiderProfilePage />} />
           <Route path="delivery/:token" element={<DriverOrderPage />} />
         </Route>
         <Route

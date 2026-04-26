@@ -1,11 +1,40 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import multer from 'multer';
 import { pool } from '../config/db.js';
 import { verifyRequestToken } from '../utils/auth.js';
 
 const router = Router();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadsDir = path.resolve(__dirname, '../../uploads/riders');
 let ensureRidersTablePromise;
 let ensureUsersTablePromise;
+
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
+    const safeExt = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+    cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${safeExt}`);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+    if (allowedTypes.has(file.mimetype)) return cb(null, true);
+    return cb(new Error('Only JPG, PNG, or WEBP image files are allowed'));
+  },
+});
 
 function formatRiderRow(row) {
   return {
@@ -15,6 +44,13 @@ function formatRiderRow(row) {
     fullName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
     email: row.email || '',
     phone: row.phone || '',
+    address: row.address || '',
+    vehicleType: row.vehicle_type || '',
+    plateNumber: row.plate_number || '',
+    licenseNumber: row.license_number || '',
+    emergencyContact: row.emergency_contact || '',
+    bio: row.bio || '',
+    profileImageUrl: row.profile_image_url || '',
     status: row.status || 'active',
     isAvailable: Boolean(row.is_available),
     createdAt: row.created_at,
@@ -171,6 +207,13 @@ async function ensureRidersTable() {
         last_name TEXT NOT NULL,
         email TEXT UNIQUE,
         phone TEXT NOT NULL,
+        address TEXT,
+        vehicle_type TEXT,
+        plate_number TEXT,
+        license_number TEXT,
+        emergency_contact TEXT,
+        bio TEXT,
+        profile_image_url TEXT,
         user_id BIGINT UNIQUE REFERENCES users(id) ON DELETE SET NULL,
         status TEXT NOT NULL DEFAULT 'active',
         is_available BOOLEAN NOT NULL DEFAULT true,
@@ -184,6 +227,13 @@ async function ensureRidersTable() {
           ADD COLUMN IF NOT EXISTS last_name TEXT,
           ADD COLUMN IF NOT EXISTS email TEXT,
           ADD COLUMN IF NOT EXISTS phone TEXT,
+          ADD COLUMN IF NOT EXISTS address TEXT,
+          ADD COLUMN IF NOT EXISTS vehicle_type TEXT,
+          ADD COLUMN IF NOT EXISTS plate_number TEXT,
+          ADD COLUMN IF NOT EXISTS license_number TEXT,
+          ADD COLUMN IF NOT EXISTS emergency_contact TEXT,
+          ADD COLUMN IF NOT EXISTS bio TEXT,
+          ADD COLUMN IF NOT EXISTS profile_image_url TEXT,
           ADD COLUMN IF NOT EXISTS user_id BIGINT UNIQUE REFERENCES users(id) ON DELETE SET NULL,
           ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
           ADD COLUMN IF NOT EXISTS is_available BOOLEAN NOT NULL DEFAULT true,
@@ -201,6 +251,43 @@ async function ensureRidersTable() {
 
   await ensureRidersTablePromise;
 }
+
+async function requireRiderId(req) {
+  const authUser = verifyRequestToken(req);
+  if (authUser.role !== 'rider') {
+    const error = new Error('Rider access only');
+    error.status = 403;
+    throw error;
+  }
+
+  const riderId = await findLinkedRiderForUser(authUser);
+  if (!riderId) {
+    const error = new Error('No rider profile is linked to this account');
+    error.status = 404;
+    throw error;
+  }
+
+  return { authUser, riderId };
+}
+
+const riderProfileColumns = `
+  id,
+  first_name,
+  last_name,
+  email,
+  phone,
+  address,
+  vehicle_type,
+  plate_number,
+  license_number,
+  emergency_contact,
+  bio,
+  profile_image_url,
+  status,
+  is_available,
+  created_at,
+  updated_at
+`;
 
 router.get('/api/admin/riders', async (_req, res) => {
   try {
@@ -317,19 +404,139 @@ router.patch('/api/admin/riders/:id', async (req, res) => {
   }
 });
 
+router.get('/api/rider/profile', async (req, res) => {
+  try {
+    await ensureRidersTable();
+
+    const { riderId } = await requireRiderId(req);
+    const result = await pool.query(
+      `
+      SELECT ${riderProfileColumns}
+      FROM riders
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [riderId]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Rider profile not found' });
+    }
+
+    res.json(formatRiderRow(result.rows[0]));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || 'Failed to load rider profile' });
+  }
+});
+
+router.patch('/api/rider/profile', upload.single('profileImage'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await ensureRidersTable();
+
+    const { authUser, riderId } = await requireRiderId(req);
+    const firstName = String(req.body?.firstName || '').trim();
+    const lastName = String(req.body?.lastName || '').trim();
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const phone = String(req.body?.phone || '').trim();
+    const address = String(req.body?.address || '').trim();
+    const vehicleType = String(req.body?.vehicleType || '').trim();
+    const plateNumber = String(req.body?.plateNumber || '').trim();
+    const licenseNumber = String(req.body?.licenseNumber || '').trim();
+    const emergencyContact = String(req.body?.emergencyContact || '').trim();
+    const bio = String(req.body?.bio || '').trim();
+    const profileImageUrl = req.file ? `/uploads/riders/${req.file.filename}` : null;
+
+    if (!firstName || !lastName || !email || !phone) {
+      return res.status(400).json({ error: 'First name, last name, email, and phone are required' });
+    }
+
+    await client.query('BEGIN');
+
+    const currentRider = await client.query(
+      `
+      SELECT user_id
+      FROM riders
+      WHERE id = $1
+      FOR UPDATE
+      `,
+      [riderId]
+    );
+
+    if (!currentRider.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Rider profile not found' });
+    }
+
+    const result = await client.query(
+      `
+      UPDATE riders
+      SET
+        first_name = $2,
+        last_name = $3,
+        email = $4,
+        phone = $5,
+        address = NULLIF($6, ''),
+        vehicle_type = NULLIF($7, ''),
+        plate_number = NULLIF($8, ''),
+        license_number = NULLIF($9, ''),
+        emergency_contact = NULLIF($10, ''),
+        bio = NULLIF($11, ''),
+        profile_image_url = COALESCE($12, profile_image_url),
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING ${riderProfileColumns}
+      `,
+      [
+        riderId,
+        firstName,
+        lastName,
+        email,
+        phone,
+        address,
+        vehicleType,
+        plateNumber,
+        licenseNumber,
+        emergencyContact,
+        bio,
+        profileImageUrl,
+      ]
+    );
+
+    const linkedUserId = currentRider.rows[0].user_id || authUser.userId;
+    if (linkedUserId) {
+      await client.query(
+        `
+        UPDATE users
+        SET first_name = $2,
+            last_name = $3,
+            email = $4,
+            updated_at = NOW()
+        WHERE id = $1
+          AND role = 'rider'
+        `,
+        [linkedUserId, firstName, lastName, email]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json(formatRiderRow(result.rows[0]));
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (String(error.message || '').toLowerCase().includes('duplicate')) {
+      return res.status(409).json({ error: 'A rider or user with that email already exists' });
+    }
+    res.status(error.status || 500).json({ error: error.message || 'Failed to update rider profile' });
+  } finally {
+    client.release();
+  }
+});
+
 router.get('/api/rider/orders', async (req, res) => {
   try {
     await ensureRidersTable();
 
-    const authUser = verifyRequestToken(req);
-    if (authUser.role !== 'rider') {
-      return res.status(403).json({ error: 'Rider access only' });
-    }
-
-    const riderId = await findLinkedRiderForUser(authUser);
-    if (!riderId) {
-      return res.status(404).json({ error: 'No rider profile is linked to this account' });
-    }
+    const { riderId } = await requireRiderId(req);
 
     const result = await pool.query(
       `

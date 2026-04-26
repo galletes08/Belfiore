@@ -45,6 +45,14 @@ function formatDateTime(value) {
   });
 }
 
+function formatPhp(amount) {
+  return new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+    minimumFractionDigits: 2,
+  }).format(Number(amount) || 0);
+}
+
 function badgeClass(value) {
   return badgeStyles[value] || 'bg-gray-100 text-gray-700';
 }
@@ -315,21 +323,21 @@ export default function AdminOrders() {
             if (event.target === event.currentTarget) closeEditor();
           }}
         >
-          <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-emerald-100/80 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdfb_52%,#f5f9f7_100%)] shadow-[0_24px_80px_rgba(5,35,25,0.36)]">
-            <div className="border-b border-emerald-100/90 bg-[linear-gradient(120deg,#f6fffa_0%,#ecf8f1_48%,#e5f4ec_100%)] px-6 py-6">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#1f5a43]">Order Details</p>
-                  <h2 className="mt-1 text-2xl font-semibold text-gray-900 md:text-3xl">{selectedOrder.orderCode}</h2>
-                  <p className="mt-1 text-sm text-gray-500">Created {formatDateTime(selectedOrder.createdAt)}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(selectedOrder.status)}`}>
+          <div className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[2rem] border border-emerald-100/80 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdfb_52%,#f5f9f7_100%)] font-['Montserrat'] shadow-[0_24px_80px_rgba(5,35,25,0.36)]">
+            <div className="border-b border-emerald-100/90 bg-[linear-gradient(120deg,#f6fffa_0%,#ecf8f1_48%,#e5f4ec_100%)] px-5 py-5 sm:px-6">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#1f5a43]">Order Details</p>
+                  <h2 className="mt-2 font-['Playfair_Display'] text-4xl font-semibold leading-tight text-gray-900">{selectedOrder.orderCode}</h2>
+                  <p className="mt-2 text-sm text-gray-500">Created {formatDateTime(selectedOrder.createdAt)}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${badgeClass(selectedOrder.status)}`}>
                       {selectedOrder.status}
                     </span>
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(selectedOrder.trackingStatus)}`}>
+                    <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${badgeClass(selectedOrder.trackingStatus)}`}>
                       {selectedOrder.trackingStatus}
                     </span>
-                    <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-xs font-medium text-[#1f5a43] ring-1 ring-[#1f5a43]/15">
+                    <span className="inline-flex rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#1f5a43] ring-1 ring-[#1f5a43]/15">
                       {selectedOrder.deliveryMode === 'logistics' ? 'Logistics Only' : 'Rider Delivery'}
                     </span>
                   </div>
@@ -337,47 +345,74 @@ export default function AdminOrders() {
                 <button
                   type="button"
                   onClick={closeEditor}
-                  className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-emerald-50"
+                  className="w-fit rounded-full border border-emerald-200 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-emerald-50"
                 >
                   Close
                 </button>
               </div>
             </div>
 
-            <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.2fr_0.8fr]">
-              <div className="space-y-6">
-                <div className="rounded-2xl border border-emerald-100 bg-[linear-gradient(180deg,#f8fcfa_0%,#f2f8f4_100%)] px-5 py-4 shadow-sm">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">Customer</h3>
-                  <div className="mt-3 grid gap-3 text-sm text-gray-700 md:grid-cols-2">
-                    <p><span className="font-medium text-gray-900">Name:</span> {selectedOrder.customerName}</p>
-                    <p><span className="font-medium text-gray-900">Email:</span> {selectedOrder.gmail || '-'}</p>
-                    <p><span className="font-medium text-gray-900">Phone:</span> {selectedOrder.mobileNumber || '-'}</p>
-                    <p><span className="font-medium text-gray-900">Payment:</span> {selectedOrder.paymentMethod}</p>
-                    <p className="md:col-span-2"><span className="font-medium text-gray-900">Address:</span> {selectedOrder.location || '-'}</p>
-                    <p><span className="font-medium text-gray-900">Customer Pin:</span> {selectedOrder.deliveryMode === 'logistics' ? 'Hidden for logistics tracking' : selectedOrder.customerLatitude != null && selectedOrder.customerLongitude != null ? `${selectedOrder.customerLatitude.toFixed(5)}, ${selectedOrder.customerLongitude.toFixed(5)}` : 'Not saved yet'}</p>
-                    <p><span className="font-medium text-gray-900">Rider GPS:</span> {selectedOrder.deliveryMode === 'logistics' ? 'Not used for logistics orders' : selectedOrder.driverLatitude != null && selectedOrder.driverLongitude != null ? `${selectedOrder.driverLatitude.toFixed(5)}, ${selectedOrder.driverLongitude.toFixed(5)}` : 'No live location yet'}</p>
+            <div className="grid gap-5 px-5 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_420px]">
+              <div className="space-y-5">
+                <div className="rounded-3xl border border-emerald-100 bg-[linear-gradient(180deg,#f8fcfa_0%,#f2f8f4_100%)] p-5 shadow-sm">
+                  <div className="border-b border-emerald-100/80 pb-4">
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-500">Customer</h3>
+                    <p className="mt-1 font-['Playfair_Display'] text-2xl font-semibold text-gray-900">{selectedOrder.customerName}</p>
+                  </div>
+                  <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+                    <div className="rounded-2xl bg-white/80 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Email</p>
+                      <p className="mt-1 break-words font-medium text-gray-900">{selectedOrder.gmail || '-'}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/80 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Phone</p>
+                      <p className="mt-1 font-medium text-gray-900">{selectedOrder.mobileNumber || '-'}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/80 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Payment</p>
+                      <p className="mt-1 font-medium text-gray-900">{selectedOrder.paymentMethod}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/80 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Customer Pin</p>
+                      <p className="mt-1 font-medium text-gray-900">
+                        {selectedOrder.deliveryMode === 'logistics' ? 'Hidden for logistics tracking' : selectedOrder.customerLatitude != null && selectedOrder.customerLongitude != null ? `${selectedOrder.customerLatitude.toFixed(5)}, ${selectedOrder.customerLongitude.toFixed(5)}` : 'Not saved yet'}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-white/80 px-4 py-3 md:col-span-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Address</p>
+                      <p className="mt-1 leading-6 text-gray-900">{selectedOrder.location || '-'}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/80 px-4 py-3 md:col-span-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Rider GPS</p>
+                      <p className="mt-1 font-medium text-gray-900">
+                        {selectedOrder.deliveryMode === 'logistics' ? 'Not used for logistics orders' : selectedOrder.driverLatitude != null && selectedOrder.driverLongitude != null ? `${selectedOrder.driverLatitude.toFixed(5)}, ${selectedOrder.driverLongitude.toFixed(5)}` : 'No live location yet'}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-gray-200/80 bg-white px-5 py-4 shadow-sm">
-                  <div className="flex items-center justify-between gap-4">
-                    <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">Items</h3>
-                    <span className="text-sm text-gray-500">{selectedOrder.itemCount} item{selectedOrder.itemCount === 1 ? '' : 's'}</span>
+                <div className="rounded-3xl border border-gray-200/80 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between gap-4 border-b border-gray-100 pb-4">
+                    <div>
+                      <h3 className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-500">Items</h3>
+                      <p className="mt-1 text-sm text-gray-500">{selectedOrder.itemCount} item{selectedOrder.itemCount === 1 ? '' : 's'} in this order</p>
+                    </div>
+                    <span className="text-xl font-semibold text-gray-900">{formatPhp(selectedOrder.totalAmount)}</span>
                   </div>
                   <div className="mt-4 space-y-3">
                     {selectedOrder.items.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between rounded-2xl bg-gray-50 px-4 py-3">
-                        <div>
-                          <div className="font-medium text-gray-900">{item.productName}</div>
-                          <div className="mt-1 text-xs text-gray-500">Qty {item.qty} x ₱{item.unitPrice.toFixed(2)}</div>
+                      <div key={item.id} className="flex items-center justify-between gap-4 rounded-2xl bg-gray-50 px-4 py-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-semibold text-gray-900">{item.productName}</div>
+                          <div className="mt-1 text-xs text-gray-500">Qty {item.qty} x {formatPhp(item.unitPrice)}</div>
                         </div>
-                        <div className="text-sm font-semibold text-gray-900">₱{item.lineTotal.toFixed(2)}</div>
+                        <div className="shrink-0 text-sm font-semibold text-gray-900">{formatPhp(item.lineTotal)}</div>
                       </div>
                     ))}
                   </div>
                   <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-4">
                     <span className="text-sm text-gray-500">Order Total</span>
-                    <span className="text-lg font-semibold text-gray-900">₱{selectedOrder.totalAmount.toFixed(2)}</span>
+                    <span className="text-xl font-semibold text-gray-900">{formatPhp(selectedOrder.totalAmount)}</span>
                   </div>
                 </div>
               </div>

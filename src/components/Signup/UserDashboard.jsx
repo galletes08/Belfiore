@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Package, Truck, CircleCheckBig, MapPinned, UserRound } from "lucide-react";
+import { CircleCheckBig, Clock3, MapPinned, Package, ReceiptText, Truck, UserRound } from "lucide-react";
 import { clearCustomerToken } from "../../api/client";
 
 const orders = [
@@ -9,8 +9,8 @@ const orders = [
 ];
 
 const statusStyles = {
-  "Out for Delivery": "bg-amber-100 text-amber-800 ring-amber-200",
-  "In Transit": "bg-sky-100 text-sky-800 ring-sky-200",
+  "Out for Delivery": "bg-violet-100 text-violet-800 ring-violet-200",
+  "In Transit": "bg-indigo-100 text-indigo-800 ring-indigo-200",
   Delivered: "bg-emerald-100 text-emerald-800 ring-emerald-200"
 };
 
@@ -21,165 +21,198 @@ const formatPhp = (amount) =>
     minimumFractionDigits: 0
   }).format(amount);
 
+function AccountSidebar({ onLogout }) {
+  return (
+    <aside className="self-start border-x border-[#e3eadf] bg-white px-5 py-6 lg:sticky lg:top-0 lg:z-40 lg:h-[100dvh] lg:overflow-y-auto">
+      <div className="mb-6 flex items-center gap-3">
+        <Link
+          to="/profile"
+          aria-label="Go to Profile"
+          className="grid h-11 w-11 place-items-center rounded-full bg-[#e8f3ea] text-[#0f4d2e] transition hover:bg-[#d9ebdc]"
+        >
+          <UserRound size={18} />
+        </Link>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#6c786f]">Account</p>
+          <h2 className="mt-1 text-lg font-semibold text-[#173d2b]">User Panel</h2>
+        </div>
+      </div>
+
+      <nav className="grid grid-cols-2 gap-2 text-sm lg:grid-cols-1">
+        <Link to="/dashboard" className="rounded-xl bg-[#0f4d2e] px-3 py-2.5 text-left font-semibold text-white shadow-sm">
+          Dashboard
+        </Link>
+        <Link to="/orders" className="rounded-xl border border-[#e1e7dc] px-3 py-2.5 text-left text-[#405145] transition hover:border-[#b7ccb5] hover:text-[#0f4d2e]">
+          Orders
+        </Link>
+        <Link to="/profile" className="rounded-xl border border-[#e1e7dc] px-3 py-2.5 text-left text-[#405145] transition hover:border-[#b7ccb5] hover:text-[#0f4d2e]">
+          Profile
+        </Link>
+        <Link
+          to="/login"
+          onClick={onLogout}
+          className="col-span-2 rounded-xl border border-red-200 px-3 py-2.5 text-left text-red-600 transition hover:bg-red-50 lg:col-span-1"
+        >
+          Logout
+        </Link>
+      </nav>
+    </aside>
+  );
+}
+
+function StatCard({ icon, label, value, tone }) {
+  return (
+    <article className="rounded-2xl border border-[#e1e7dc] bg-white px-5 py-5 shadow-sm">
+      <div className={`mb-4 grid h-10 w-10 place-items-center rounded-xl ${tone}`}>
+        {icon}
+      </div>
+      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-[#6c786f]">{label}</p>
+      <p className="mt-2 text-3xl font-semibold text-[#173d2b]">{value}</p>
+    </article>
+  );
+}
+
 export default function UserDashboard() {
   const totalOrders = orders.length;
   const inTransit = orders.filter((order) => order.status !== "Delivered").length;
   const delivered = orders.filter((order) => order.status === "Delivered").length;
   const activeOrder = orders.find((order) => order.status !== "Delivered") || orders[0];
+  const dashboardStats = [
+    { label: "Total Orders", value: totalOrders, icon: <Package size={18} />, tone: "bg-[#e8f3ea] text-[#0f4d2e]" },
+    { label: "In Transit", value: inTransit, icon: <Truck size={18} />, tone: "bg-sky-50 text-sky-700" },
+    { label: "Delivered", value: delivered, icon: <CircleCheckBig size={18} />, tone: "bg-emerald-50 text-emerald-700" }
+  ];
+
   const handleLogout = () => {
     localStorage.removeItem("isLoggedIn");
     clearCustomerToken();
   };
 
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,#f8faf9_0%,#f2f6f4_45%,#eef3f1_100%)]">
-      <div className="pointer-events-none absolute -right-24 top-0 h-72 w-72 rounded-full bg-emerald-200/30 blur-3xl" />
-      <div className="pointer-events-none absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-lime-100/40 blur-3xl" />
+    <div className="min-h-screen overflow-x-hidden bg-[#f8faf6] font-['Montserrat'] text-[#24372d]">
+      <div className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-0 px-4 md:px-6 lg:grid-cols-[250px_minmax(0,1fr)]">
+        <AccountSidebar onLogout={handleLogout} />
 
-      <div className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-5 px-4 py-0 md:px-6 lg:grid-cols-[260px_1fr]">
-        <aside className="self-start rounded-none border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur lg:sticky lg:top-0 lg:z-40 lg:h-[100dvh] lg:overflow-y-auto">
-          <div className="mb-6 flex items-center gap-3">
-            <Link
-              to="/profile"
-              aria-label="Go to Profile"
-              className="rounded-full bg-emerald-100 p-2 text-emerald-700 transition hover:bg-emerald-200"
-            >
-              <UserRound size={18} />
-            </Link>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Account</p>
-              <h2 className="text-lg font-bold text-gray-900">User Panel</h2>
+        <main className="min-w-0 space-y-6 py-6 lg:px-6">
+          <section className="py-2">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+              <div className="max-w-2xl">
+                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#5e6f65]">Dashboard</p>
+                <h1 className="mt-3 font-['Playfair_Display'] text-4xl leading-tight text-[#0f4d2e] md:text-5xl">
+                  Welcome back, Plant Lover
+                </h1>
+                <p className="mt-3 text-sm leading-7 text-[#5e6f65] md:text-base">
+                  A calm overview of your purchases, delivery activity, and latest tracking progress.
+                </p>
+              </div>
+
+              <Link
+                to="/orders"
+                className="inline-flex w-fit items-center justify-center gap-2 rounded-xl border border-[#b9d7c3] bg-white px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-[#0f6b45] shadow-sm transition hover:border-[#0f6b45] hover:bg-[#f1faf3]"
+              >
+                <ReceiptText size={15} />
+                View Orders
+              </Link>
             </div>
-          </div>
-
-          <nav className="grid grid-cols-2 gap-2 text-sm lg:grid-cols-1">
-            <button className="rounded-lg bg-emerald-700 px-3 py-2 text-left font-semibold text-white">Dashboard</button>
-            <Link to="/orders" className="rounded-lg border border-gray-200 px-3 py-2 text-left text-gray-700 hover:border-emerald-300 hover:text-emerald-700">
-              Orders
-            </Link>
-            <Link to="/profile" className="rounded-lg border border-gray-200 px-3 py-2 text-left text-gray-700 hover:border-emerald-300 hover:text-emerald-700">
-              Profile 
-            </Link>
-            <Link
-              to="/login"
-              onClick={handleLogout}
-              className="col-span-2 rounded-lg border border-red-200 px-3 py-2 text-left text-red-600 hover:bg-red-50 lg:col-span-1"
-            >
-              Logout
-            </Link>
-          </nav>
-        </aside>
-
-        <main className="space-y-5 py-6">
-          <section className="rounded-2xl border border-white/80 bg-white/95 p-6 shadow-sm backdrop-blur">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Dashboard</p>
-            <h1 className="mt-2 text-2xl font-bold text-gray-900 md:text-3xl">Welcome back, Plant Lover</h1>
-            <p className="mt-2 text-sm text-gray-600">Here's a summary of your account and recent activity.</p>
           </section>
 
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <article className="rounded-xl border border-emerald-100 bg-white p-5 shadow-sm">
-              <div className="mb-3 inline-flex rounded-lg bg-emerald-100 p-2 text-emerald-700">
-                <Package size={18} />
-              </div>
-              <p className="text-sm text-gray-500">Total Orders</p>
-              <p className="text-2xl font-bold text-gray-900">{totalOrders}</p>
-            </article>
-
-            <article className="rounded-xl border border-sky-100 bg-white p-5 shadow-sm">
-              <div className="mb-3 inline-flex rounded-lg bg-sky-100 p-2 text-sky-700">
-                <Truck size={18} />
-              </div>
-              <p className="text-sm text-gray-500">Orders In Transit</p>
-              <p className="text-2xl font-bold text-gray-900">{inTransit}</p>
-            </article>
-
-            <article className="rounded-xl border border-emerald-100 bg-white p-5 shadow-sm sm:col-span-2 xl:col-span-1">
-              <div className="mb-3 inline-flex rounded-lg bg-emerald-100 p-2 text-emerald-700">
-                <CircleCheckBig size={18} />
-              </div>
-              <p className="text-sm text-gray-500">Delivered Orders</p>
-              <p className="text-2xl font-bold text-gray-900">{delivered}</p>
-            </article>
+            {dashboardStats.map((item) => (
+              <StatCard key={item.label} {...item} />
+            ))}
           </section>
 
-          <section className="rounded-2xl border border-white/80 bg-white/95 p-6 shadow-sm backdrop-blur">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-xl font-semibold text-gray-900">Recent Orders</h2>
-              <Link to="/orders" className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-gray-700 hover:border-emerald-300 hover:text-emerald-700">
-                View All
-              </Link>
-            </div>
+          <section className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+            <article className="rounded-[1.35rem] border border-[#e1e7dc] bg-white p-5 shadow-[0_18px_45px_rgba(15,77,46,0.06)] md:p-6">
+              <div className="mb-5 flex flex-col gap-3 border-b border-[#eef2ea] pb-5 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#6c786f]">Orders</p>
+                  <h2 className="mt-1 font-['Playfair_Display'] text-3xl text-[#0f4d2e]">Recent Activity</h2>
+                </div>
+                <Link to="/orders" className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f6b45] hover:text-[#173d2b]">
+                  View All
+                </Link>
+              </div>
 
-            <div className="space-y-3">
-              {orders.map((order) => (
-                <article
-                  key={order.id}
-                  className="grid gap-3 rounded-xl border border-gray-200 bg-gray-50/40 p-4 md:grid-cols-[1.4fr_0.8fr_0.9fr_0.9fr] md:items-center"
-                >
-                  <div>
-                    <p className="font-semibold text-gray-900">{order.id}</p>
-                    <p className="text-sm text-gray-500">{order.date}</p>
-                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-emerald-700">
-                      Delivery: {order.courier}
-                    </p>
-                  </div>
-
-                  <p className="font-semibold text-gray-800 md:text-center">{formatPhp(order.total)}</p>
-
-                  <span
-                    className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ring-1 md:mx-auto ${statusStyles[order.status]}`}
+              <div className="space-y-3">
+                {orders.map((order) => (
+                  <article
+                    key={order.id}
+                    className="grid gap-4 rounded-2xl border border-[#e8eee6] bg-[#fbfcf8] p-4 md:grid-cols-[1.25fr_0.75fr_0.8fr_auto] md:items-center"
                   >
-                    {order.status}
-                  </span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#5e6f65]">{order.id}</p>
+                      <p className="mt-1 text-sm text-[#6c786f]">{order.date}</p>
+                      <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#0f6b45]">
+                        Delivery: {order.courier}
+                      </p>
+                    </div>
 
-                  <div className="md:ml-auto">
-                    {order.status !== "Delivered" ? (
-                      <button className="w-full rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 md:w-auto">
-                        Track Order
-                      </button>
-                    ) : (
-                      <span className="inline-block rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700">
-                        Delivered
-                      </span>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
+                    <p className="text-sm font-semibold text-[#173d2b] md:text-center">{formatPhp(order.total)}</p>
 
-          <section className="rounded-2xl border border-white/80 bg-white/95 p-6 shadow-sm backdrop-blur">
-            <div className="mb-4 flex items-center gap-2">
-              <MapPinned size={18} className="text-emerald-700" />
-              <h2 className="text-xl font-semibold text-gray-900">Delivery Tracking</h2>
-            </div>
+                    <span
+                      className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ring-1 md:mx-auto ${statusStyles[order.status]}`}
+                    >
+                      {order.status}
+                    </span>
 
-            <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="relative h-64 overflow-hidden rounded-xl border border-gray-200 bg-[radial-gradient(circle_at_top_right,#dcfce7_0%,#f3f4f6_50%,#e5e7eb_100%)] md:h-72">
-                <div className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full bg-emerald-600 ring-8 ring-emerald-200/70" />
-                <p className="absolute bottom-3 left-3 rounded-md bg-white/80 px-2 py-1 text-xs font-semibold text-gray-700">
-                  Courier is near Quezon City hub
-                </p>
+                    <Link
+                      to="/orders"
+                      className="inline-flex w-fit items-center justify-center rounded-xl border border-[#b9d7c3] bg-white px-3.5 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#0f6b45] transition hover:border-[#0f6b45] hover:bg-[#f1faf3]"
+                    >
+                      Track
+                    </Link>
+                  </article>
+                ))}
               </div>
+            </article>
 
-              <div className="rounded-xl border border-gray-200 p-4">
-                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-gray-500">Latest Update</p>
-                <p className="mt-2 text-base font-semibold text-gray-900">
-                  {activeOrder.id} is {activeOrder.status.toLowerCase()}
-                </p>
-                <p className="mt-1 text-sm font-medium text-emerald-700">Courier: {activeOrder.courier}</p>
-                <p className="mt-1 text-sm text-gray-600">Estimated arrival: Today, 3:00 PM - 6:00 PM</p>
-
-                <div className="mt-4 space-y-2 text-sm text-gray-700">
-                  <p>1. Package prepared at warehouse</p>
-                  <p>2. In transit to local hub</p>
-                  <p className="font-semibold text-emerald-700">3. Out for delivery</p>
+            <article className="rounded-[1.35rem] border border-[#e1e7dc] bg-[#f7f5f0] p-5 shadow-sm md:p-6">
+              <div className="mb-5 flex items-center gap-3">
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-white text-[#0f4d2e] shadow-sm">
+                  <MapPinned size={18} />
+                </span>
+                <div>
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#6c786f]">Delivery</p>
+                  <h2 className="font-['Playfair_Display'] text-2xl text-[#0f4d2e]">Latest Tracking</h2>
                 </div>
               </div>
-            </div>
-          </section>
 
+              <div className="rounded-2xl border border-[#e1e7dc] bg-white p-4">
+                <div className="relative h-48 overflow-hidden rounded-2xl border border-[#e8eee6] bg-[#fbfcf8]">
+                  <div className="absolute left-8 top-9 h-3 w-3 rounded-full bg-[#0f4d2e] ring-8 ring-[#d9ebdc]" />
+                  <div className="absolute right-10 bottom-10 h-3 w-3 rounded-full bg-sky-600 ring-8 ring-sky-100" />
+                  <div className="absolute left-11 top-12 h-[2px] w-[70%] origin-left rotate-[22deg] bg-[#b9d7c3]" />
+                  <p className="absolute bottom-3 left-3 rounded-xl bg-white/90 px-3 py-2 text-xs font-semibold text-[#405145] shadow-sm">
+                    Courier: {activeOrder.courier}
+                  </p>
+                </div>
+
+                <div className="mt-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#6c786f]">Latest Update</p>
+                  <p className="mt-2 text-base font-semibold text-[#173d2b]">
+                    {activeOrder.id} is {activeOrder.status.toLowerCase()}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-[#5e6f65]">Estimated arrival: Today, 3:00 PM - 6:00 PM</p>
+                </div>
+
+                <div className="mt-4 space-y-3 text-sm text-[#405145]">
+                  <p className="flex items-center gap-2">
+                    <CircleCheckBig size={15} className="text-emerald-700" />
+                    Package prepared at warehouse
+                  </p>
+                  <p className="flex items-center gap-2">
+                    <Truck size={15} className="text-emerald-700" />
+                    In transit to local hub
+                  </p>
+                  <p className="flex items-center gap-2 font-semibold text-[#0f6b45]">
+                    <Clock3 size={15} />
+                    Out for delivery
+                  </p>
+                </div>
+              </div>
+            </article>
+          </section>
         </main>
       </div>
     </div>

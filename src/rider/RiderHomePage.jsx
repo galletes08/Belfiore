@@ -115,38 +115,38 @@ export default function RiderHomePage() {
         : 'No orders are assigned to this rider account yet.';
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
-      <section className="overflow-hidden rounded-3xl border border-white/80 bg-white shadow-sm">
-        <div className="bg-[linear-gradient(135deg,#0f4d2e_0%,#137a46_45%,#ecfdf5_100%)] px-5 py-6 text-white sm:px-6 sm:py-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="mx-auto max-w-[1500px] space-y-5 font-['Montserrat'] sm:space-y-7">
+      <section className="overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-sm">
+        <div className="bg-green-900 px-5 py-7 text-white sm:px-8 sm:py-10">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-100/90">Rider Dashboard</p>
-              <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-100/90">Rider Dashboard</p>
+              <h1 className="mt-3 font-['Playfair_Display'] text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
                 {riderUser?.name || 'Assigned Deliveries'}
               </h1>
-              <p className="mt-3 text-sm leading-6 text-emerald-50/90 sm:text-base">
+              <p className="mt-4 max-w-3xl text-sm leading-7 text-emerald-50/90 sm:text-base">
                 Compact order cards with the essentials only, so the page stays quick and readable on mobile.
               </p>
             </div>
 
             <div className="grid grid-cols-3 gap-3 sm:min-w-[300px]">
-              <article className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur">
-                <p className="text-xs uppercase tracking-[0.18em] text-emerald-50/80">Orders</p>
-                <p className="mt-1 text-2xl font-bold">{totals.all}</p>
+              <article className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-50/80">Orders</p>
+                <p className="mt-2 text-3xl font-semibold leading-none">{totals.all}</p>
               </article>
-              <article className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur">
-                <p className="text-xs uppercase tracking-[0.18em] text-emerald-50/80">Active</p>
-                <p className="mt-1 text-2xl font-bold">{totals.active}</p>
+              <article className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-50/80">Active</p>
+                <p className="mt-2 text-3xl font-semibold leading-none">{totals.active}</p>
               </article>
-              <article className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur">
-                <p className="text-xs uppercase tracking-[0.18em] text-emerald-50/80">Done</p>
-                <p className="mt-1 text-2xl font-bold">{totals.delivered}</p>
+              <article className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-50/80">Done</p>
+                <p className="mt-2 text-3xl font-semibold leading-none">{totals.delivered}</p>
               </article>
             </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 border-b border-gray-100 bg-white px-5 py-4 sm:px-6">
+        <div className="flex flex-wrap gap-3 border-b border-gray-100 bg-white px-5 py-4 sm:px-8 sm:py-5">
           {[
             { key: 'all', label: 'All Orders', count: totals.all },
             { key: 'active', label: 'Active', count: totals.active },
@@ -156,20 +156,20 @@ export default function RiderHomePage() {
               key={filter.key}
               type="button"
               onClick={() => setSelectedFilter(filter.key)}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+              className={`rounded-full px-5 py-2.5 text-sm font-semibold transition ${
                 selectedFilter === filter.key
                   ? 'bg-[#0f4d2e] text-white shadow-sm'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              {filter.label} <span className="ml-1 opacity-80">{filter.count}</span>
+              {filter.label} <span className="ml-1.5 opacity-80">{filter.count}</span>
             </button>
           ))}
         </div>
       </section>
 
       {status === 'loading' ? (
-        <section className="rounded-3xl border border-white/80 bg-white p-8 text-sm text-gray-500 shadow-sm">
+        <section className="rounded-3xl border border-white/80 bg-white p-8 text-sm font-medium text-gray-500 shadow-sm">
           Loading rider orders...
         </section>
       ) : null}
@@ -181,31 +181,31 @@ export default function RiderHomePage() {
       ) : null}
 
       {status === 'success' && filteredOrders.length === 0 ? (
-        <section className="rounded-3xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500 shadow-sm">
+        <section className="rounded-3xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm font-medium text-gray-500 shadow-sm">
           {emptyMessage}
         </section>
       ) : null}
 
       {status === 'success' && filteredOrders.length > 0 ? (
-        <section className="grid gap-4 xl:grid-cols-2">
+        <section className="grid gap-5 xl:grid-cols-2">
           {filteredOrders.map((order) => {
             const deliveryLink = buildDriverLink(order.driverAccessToken);
             const imageCount = order.items.length;
 
             return (
-              <article key={order.id} className="overflow-hidden rounded-3xl border border-white/80 bg-white shadow-sm">
+              <article key={order.id} className="overflow-hidden rounded-[1.75rem] border border-white/80 bg-white shadow-sm">
                 <div className="border-b border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] px-5 py-5 sm:px-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">{order.orderCode}</p>
-                      <h2 className="mt-1 text-xl font-bold text-gray-900">{order.customerName}</h2>
-                      <p className="mt-1 text-sm text-gray-500">{formatDate(order.createdAt)}</p>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-500">{order.orderCode}</p>
+                      <h2 className="mt-2 truncate font-['Playfair_Display'] text-2xl font-semibold leading-tight text-gray-900">{order.customerName}</h2>
+                      <p className="mt-2 text-sm text-gray-500">{formatDate(order.createdAt)}</p>
                     </div>
                     <div className="flex flex-wrap justify-end gap-2">
-                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClass(order.status)}`}>
+                      <span className={`inline-flex rounded-full px-3.5 py-1.5 text-xs font-semibold ${statusBadgeClass(order.status)}`}>
                         {order.status}
                       </span>
-                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${trackingBadgeClass(order.trackingStatus)}`}>
+                      <span className={`inline-flex rounded-full px-3.5 py-1.5 text-xs font-semibold ${trackingBadgeClass(order.trackingStatus)}`}>
                         {order.trackingStatus}
                       </span>
                     </div>
@@ -213,54 +213,54 @@ export default function RiderHomePage() {
                 </div>
 
                 <div className="grid gap-4 px-5 py-5 sm:px-6 md:grid-cols-2">
-                  <div className="space-y-3">
-                    <div className="rounded-2xl bg-gray-50 p-4">
-                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                  <div className="space-y-4">
+                    <div className="rounded-2xl bg-gray-50 p-5">
+                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">
                         <UserRound size={14} />
                         Customer
                       </p>
-                      <p className="mt-2 text-sm font-semibold text-gray-900">{order.customerName}</p>
-                      <p className="mt-1 text-sm text-gray-600">{order.mobileNumber || order.gmail || '-'}</p>
+                      <p className="mt-3 text-sm font-semibold text-gray-900">{order.customerName}</p>
+                      <p className="mt-1 text-sm leading-6 text-gray-600">{order.mobileNumber || order.gmail || '-'}</p>
                     </div>
 
-                    <div className="rounded-2xl bg-gray-50 p-4">
-                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                    <div className="rounded-2xl bg-gray-50 p-5">
+                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">
                         <Package size={14} />
                         Items
                       </p>
-                      <div className="mt-3 space-y-2">
+                      <div className="mt-4 space-y-3">
                         {order.items.slice(0, 2).map((item) => {
                           const imageSrc = getImageUrl(item.imageUrl);
 
                           return (
-                            <div key={item.id} className="flex items-center gap-3 rounded-xl bg-white px-3 py-3">
-                              <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-[#eef2ea]">
+                            <div key={item.id} className="flex items-center gap-3 rounded-2xl bg-white px-3 py-3">
+                              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-[#eef2ea]">
                                 {imageSrc ? (
                                   <img src={imageSrc} alt={item.productName} className="h-full w-full object-cover" />
                                 ) : null}
                               </div>
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm font-semibold text-gray-900">{item.productName}</p>
-                                <p className="text-xs text-gray-500">Qty {item.qty}</p>
+                                <p className="mt-1 text-xs text-gray-500">Qty {item.qty}</p>
                               </div>
-                              <p className="text-sm font-semibold text-gray-900">{formatPhp(item.lineTotal)}</p>
+                              <p className="shrink-0 text-sm font-semibold text-gray-900">{formatPhp(item.lineTotal)}</p>
                             </div>
                           );
                         })}
                         {imageCount > 2 ? (
-                          <p className="text-xs text-gray-500">+{imageCount - 2} more item(s)</p>
+                          <p className="px-1 text-xs font-medium text-gray-500">+{imageCount - 2} more item(s)</p>
                         ) : null}
                       </div>
                     </div>
                   </div>
 
-                  <div className="space-y-3">
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
-                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-5">
+                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">
                         <Truck size={14} />
                         Delivery
                       </p>
-                      <div className="mt-2 space-y-2 text-sm text-gray-700">
+                      <div className="mt-3 space-y-2.5 text-sm leading-6 text-gray-700">
                         <p>
                           <span className="font-semibold text-gray-900">Mode:</span>{' '}
                           {order.deliveryMode === 'logistics' ? 'Logistics only' : 'Rider delivery'}
@@ -272,16 +272,16 @@ export default function RiderHomePage() {
                         <p>
                           <span className="font-semibold text-gray-900">Total:</span> {formatPhp(order.totalAmount)}
                         </p>
-                        <p className="text-xs text-gray-500">{order.driverAccessToken ? 'Delivery page ready' : 'Delivery page not ready yet'}</p>
+                        <p className="text-xs font-medium text-gray-500">{order.driverAccessToken ? 'Delivery page ready' : 'Delivery page not ready yet'}</p>
                       </div>
                     </div>
 
-                    <div className="rounded-2xl bg-gray-50 p-4">
-                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                    <div className="rounded-2xl bg-gray-50 p-5">
+                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">
                         <MapPinned size={14} />
                         Quick details
                       </p>
-                      <div className="mt-2 space-y-2 text-sm text-gray-700">
+                      <div className="mt-3 space-y-2.5 text-sm leading-6 text-gray-700">
                         <p>
                           <span className="font-semibold text-gray-900">Address:</span> {order.location || 'No delivery location yet'}
                         </p>
@@ -298,13 +298,13 @@ export default function RiderHomePage() {
                       {deliveryLink ? (
                         <Link
                           to={`/rider/delivery/${order.driverAccessToken}`}
-                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#0f4d2e] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#163f2f]"
+                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#0f4d2e] px-4 py-3.5 text-sm font-semibold text-white transition hover:bg-[#163f2f]"
                         >
                           Open Delivery Page
                           <ExternalLink size={16} />
                         </Link>
                       ) : (
-                        <div className="flex-1 rounded-2xl border border-dashed border-gray-300 bg-white px-4 py-3 text-sm text-gray-500">
+                        <div className="flex-1 rounded-2xl border border-dashed border-gray-300 bg-white px-4 py-3.5 text-sm font-medium text-gray-500">
                           Delivery page not ready yet.
                         </div>
                       )}

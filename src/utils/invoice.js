@@ -20,12 +20,12 @@ const formatInvoiceDate = (dateValue) =>
     day: "numeric"
   }).format(dateValue);
 
-const getSafeItems = (items) =>
+const getSafeItems = (items = []) =>
   items.map((item) => ({
-    name: item.name || "Unnamed item",
+    name: item.name || item.productName || "Unnamed item",
     variation: item.variation || "",
     qty: Number(item.qty) > 0 ? Number(item.qty) : 1,
-    unitPrice: Number(item.unitPrice) || 0
+    unitPrice: Number(item.unitPrice) || Number(item.lineTotal) / Number(item.qty || 1) || 0
   }));
 
 const createInvoiceHtml = ({
@@ -34,7 +34,11 @@ const createInvoiceHtml = ({
   invoiceDate,
   buyerName,
   buyerEmail,
+  buyerPhone,
+  buyerAddress,
   status,
+  paymentMethod,
+  paymentStatus,
   storeName,
   items,
   shippingFee,
@@ -110,10 +114,14 @@ const createInvoiceHtml = ({
           <h2>Sold To</h2>
           <p><strong>${escapeHtml(buyerName)}</strong></p>
           <p>${escapeHtml(buyerEmail)}</p>
+          ${buyerPhone ? `<p>${escapeHtml(buyerPhone)}</p>` : ""}
+          ${buyerAddress ? `<p>${escapeHtml(buyerAddress)}</p>` : ""}
         </div>
         <div class="card">
           <h2>Order Details</h2>
           <p><strong>Status:</strong> ${escapeHtml(status)}</p>
+          ${paymentMethod ? `<p><strong>Payment Method:</strong> ${escapeHtml(paymentMethod)}</p>` : ""}
+          ${paymentStatus ? `<p><strong>Payment Status:</strong> ${escapeHtml(paymentStatus)}</p>` : ""}
           <p><strong>Store:</strong> ${escapeHtml(storeName)}</p>
         </div>
       </section>
@@ -187,7 +195,11 @@ export const printInvoice = ({
   invoiceDate,
   buyerName,
   buyerEmail,
+  buyerPhone = "",
+  buyerAddress = "",
   status,
+  paymentMethod = "",
+  paymentStatus = "",
   storeName,
   items,
   shippingFee = 0,
@@ -205,7 +217,11 @@ export const printInvoice = ({
       invoiceDate,
       buyerName,
       buyerEmail,
+      buyerPhone,
+      buyerAddress,
       status,
+      paymentMethod,
+      paymentStatus,
       storeName,
       items,
       shippingFee,

@@ -14,6 +14,25 @@ function formatDateTime(value) {
   });
 }
 
+function normalizeCustomer(customer) {
+  const firstName = String(customer?.firstName || customer?.first_name || '').trim();
+  const lastName = String(customer?.lastName || customer?.last_name || '').trim();
+  const fullName =
+    String(customer?.fullName || customer?.full_name || `${firstName} ${lastName}` || customer?.email || 'Customer').trim() ||
+    'Customer';
+
+  return {
+    ...customer,
+    firstName,
+    lastName,
+    fullName,
+    email: String(customer?.email || '').trim(),
+    role: String(customer?.role || 'customer').trim() || 'customer',
+    createdAt: customer?.createdAt || customer?.created_at || null,
+    updatedAt: customer?.updatedAt || customer?.updated_at || null,
+  };
+}
+
 export default function AdminCustomers() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,7 +47,7 @@ export default function AdminCustomers() {
       try {
         const data = await apiAdminCustomers();
         if (!mounted) return;
-        setCustomers(Array.isArray(data) ? data : []);
+        setCustomers(Array.isArray(data) ? data.map(normalizeCustomer) : []);
         setError('');
       } catch (err) {
         if (!mounted) return;
@@ -49,7 +68,7 @@ export default function AdminCustomers() {
     if (!query) return customers;
 
     return customers.filter((customer) =>
-      [customer.fullName, customer.email, customer.role]
+      [customer.fullName, customer.email, customer.role, customer.firstName, customer.lastName]
         .join(' ')
         .toLowerCase()
         .includes(query)

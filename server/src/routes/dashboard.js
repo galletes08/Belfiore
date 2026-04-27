@@ -24,12 +24,31 @@ router.get('/api/admin/dashboard', async (_req, res) => {
     `;
 
     const lowStockQuery = `
-      SELECT
-        name,
-        stock AS qty
-      FROM products
-      WHERE stock <= 5
-      ORDER BY stock ASC, name ASC
+      WITH tagged_products AS (
+        SELECT
+          CASE
+            WHEN LOWER(COALESCE(p.tag, '')) = 'others' THEN 'aquaponics'
+            WHEN LOWER(COALESCE(c.name, '')) = 'aquaponics' THEN 'aquaponics'
+            WHEN LOWER(COALESCE(p.tag, '')) IN ('white', 'green', 'red', 'clumps', 'bundles') THEN LOWER(p.tag)
+            ELSE LOWER(COALESCE(NULLIF(BTRIM(p.tag), ''), 'unassigned'))
+          END AS tag_key,
+          CASE
+            WHEN LOWER(COALESCE(p.tag, '')) = 'others' THEN 'Aquaponics'
+            WHEN LOWER(COALESCE(c.name, '')) = 'aquaponics' THEN 'Aquaponics'
+            WHEN LOWER(COALESCE(p.tag, '')) IN ('white', 'green', 'red', 'clumps', 'bundles') THEN INITCAP(LOWER(p.tag))
+            ELSE INITCAP(COALESCE(NULLIF(BTRIM(p.tag), ''), 'Unassigned'))
+          END AS tag_label,
+          COUNT(*)::int AS product_count,
+          SUM(COALESCE(p.stock, 0))::int AS qty
+        FROM products p
+        LEFT JOIN types t ON t.id = p.type_id
+        LEFT JOIN categories c ON c.id = t.category_id
+        GROUP BY 1, 2
+      )
+      SELECT tag_key, tag_label, product_count, qty
+      FROM tagged_products
+      WHERE qty <= 5
+      ORDER BY qty ASC, tag_label ASC
       LIMIT 8;
     `;
 

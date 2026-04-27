@@ -8,6 +8,14 @@ const statusStyles = {
   pending: 'bg-amber-100 text-amber-800',
 };
 
+const tagStyles = {
+  white: 'bg-gray-100 text-gray-700 ring-gray-200',
+  green: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
+  red: 'bg-rose-100 text-rose-700 ring-rose-200',
+  aquaponics: 'bg-amber-100 text-amber-800 ring-amber-200',
+  unassigned: 'bg-slate-100 text-slate-700 ring-slate-200',
+};
+
 export default function AdminDashboard() {
   const [chartView, setChartView] = useState('monthly');
   const [salesData, setSalesData] = useState([]);
@@ -151,18 +159,24 @@ export default function AdminDashboard() {
 
         <div className="bg-white rounded-[10px] p-6 shadow-sm">
           <h3 className="m-0 mb-2 text-[1.1rem] font-bold text-gray-800">Low Stock Alert</h3>
-          <p className="text-red-600 text-sm font-semibold m-0 mb-4">Restock Needed</p>
-          <div className="grid grid-cols-2 gap-3">
-            {lowStock.map((item, i) => (
-              <div key={`${item.name}-${i}`} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
-                <span className="text-2xl">P</span>
-                <div>
-                  <p className="m-0 text-sm font-semibold text-gray-800">{item.name}</p>
-                  <p className="m-0.5 mt-0 text-[0.8rem] text-gray-600">{item.qty} Left</p>
+          <p className="text-red-600 text-sm font-semibold m-0 mb-4">Tag-based restock needed</p>
+          {lowStock.length === 0 ? (
+            <div className="rounded-lg bg-gray-50 p-3 text-sm text-gray-500">No tags are currently at low stock.</div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {lowStock.map((item, i) => (
+                <div key={`${item.tag_key || item.tag_label || i}`} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${tagStyles[item.tag_key] || tagStyles.unassigned}`}>
+                    {item.tag_label || item.tag_key || 'Tag'}
+                  </span>
+                  <div>
+                    <p className="m-0 text-sm font-semibold text-gray-800">{item.qty} total stock</p>
+                    <p className="m-0.5 mt-0 text-[0.8rem] text-gray-600">{item.product_count} product(s) in this tag</p>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

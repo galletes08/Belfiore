@@ -82,6 +82,13 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
     [form.streetAddress, form.barangay, form.city, form.province, form.zipCode, form.country]
   );
   const countryHasProvinces = provinceOptions.length > 0;
+  const isLagunaDeliveryArea = useMemo(() => {
+    const country = String(form.country || '').trim().toLowerCase();
+    const province = String(form.province || '').trim().toLowerCase();
+
+    if (country && country !== 'philippines') return false;
+    return province.includes('laguna');
+  }, [form.country, form.province]);
 
   useEffect(() => {
     let active = true;
@@ -300,6 +307,11 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
   }
 
   function handleCaptureMapLocation() {
+    if (!isLagunaDeliveryArea) {
+      setLocationCaptureMessage('Map pin tracking is available for Laguna deliveries only.');
+      return;
+    }
+
     if (!navigator.geolocation) {
       setLocationCaptureMessage('This device does not support GPS location sharing.');
       return;
@@ -653,21 +665,25 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                     <button
                       type="button"
                       onClick={handleCaptureMapLocation}
-                      disabled={isCapturingLocation}
-                      className="rounded-full border border-[#0b7a3c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7a3c] transition hover:bg-[#0b7a3c] hover:text-white disabled:cursor-not-allowed disabled:border-[#9eb1a5] disabled:text-[#9eb1a5]"
+                      disabled={isCapturingLocation || !isLagunaDeliveryArea}
+                      className="rounded-full border border-[#0b7a3c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7a3c] transition hover:bg-[#0b7a3c] hover:text-white disabled:cursor-not-allowed disabled:border-[#9eb1a5] disabled:text-[#9eb1a5] disabled:hover:bg-transparent disabled:hover:text-[#9eb1a5]"
                     >
                       {isCapturingLocation
                         ? 'Getting GPS...'
-                        : form.customerLatitude != null && form.customerLongitude != null
-                          ? 'Update Map Pin'
-                          : 'Use Current Location'}
+                        : !isLagunaDeliveryArea
+                          ? 'Laguna Orders Only'
+                          : form.customerLatitude != null && form.customerLongitude != null
+                            ? 'Update Map Pin'
+                            : 'Use Current Location'}
                     </button>
                   </div>
 
                   <p className="mt-3 text-xs text-[#5e6f65]">
                     {form.customerLatitude != null && form.customerLongitude != null
                       ? `Saved coordinates: ${Number(form.customerLatitude).toFixed(5)}, ${Number(form.customerLongitude).toFixed(5)}`
-                      : 'No GPS pin saved yet. The selected address above is still required.'}
+                      : isLagunaDeliveryArea
+                        ? 'No GPS pin saved yet. The selected address above is still required.'
+                        : 'Map pin tracking is only enabled for Laguna delivery addresses.'}
                   </p>
                   {locationCaptureMessage ? <p className="mt-2 text-xs text-[#0f4d2e]">{locationCaptureMessage}</p> : null}
                 </div>

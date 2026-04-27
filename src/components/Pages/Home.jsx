@@ -1,9 +1,13 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, CreditCard, Headset, Leaf, ShieldCheck, Truck } from "lucide-react";
 import { productsData } from "../../data/productsData";
-import awardImage from "../../assets/Award.jpg";
 import blogImage from "../../assets/Blog.png";
-import plantsImage from "../../assets/Plants.jpg";
+import aloeImage from "../../assets/aloe.jpg";
+import aquaImage from "../../assets/aqua.jpg";
+import whiteImage from "../../assets/white.jpg";
+import greenImage from "../../assets/green.jpg";
+import redImage from "../../assets/red.jpg";
+import letuceImage from "../../assets/letuce.jpg";
 
 const serviceHighlights = [
   {
@@ -29,14 +33,32 @@ const serviceHighlights = [
 ];
 
 const collectionCards = [
-  { key: "white", label: "White Tags", image: awardImage, accent: "text-gray-700", bg: "bg-gray-100" },
-  { key: "green", label: "Green Tags", image: plantsImage, accent: "text-emerald-700", bg: "bg-emerald-100" },
-  { key: "red", label: "Red Tags", image: blogImage, accent: "text-rose-700", bg: "bg-rose-100" },
-  { key: "aquaponics", label: "Aquaponics", image: plantsImage, accent: "text-amber-700", bg: "bg-amber-100" }
+  { key: "white", label: "White Tags", image: whiteImage, accent: "text-gray-700", bg: "bg-gray-100" },
+  { key: "green", label: "Green Tags", image: greenImage, accent: "text-emerald-700", bg: "bg-emerald-100" },
+  { key: "red", label: "Red Tags", image: redImage, accent: "text-rose-700", bg: "bg-rose-100" },
+  { key: "aquaponics", label: "Aquaponics", image: letuceImage, accent: "text-amber-700", bg: "bg-amber-100" }
 ];
 
-const featuredProducts = productsData.filter((item) => item.tag === "red").slice(0, 4);
-const featuredImages = [plantsImage, awardImage, blogImage, plantsImage];
+const featuredCollections = [
+  {
+    key: "aloe",
+    title: "Aloe Signature",
+    description: "Sculptural aloe hybrids with striking form, bright energy, and easy-care appeal.",
+    image: aloeImage,
+    accent: "text-emerald-800",
+    bg: "bg-emerald-100",
+    subtitle: "Statement plants for gifting, styling, and bright indoor corners."
+  },
+  {
+    key: "aquaponics",
+    title: "Aqua Fresh Harvest",
+    description: "Crisp aquaponics greens grown clean and ready for daily meals.",
+    image: aquaImage,
+    accent: "text-amber-800",
+    bg: "bg-amber-100",
+    subtitle: "Fresh-picked greens that look good on the table and taste even better."
+  },
+];
 
 const normalizeTag = (tag) => {
   const normalizedTag = String(tag || "").trim().toLowerCase();
@@ -131,28 +153,31 @@ export default function Home() {
       <section className="mx-auto max-w-6xl px-6 pb-16">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-600">Featured</p>
-            <h2 className="mt-2 text-2xl font-bold text-gray-900 md:text-3xl">Rare Plant Red Tags</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-700">Spotlight</p>
+            <h2 className="mt-2 text-2xl font-bold text-gray-900 md:text-3xl">Aloe and Aqua favorites</h2>
           </div>
-          <Link to="/products" className="text-sm font-semibold text-rose-700 hover:text-rose-800">
-            Explore red tags
+          <Link to="/products" className="text-sm font-semibold text-emerald-700 hover:text-emerald-800">
+            Explore the full shop
           </Link>
         </div>
 
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {featuredProducts.map((product, index) => (
+        <div className="grid gap-5 lg:grid-cols-2">
+          {featuredCollections.map((collection) => (
             <article
-              key={product.id}
+              key={collection.key}
               className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md"
             >
-              <img src={featuredImages[index]} alt={product.name} className="h-44 w-full object-cover" />
-              <div className="p-4">
-                <p className="inline-flex rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">Red Tag</p>
-                <h3 className="mt-3 text-base font-semibold text-gray-900">{product.name}</h3>
-                <p className="mt-1 text-sm text-gray-500">{product.note}</p>
-                <div className="mt-3 flex items-center justify-between">
-                  <p className="font-semibold text-emerald-700">{product.price}</p>
-                  <p className="text-xs text-gray-500">Stock: {product.stock}</p>
+              <div className="grid md:grid-cols-2">
+                <img src={collection.image} alt={collection.title} className="h-full min-h-64 w-full object-cover" />
+                <div className="flex flex-col justify-between p-5">
+                  <div>
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${collection.bg} ${collection.accent}`}>
+                      {collection.title}
+                    </span>
+                    <h3 className="mt-4 text-xl font-semibold text-gray-900">{collection.subtitle}</h3>
+                    <p className="mt-3 text-sm leading-relaxed text-gray-600">{collection.description}</p>
+                  </div>
+                  <p className="mt-5 text-sm font-medium text-gray-500">{collection.subtitle}</p>
                 </div>
               </div>
             </article>

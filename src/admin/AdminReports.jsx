@@ -9,6 +9,45 @@ const statusLabelMap = {
   Cancelled: 'Cancelled',
 };
 
+const tagStyles = {
+  white: 'bg-gray-100 text-gray-700 ring-gray-200',
+  green: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
+  red: 'bg-rose-100 text-rose-700 ring-rose-200',
+  aquaponics: 'bg-amber-100 text-amber-800 ring-amber-200',
+  unassigned: 'bg-slate-100 text-slate-700 ring-slate-200',
+};
+
+function normalizeCustomer(customer) {
+  const firstName = String(customer?.firstName || customer?.first_name || '').trim();
+  const lastName = String(customer?.lastName || customer?.last_name || '').trim();
+  const fullName =
+    String(customer?.fullName || customer?.full_name || `${firstName} ${lastName}` || customer?.email || 'Customer').trim() ||
+    'Customer';
+
+  return {
+    ...customer,
+    firstName,
+    lastName,
+    fullName,
+    email: String(customer?.email || '').trim(),
+    createdAt: customer?.createdAt || customer?.created_at || null,
+    updatedAt: customer?.updatedAt || customer?.updated_at || null,
+  };
+}
+
+function normalizeLowStockItem(item) {
+  const tagKey = String(item?.tag_key || item?.tagKey || item?.tag || '').trim().toLowerCase() || 'unassigned';
+  const tagLabel = String(item?.tag_label || item?.tagLabel || item?.name || item?.tag || 'Tag').trim() || 'Tag';
+
+  return {
+    ...item,
+    tag_key: tagKey,
+    tag_label: tagLabel,
+    product_count: Number(item?.product_count ?? item?.productCount ?? 0) || 0,
+    qty: Number(item?.qty ?? item?.stock ?? 0) || 0,
+  };
+}
+
 function formatCurrency(amount) {
   return new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -44,7 +83,7 @@ export default function AdminReports() {
     async function loadReports() {
       setLoading(true);
       try {
-        const [dashboardData, ordersData, ridersData, customersData] = await Promise.all([
+        const [dashboardResult, ordersResult, ridersResult, customersResult] = await Promise.allSettled([
           apiDashboard(),
           apiAdminOrders(),
           apiAdminRiders(),
@@ -53,16 +92,32 @@ export default function AdminReports() {
 
         if (!mounted) return;
 
+        const dashboardData = dashboardResult.status === 'fulfilled' ? dashboardResult.value : null;
+        const ordersData = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
+        const ridersData = ridersResult.status === 'fulfilled' ? ridersResult.value : [];
+        const customersData = customersResult.status === 'fulfilled' ? customersResult.value : [];
+
         setDashboard({
-          salesData: Array.isArray(dashboardData.salesData) ? dashboardData.salesData : [],
-          lowStock: Array.isArray(dashboardData.lowStock) ? dashboardData.lowStock : [],
-          recentOrders: Array.isArray(dashboardData.recentOrders) ? dashboardData.recentOrders : [],
-          totals: dashboardData.totals || {},
+          salesData: Array.isArray(dashboardData?.salesData) ? dashboardData.salesData : [],
+          lowStock: Array.isArray(dashboardData?.lowStock) ? dashboardData.lowStock.map(normalizeLowStockItem) : [],
+          recentOrders: Array.isArray(dashboardData?.recentOrders) ? dashboardData.recentOrders : [],
+          totals: dashboardData?.totals || {},
         });
         setOrders(Array.isArray(ordersData) ? ordersData : []);
         setRiders(Array.isArray(ridersData) ? ridersData : []);
-        setCustomers(Array.isArray(customersData) ? customersData : []);
-        setError('');
+        setCustomers(Array.isArray(customersData) ? customersData.map(normalizeCustomer) : []);
+
+        const failures = [
+          dashboardResult,
+          ordersResult,
+          ridersResult,
+          customersResult,
+        ].filter((result) => result.status === 'rejected');
+        setError(
+          failures.length > 0
+            ? failures.map((result) => result.reason?.message || 'One section failed to load').join(' ')
+            : ''
+        );
       } catch (err) {
         if (!mounted) return;
         setError(err.message || 'Failed to load reports');
@@ -209,18 +264,18 @@ export default function AdminReports() {
                 <h2 className="text-xl font-bold text-gray-900">Low Stock</h2>
               </div>
               {dashboard.lowStock.length === 0 ? (
-                <div className="p-6 text-sm text-gray-500">No products are currently at low stock.</div>
+                <div className="p-6 text-sm text-gray-500">No tags are currently at low stock.</div>
               ) : (
                 <div className="grid gap-3 px-6 py-6 sm:px-8">
                   {dashboard.lowStock.map((item) => (
-                    <div key={item.name} className="flex items-center justify-between rounded-2xl bg-amber-50 px-4 py-3">
+                    <div key={item.tag_key || item.tag_label} className="flex items-center justify-between rounded-2xl bg-amber-50 px-4 py-3">
                       <div>
-                        <p className="font-medium text-gray-900">{item.name}</p>
-                        <p className="text-xs text-gray-500">Needs restock soon</p>
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${tagStyles[item.tag_key] || tagStyles.unassigned}`}>
+                          {item.tag_label || item.tag_key || 'Tag'}
+                        </span>
+                        <p className="mt-2 text-sm font-medium text-gray-900">{item.qty} total stock</p>
+                        <p className="text-xs text-gray-500">{item.product_count} product(s) in this tag</p>
                       </div>
-                      <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-amber-800 ring-1 ring-amber-200">
-                        {item.qty} left
-                      </span>
                     </div>
                   ))}
                 </div>

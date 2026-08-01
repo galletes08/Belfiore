@@ -1,6 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Search, ShoppingCart, SlidersHorizontal, Sprout } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  ShoppingCart,
+  SlidersHorizontal,
+  Sprout,
+  X
+} from "lucide-react";
+
 import { apiProducts, getImageUrl } from "../../api/client";
 import awardImage from "../../assets/Award.jpg";
 import blogImage from "../../assets/Blog.png";
@@ -16,63 +26,114 @@ const tagTabs = [
 
 const sortOptions = [
   { value: "featured", label: "Featured" },
-  { value: "name-asc", label: "Name A-Z" },
-  { value: "name-desc", label: "Name Z-A" },
-  { value: "price-low", label: "Price Low-High" },
-  { value: "price-high", label: "Price High-Low" },
-  { value: "stock-high", label: "Stock High-Low" }
+  { value: "name-asc", label: "Name: A–Z" },
+  { value: "name-desc", label: "Name: Z–A" },
+  { value: "price-low", label: "Price: Low to High" },
+  { value: "price-high", label: "Price: High to Low" },
+  { value: "stock-high", label: "Stock: High to Low" }
 ];
 
 const badgeStyles = {
-  white: "bg-gray-100 text-gray-700 ring-gray-200",
-  green: "bg-emerald-100 text-emerald-700 ring-emerald-200",
-  red: "bg-rose-100 text-rose-700 ring-rose-200",
-  aquaponics: "bg-amber-100 text-amber-700 ring-amber-200"
+  white: "border-slate-200 bg-white text-slate-700",
+  green: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  red: "border-rose-200 bg-rose-50 text-rose-700",
+  aquaponics: "border-amber-200 bg-amber-50 text-amber-700"
 };
 
-const cardImages = [plantsImage, awardImage, blogImage, plantsImage];
+const cardImages = [
+  plantsImage,
+  awardImage,
+  blogImage,
+  plantsImage
+];
+
+const AQUAPONICS_TAG = "aquaponics";
+const PRODUCTS_PER_PAGE = 15;
+const MAX_VISIBLE_PAGE_BUTTONS = 5;
 
 const formatPhp = (amount) =>
   new Intl.NumberFormat("en-PH", {
     style: "currency",
     currency: "PHP",
     minimumFractionDigits: 0
-  }).format(amount);
+  }).format(Number.isFinite(amount) ? amount : 0);
 
 const getPriceNumber = (value) => {
-  if (typeof value === "number") return value;
-  return Number(String(value).replace(/[^\d.]/g, ""));
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const parsedValue = Number(
+    String(value ?? "").replace(/[^\d.]/g, "")
+  );
+
+  return Number.isFinite(parsedValue) ? parsedValue : 0;
 };
 
-const AQUAPONICS_TAG = "aquaponics";
+const getStockNumber = (value) => {
+  const parsedValue = Number(value);
+
+  return Number.isFinite(parsedValue) ? parsedValue : 0;
+};
 
 const normalizeTag = (tag, category) => {
-  const normalizedTag = String(tag || "").trim().toLowerCase();
-  const normalizedCategory = String(category || "").trim().toLowerCase();
+  const normalizedTag = String(tag || "")
+    .trim()
+    .toLowerCase();
 
-  if (["white", "green", "red"].includes(normalizedTag)) return normalizedTag;
-  if ([AQUAPONICS_TAG, "others"].includes(normalizedTag)) return AQUAPONICS_TAG;
-  if (normalizedCategory === AQUAPONICS_TAG) return AQUAPONICS_TAG;
+  const normalizedCategory = String(category || "")
+    .trim()
+    .toLowerCase();
+
+  if (["white", "green", "red"].includes(normalizedTag)) {
+    return normalizedTag;
+  }
+
+  if ([AQUAPONICS_TAG, "others"].includes(normalizedTag)) {
+    return AQUAPONICS_TAG;
+  }
+
+  if (normalizedCategory === AQUAPONICS_TAG) {
+    return AQUAPONICS_TAG;
+  }
+
   return AQUAPONICS_TAG;
 };
 
 const getDisplayTag = (tag, category) => {
-  const normalizedTag = String(tag || "").trim().toLowerCase();
-  const normalizedCategory = String(category || "").trim().toLowerCase();
+  const normalizedTag = String(tag || "")
+    .trim()
+    .toLowerCase();
 
-  if (normalizedTag === "others") return "Aquaponics";
-  if (!normalizedTag && normalizedCategory === AQUAPONICS_TAG) return "Aquaponics";
+  const normalizedCategory = String(category || "")
+    .trim()
+    .toLowerCase();
+
+  if (normalizedTag === "others") {
+    return "Aquaponics";
+  }
+
+  if (
+    !normalizedTag &&
+    normalizedCategory === AQUAPONICS_TAG
+  ) {
+    return "Aquaponics";
+  }
+
   return tag || category || "Plant";
 };
 
 export default function Products({ onAddToCart }) {
   const navigate = useNavigate();
+
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+
   const [activeTag, setActiveTag] = useState("all");
   const [searchValue, setSearchValue] = useState("");
   const [sortBy, setSortBy] = useState("featured");
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     let ignore = false;
@@ -80,13 +141,19 @@ export default function Products({ onAddToCart }) {
     const loadProducts = async () => {
       setLoading(true);
       setLoadError("");
+
       try {
         const data = await apiProducts();
-        if (ignore) return;
-        setProducts(Array.isArray(data) ? data : []);
+
+        if (!ignore) {
+          setProducts(Array.isArray(data) ? data : []);
+        }
       } catch (error) {
-        if (ignore) return;
-        setLoadError(error.message || "Failed to load products");
+        if (!ignore) {
+          setLoadError(
+            error?.message || "Failed to load products."
+          );
+        }
       } finally {
         if (!ignore) {
           setLoading(false);
@@ -103,173 +170,523 @@ export default function Products({ onAddToCart }) {
 
   const filteredProducts = useMemo(() => {
     const keyword = searchValue.trim().toLowerCase();
+
     const mappedProducts = products.map((item, index) => ({
       ...item,
-      note: item.description || `${item.category || "Plant"} item`,
+      name: item.name || "Untitled product",
+      note:
+        item.description ||
+        `${item.category || "Plant"} item`,
+      stock: getStockNumber(item.stock),
       tagKey: normalizeTag(item.tag, item.category),
-      image: getImageUrl(item.imageUrl) || cardImages[index % cardImages.length]
+      image:
+        getImageUrl(item.imageUrl) ||
+        cardImages[index % cardImages.length]
     }));
 
     const baseList = mappedProducts.filter((item) => {
-      const passTag = activeTag === "all" || item.tagKey === activeTag;
-      if (!passTag) return false;
-      if (!keyword) return true;
-      return `${item.name} ${item.tag} ${item.category} ${item.note}`.toLowerCase().includes(keyword);
+      const matchesTag =
+        activeTag === "all" || item.tagKey === activeTag;
+
+      if (!matchesTag) {
+        return false;
+      }
+
+      if (!keyword) {
+        return true;
+      }
+
+      const searchableText = [
+        item.name,
+        item.tag,
+        item.category,
+        item.note
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return searchableText.includes(keyword);
     });
 
-    const list = [...baseList];
+    const sortedList = [...baseList];
 
-    if (sortBy === "name-asc") list.sort((a, b) => a.name.localeCompare(b.name));
-    if (sortBy === "name-desc") list.sort((a, b) => b.name.localeCompare(a.name));
-    if (sortBy === "price-low") list.sort((a, b) => getPriceNumber(a.price) - getPriceNumber(b.price));
-    if (sortBy === "price-high") list.sort((a, b) => getPriceNumber(b.price) - getPriceNumber(a.price));
-    if (sortBy === "stock-high") list.sort((a, b) => b.stock - a.stock);
+    if (sortBy === "name-asc") {
+      sortedList.sort((a, b) =>
+        String(a.name).localeCompare(String(b.name))
+      );
+    }
 
-    return list;
+    if (sortBy === "name-desc") {
+      sortedList.sort((a, b) =>
+        String(b.name).localeCompare(String(a.name))
+      );
+    }
+
+    if (sortBy === "price-low") {
+      sortedList.sort(
+        (a, b) =>
+          getPriceNumber(a.price) -
+          getPriceNumber(b.price)
+      );
+    }
+
+    if (sortBy === "price-high") {
+      sortedList.sort(
+        (a, b) =>
+          getPriceNumber(b.price) -
+          getPriceNumber(a.price)
+      );
+    }
+
+    if (sortBy === "stock-high") {
+      sortedList.sort((a, b) => b.stock - a.stock);
+    }
+
+    return sortedList;
   }, [activeTag, products, searchValue, sortBy]);
 
-  const totalStock = filteredProducts.reduce((sum, item) => sum + item.stock, 0);
-  const lowStock = filteredProducts.filter((item) => item.stock <= 5).length;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(
+      filteredProducts.length / PRODUCTS_PER_PAGE
+    )
+  );
+
+  const paginatedProducts = useMemo(() => {
+    const startIndex =
+      (currentPage - 1) * PRODUCTS_PER_PAGE;
+
+    return filteredProducts.slice(
+      startIndex,
+      startIndex + PRODUCTS_PER_PAGE
+    );
+  }, [currentPage, filteredProducts]);
+
+  const visiblePageNumbers = useMemo(() => {
+    const visibleCount = Math.min(
+      MAX_VISIBLE_PAGE_BUTTONS,
+      totalPages
+    );
+
+    const halfWindow = Math.floor(visibleCount / 2);
+
+    let startPage = Math.max(
+      1,
+      currentPage - halfWindow
+    );
+
+    let endPage = startPage + visibleCount - 1;
+
+    if (endPage > totalPages) {
+      endPage = totalPages;
+      startPage = Math.max(
+        1,
+        endPage - visibleCount + 1
+      );
+    }
+
+    return Array.from(
+      { length: endPage - startPage + 1 },
+      (_, index) => startPage + index
+    );
+  }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTag, searchValue, sortBy]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const totalStock = filteredProducts.reduce(
+    (sum, item) => sum + item.stock,
+    0
+  );
+
+  const lowStock = filteredProducts.filter(
+    (item) => item.stock > 0 && item.stock <= 5
+  ).length;
+
+  const filtersAreActive =
+    activeTag !== "all" ||
+    searchValue.trim() !== "" ||
+    sortBy !== "featured";
+
+  const clearFilters = () => {
+    setActiveTag("all");
+    setSearchValue("");
+    setSortBy("featured");
+  };
 
   return (
-    <div className="bg-[linear-gradient(180deg,#f3f8f3_0%,#ffffff_38%,#f4f7f3_100%)] text-gray-900">
-      <section className="border-b border-emerald-100 bg-[radial-gradient(circle_at_top_right,#bbf7d0_0%,#ecfdf5_30%,#f8fafc_75%)]">
-        <div className="mx-auto max-w-6xl px-6 py-12">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Plant Catalog</p>
-          <h1 className="mt-3 text-3xl font-bold md:text-4xl">Find the right succulent for your space</h1>
-          <p className="mt-3 max-w-2xl text-sm text-gray-600 md:text-base">
-            Explore white, green, red tags, and our tubo collection. Filter quickly and pick your next plant baby.
-          </p>
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      {/* Header */}
+      <header className="border-b border-emerald-200 bg-emerald-50">
+        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8 lg:py-12">
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                <Sprout size={14} aria-hidden="true" />
+                Plant catalog
+              </div>
 
-          <div className="mt-7 grid gap-3 sm:grid-cols-3">
-            <article className="rounded-xl border border-white bg-white/90 px-4 py-3 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.15em] text-gray-500">Products</p>
-              <p className="mt-1 text-2xl font-bold text-gray-900">{filteredProducts.length}</p>
-            </article>
-            <article className="rounded-xl border border-white bg-white/90 px-4 py-3 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.15em] text-gray-500">Total Stock</p>
-              <p className="mt-1 text-2xl font-bold text-gray-900">{totalStock}</p>
-            </article>
-            <article className="rounded-xl border border-white bg-white/90 px-4 py-3 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.15em] text-gray-500">Low Stock Items</p>
-              <p className="mt-1 text-2xl font-bold text-gray-900">{lowStock}</p>
-            </article>
+              <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">
+                Find the right plant for your space.
+              </h1>
+
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
+                Browse our white, green, red-tagged, and
+                aquaponics selections. Use the filters to
+                quickly find the best match for your space.
+              </p>
+            </div>
+
+            {/* Statistics */}
+            <dl className="grid grid-cols-3 divide-x divide-emerald-100 rounded-2xl border border-emerald-200 bg-white/80 px-2 py-4 shadow-sm sm:min-w-[390px]">
+              <div className="px-4">
+                <dt className="text-xs font-medium text-slate-500">
+                  Products
+                </dt>
+
+                <dd className="mt-1 text-xl font-bold text-slate-950">
+                  {loading
+                    ? "—"
+                    : filteredProducts.length}
+                </dd>
+              </div>
+
+              <div className="px-4">
+                <dt className="text-xs font-medium text-slate-500">
+                  In stock
+                </dt>
+
+                <dd className="mt-1 text-xl font-bold text-emerald-700">
+                  {loading ? "—" : totalStock}
+                </dd>
+              </div>
+
+              <div className="px-4">
+                <dt className="text-xs font-medium text-slate-500">
+                  Low stock
+                </dt>
+
+                <dd className="mt-1 text-xl font-bold text-amber-600">
+                  {loading ? "—" : lowStock}
+                </dd>
+              </div>
+            </dl>
           </div>
         </div>
-      </section>
+      </header>
 
-      <main className="mx-auto max-w-6xl px-6 py-10">
-        <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap gap-2">
-              {tagTabs.map((tab) => (
+      <main className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6 lg:px-8 lg:py-1">
+        {/* Filters */}
+        <section className="rounded-2xl border border-slate-300 bg-white p-4 shadow-sm sm:p-5">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto] lg:items-center lg:gap-4">
+            {/* Search */}
+            <label className="relative block lg:col-start-1">
+              <span className="sr-only">
+                Search products
+              </span>
+
+              <Search
+                size={18}
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                aria-hidden="true"
+              />
+
+              <input
+                type="search"
+                value={searchValue}
+                onChange={(event) =>
+                  setSearchValue(event.target.value)
+                }
+                placeholder="Search products..."
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-100"
+              />
+            </label>
+
+            {/* Sort */}
+            <label className="relative block">
+              <span className="sr-only">
+                Sort products
+              </span>
+
+              <SlidersHorizontal
+                size={17}
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                aria-hidden="true"
+              />
+
+              <select
+                value={sortBy}
+                onChange={(event) =>
+                  setSortBy(event.target.value)
+                }
+                className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-8 text-sm text-slate-700 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-100"
+              >
+                {sortOptions.map((option) => (
+                  <option
+                    key={option.value}
+                    value={option.value}
+                  >
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {/* Clear filters */}
+            {filtersAreActive && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+              >
+                <X size={16} aria-hidden="true" />
+                Clear
+              </button>
+            )}
+          </div>
+
+          {/* Tag filters */}
+          <div className="mt-4 flex gap-2 overflow-x-auto border-t border-slate-100 pt-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {tagTabs.map((tab) => {
+              const isActive = activeTag === tab.key;
+
+              return (
                 <button
                   key={tab.key}
-                  onClick={() => setActiveTag(tab.key)}
-                  className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                    activeTag === tab.key
-                      ? "bg-emerald-700 text-white"
-                      : "bg-gray-100 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700"
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() =>
+                    setActiveTag(tab.key)
+                  }
+                  className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-4 focus:ring-emerald-100 ${
+                    isActive
+                      ? "bg-emerald-700 text-white shadow-sm"
+                      : "bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
                   }`}
                 >
                   {tab.label}
                 </button>
-              ))}
-            </div>
-
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <label className="relative">
-                <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="search"
-                  value={searchValue}
-                  onChange={(event) => setSearchValue(event.target.value)}
-                  placeholder="Search by name, tag, or note"
-                  className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-700 outline-none ring-emerald-200 focus:ring-2 sm:w-64"
-                />
-              </label>
-
-              <label className="relative">
-                <SlidersHorizontal size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <select
-                  value={sortBy}
-                  onChange={(event) => setSortBy(event.target.value)}
-                  className="w-full appearance-none rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-8 text-sm text-gray-700 outline-none ring-emerald-200 focus:ring-2 sm:w-52"
-                >
-                  {sortOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+              );
+            })}
           </div>
         </section>
 
-        <section className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {/* Product heading */}
+        <div className="mt-8 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+              Available collection
+            </p>
+
+            <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">
+              Products
+            </h2>
+          </div>
+
+          {!loading && !loadError && (
+            <p className="text-sm text-slate-500">
+              {filteredProducts.length}{" "}
+              {filteredProducts.length === 1
+                ? "result"
+                : "results"}
+            </p>
+          )}
+        </div>
+
+        {/* Product grid */}
+        <section className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {loading ? (
-            <div className="col-span-full rounded-2xl border border-gray-200 bg-white p-10 text-center text-sm text-gray-500">
-              Loading products...
-            </div>
+            Array.from({ length: 10 }).map(
+              (_, index) => (
+                <div
+                  key={index}
+                  className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
+                  aria-hidden="true"
+                >
+                  <div className="aspect-[4/3] animate-pulse bg-slate-200" />
+
+                  <div className="space-y-4 p-5">
+                    <div className="h-5 w-3/4 animate-pulse rounded bg-slate-200" />
+
+                    <div className="space-y-2">
+                      <div className="h-3 w-full animate-pulse rounded bg-slate-100" />
+                      <div className="h-3 w-2/3 animate-pulse rounded bg-slate-100" />
+                    </div>
+
+                    <div className="h-10 animate-pulse rounded-xl bg-slate-200" />
+                  </div>
+                </div>
+              )
+            )
           ) : loadError ? (
-            <div className="col-span-full rounded-2xl border border-red-200 bg-red-50 p-10 text-center text-sm text-red-700">
-              {loadError}
+            <div className="col-span-full rounded-2xl border border-rose-200 bg-rose-50 px-6 py-12 text-center">
+              <p className="font-semibold text-rose-800">
+                Unable to load products
+              </p>
+
+              <p className="mt-2 text-sm text-rose-700">
+                {loadError}
+              </p>
             </div>
           ) : filteredProducts.length === 0 ? (
-            <div className="col-span-full rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center">
-              <p className="text-sm text-gray-500">No products match your search and filter.</p>
+            <div className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+                <Search
+                  size={20}
+                  aria-hidden="true"
+                />
+              </div>
+
+              <h3 className="mt-4 font-semibold text-slate-900">
+                No products found
+              </h3>
+
+              <p className="mt-2 text-sm text-slate-500">
+                Try another keyword or clear the active
+                filters.
+              </p>
+
+              {filtersAreActive && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="mt-5 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
+                >
+                  Clear filters
+                </button>
+              )}
             </div>
           ) : (
-            filteredProducts.map((product) => {
-              const numericPrice = getPriceNumber(product.price);
+            paginatedProducts.map((product) => {
+              const numericPrice = getPriceNumber(
+                product.price
+              );
+
+              const isOutOfStock =
+                product.stock <= 0;
+
+              const isLowStock =
+                product.stock > 0 &&
+                product.stock <= 5;
 
               return (
                 <article
                   key={product.id}
-                  className="group overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md"
+                  className="group flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-lg hover:shadow-slate-200/60"
                 >
-                  <div
-                    onClick={() => navigate(`/product/${product.id}`)}
-                    className="relative h-48 cursor-pointer overflow-hidden"
+                  {/* Product image */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(
+                        `/product/${product.id}`
+                      )
+                    }
+                    className="relative block aspect-[4/3] w-full overflow-hidden bg-slate-100 text-left focus:outline-none focus:ring-4 focus:ring-inset focus:ring-emerald-200"
+                    aria-label={`View ${product.name}`}
                   >
                     <img
                       src={product.image}
                       alt={product.name}
-                      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                      loading="lazy"
+                      className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
-                    <span className={`absolute left-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${badgeStyles[product.tagKey]}`}>
-                      {getDisplayTag(product.tag, product.category).toUpperCase()}
+
+                    <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-slate-950/35 to-transparent" />
+
+                    {/* Tag badge */}
+                    <span
+                      className={`absolute left-3 top-3 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide shadow-sm ${
+                        badgeStyles[
+                          product.tagKey
+                        ]
+                      }`}
+                    >
+                      {getDisplayTag(
+                        product.tag,
+                        product.category
+                      )}
                     </span>
-                  </div>
 
-                  <div className="p-4">
-                    <h2 className="line-clamp-2 min-h-12 text-base font-semibold text-gray-900">{product.name}</h2>
-                    <p className="mt-2 text-sm text-gray-500">{product.note}</p>
+                    {/* Stock badge */}
+                    <span
+                      className={`absolute bottom-3 right-3 rounded-full px-2.5 py-1 text-[11px] font-semibold shadow-sm backdrop-blur ${
+                        isOutOfStock
+                          ? "bg-slate-950/80 text-white"
+                          : isLowStock
+                            ? "bg-amber-50/95 text-amber-700"
+                            : "bg-white/95 text-slate-700"
+                      }`}
+                    >
+                      {isOutOfStock
+                        ? "Out of stock"
+                        : isLowStock
+                          ? `Only ${product.stock} left`
+                          : `${product.stock} in stock`}
+                    </span>
+                  </button>
 
-                    <div className="mt-4 flex items-center justify-between">
-                      <p className="text-lg font-bold text-emerald-700">{formatPhp(numericPrice)}</p>
-                      <p className={`text-xs font-medium ${product.stock <= 5 ? "text-rose-600" : "text-gray-500"}`}>
-                        Stock: {product.stock}
+                  {/* Product details */}
+                  <div className="flex flex-1 flex-col p-5">
+                    <div className="flex-1">
+                      <h3 className="line-clamp-2 text-base font-bold leading-6 text-slate-950">
+                        {product.name}
+                      </h3>
+
+                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">
+                        {product.note}
                       </p>
                     </div>
 
-                    <button
-                      onClick={() => onAddToCart?.(product, 1)}
-                      className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800"
-                    >
-                      Add to Cart
-                      <ShoppingCart size={15} />
-                    </button>
+                    <p className="mt-5 text-xl font-bold tracking-tight text-emerald-700">
+                      {formatPhp(numericPrice)}
+                    </p>
 
-                    <button
-                      onClick={() => navigate(`/product/${product.id}`)}
-                      className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700"
-                    >
-                      View Product
-                      <ArrowRight size={15} />
-                    </button>
+                    {/* Product actions */}
+                    <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                      <button
+                        type="button"
+                        disabled={isOutOfStock}
+                        onClick={() =>
+                          onAddToCart?.(product, 1)
+                        }
+                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+                      >
+                        <ShoppingCart
+                          size={16}
+                          aria-hidden="true"
+                        />
+
+                        {isOutOfStock
+                          ? "Unavailable"
+                          : "Add to cart"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(
+                            `/product/${product.id}`
+                          )
+                        }
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                        aria-label={`View details for ${product.name}`}
+                        title="View details"
+                      >
+                        <ArrowRight
+                          size={17}
+                          aria-hidden="true"
+                        />
+                      </button>
+                    </div>
                   </div>
                 </article>
               );
@@ -277,15 +694,128 @@ export default function Products({ onAddToCart }) {
           )}
         </section>
 
-        <section className="mt-10 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-5">
-          <p className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-700">
-            <Sprout size={16} />
-            Plant tip
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-gray-700">
-            New to succulents? Start with medium-stock options and pair them with proper sunlight, light watering, and well-draining soil.
-          </p>
-        </section>
+        {/* Pagination */}
+        {!loading &&
+          !loadError &&
+          filteredProducts.length > 0 && (
+            <nav
+              className="mt-8 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+              aria-label="Product pagination"
+            >
+              <p className="text-sm text-slate-500">
+                Showing{" "}
+                <span className="font-semibold text-slate-700">
+                  {(currentPage - 1) *
+                    PRODUCTS_PER_PAGE +
+                    1}
+                </span>{" "}
+                to{" "}
+                <span className="font-semibold text-slate-700">
+                  {Math.min(
+                    currentPage *
+                      PRODUCTS_PER_PAGE,
+                    filteredProducts.length
+                  )}
+                </span>{" "}
+                of{" "}
+                <span className="font-semibold text-slate-700">
+                  {filteredProducts.length}
+                </span>{" "}
+                products
+              </p>
+
+              <div className="flex items-center justify-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.max(1, page - 1)
+                    )
+                  }
+                  disabled={currentPage === 1}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Go to previous page"
+                >
+                  <ChevronLeft
+                    size={18}
+                    aria-hidden="true"
+                  />
+                </button>
+
+                {visiblePageNumbers.map(
+                  (pageNumber) => {
+                    const isCurrentPage =
+                      currentPage === pageNumber;
+
+                    return (
+                      <button
+                        key={pageNumber}
+                        type="button"
+                        onClick={() =>
+                          setCurrentPage(
+                            pageNumber
+                          )
+                        }
+                        aria-current={
+                          isCurrentPage
+                            ? "page"
+                            : undefined
+                        }
+                        className={`inline-flex h-10 min-w-10 items-center justify-center rounded-xl px-3 text-sm font-semibold transition focus:outline-none focus:ring-4 focus:ring-emerald-100 ${
+                          isCurrentPage
+                            ? "bg-emerald-700 text-white shadow-sm"
+                            : "border border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
+                        }`}
+                      >
+                        {pageNumber}
+                      </button>
+                    );
+                  }
+                )}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.min(
+                        totalPages,
+                        page + 1
+                      )
+                    )
+                  }
+                  disabled={
+                    currentPage === totalPages
+                  }
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Go to next page"
+                >
+                  <ChevronRight
+                    size={18}
+                    aria-hidden="true"
+                  />
+                </button>
+              </div>
+            </nav>
+          )}
+
+        {/* Plant care tip */}
+        <aside className="mt-10 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-emerald-700 shadow-sm">
+            <Sprout size={17} aria-hidden="true" />
+          </div>
+
+          <div>
+            <p className="text-sm font-bold text-emerald-900">
+              Plant care tip
+            </p>
+
+            <p className="mt-1 text-sm leading-6 text-emerald-900/75">
+              Give succulents enough sunlight, water only
+              when the soil is dry, and use a
+              well-draining potting mix.
+            </p>
+          </div>
+        </aside>
       </main>
     </div>
   );

@@ -8,7 +8,7 @@ import {
 } from '../api/client';
 
 const CATEGORY_OPTIONS = ['Aquaponics', 'Aloe Hybrids'];
-const TAG_OPTIONS = ['White', 'Green', 'Red', 'Clumps', 'Bundles'];
+const TAG_OPTIONS = ['White', 'Green', 'Red'];
 const ALOE_CATEGORY = 'Aloe Hybrids';
 const AQUAPONICS_CATEGORY = 'Aquaponics';
 const AQUAPONICS_TAG = 'aquaponics';
@@ -19,9 +19,8 @@ const TAG_LABELS = {
   white: 'White',
   green: 'Green',
   red: 'Red',
-  clumps: 'Clumps',
-  bundles: 'Bundles',
 };
+const PRODUCTS_PER_PAGE = 20;
 
 const initialForm = {
   category: ALOE_CATEGORY,
@@ -43,6 +42,11 @@ function normalizeTagFilter(tag, category) {
   return normalizedTag || '';
 }
 
+function normalizeFormTag(tag) {
+  const normalizedTag = String(tag || '').trim().toLowerCase();
+  return TAG_OPTIONS.find((option) => option.toLowerCase() === normalizedTag) || 'Green';
+}
+
 export default function AdminInventory() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -52,6 +56,7 @@ export default function AdminInventory() {
   const [existingImageUrl, setExistingImageUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [selectedTagFilter, setSelectedTagFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
   const [error, setError] = useState('');
   const fileInputRef = useRef(null);
   const selectedFileRef = useRef(null);
@@ -88,7 +93,7 @@ export default function AdminInventory() {
     setForm({
       category,
       name: product.name || '',
-      tag: category === AQUAPONICS_CATEGORY ? AQUAPONICS_TAG : product.tag || 'Green',
+      tag: category === AQUAPONICS_CATEGORY ? AQUAPONICS_TAG : normalizeFormTag(product.tag),
       price: product.price != null ? String(product.price) : '',
       stock: product.stock != null ? String(product.stock) : '1',
       description: product.description || '',
@@ -210,6 +215,22 @@ export default function AdminInventory() {
     [products, selectedTagFilter]
   );
 
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / PRODUCTS_PER_PAGE));
+  const paginatedProducts = useMemo(() => {
+    const startIndex = (currentPage - 1) * PRODUCTS_PER_PAGE;
+    return filteredProducts.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
+  }, [currentPage, filteredProducts]);
+  const pageNumbers = Array.from({ length: totalPages }, (_, index) => index + 1);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
+  const selectTagFilter = (filter) => {
+    setSelectedTagFilter(filter);
+    setCurrentPage(1);
+  };
+
   const inventoryStats = useMemo(() => {
     const summary = TAG_ORDER.reduce((acc, key) => {
       acc[key] = { count: 0, stock: 0 };
@@ -252,7 +273,7 @@ export default function AdminInventory() {
                   <span className="mb-1 block text-xs uppercase tracking-[0.22em] text-emerald-100/80">Filter by Tag / Type</span>
                   <select
                     value={selectedTagFilter}
-                    onChange={(e) => setSelectedTagFilter(e.target.value)}
+                    onChange={(e) => selectTagFilter(e.target.value)}
                     className="min-w-52 rounded-2xl border border-white/20 bg-white px-4 py-3 text-sm font-medium text-gray-800 outline-none transition focus:border-emerald-300 focus:ring-4 focus:ring-emerald-200/40"
                   >
                     {TAG_ORDER.map((filter) => (
@@ -306,7 +327,7 @@ export default function AdminInventory() {
                   <button
                     key={filter}
                     type="button"
-                    onClick={() => setSelectedTagFilter(filter)}
+                    onClick={() => selectTagFilter(filter)}
                     className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
                       isActive
                         ? 'border-[#0f4d2e] bg-[#0f4d2e] text-white shadow-sm'
@@ -346,8 +367,9 @@ export default function AdminInventory() {
               No products match the selected tag / type.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50/80">
                     <th className="py-4 px-5 text-sm font-semibold text-gray-600">Image</th>
@@ -360,7 +382,7 @@ export default function AdminInventory() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredProducts.map((p) => {
+                  {paginatedProducts.map((p) => {
                     const rowTagKey = normalizeTagFilter(p.tag, p.category) || 'all';
                     const rowTagLabel = TAG_LABELS[rowTagKey] || String(p.tag || '-');
 
@@ -417,8 +439,57 @@ export default function AdminInventory() {
                     );
                   })}
                 </tbody>
-              </table>
-            </div>
+                </table>
+              </div>
+
+              <nav
+                className="flex flex-col gap-3 border-t border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+                aria-label="Inventory pagination"
+              >
+                <p className="text-sm text-gray-500">
+                  Showing {(currentPage - 1) * PRODUCTS_PER_PAGE + 1}–
+                  {Math.min(currentPage * PRODUCTS_PER_PAGE, filteredProducts.length)} of{' '}
+                  {filteredProducts.length}
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                    disabled={currentPage === 1}
+                    className="rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 transition hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+
+                  {pageNumbers.map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => setCurrentPage(page)}
+                      aria-label={`Go to page ${page}`}
+                      aria-current={currentPage === page ? 'page' : undefined}
+                      className={`h-9 min-w-9 rounded-xl border px-3 text-sm font-semibold transition ${
+                        currentPage === page
+                          ? 'border-[#0f4d2e] bg-[#0f4d2e] text-white shadow-sm'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:text-emerald-700'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                    disabled={currentPage === totalPages}
+                    className="rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 transition hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              </nav>
+            </>
           )}
         </div>
 

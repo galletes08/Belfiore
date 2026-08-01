@@ -184,13 +184,11 @@ export async function apiAdminCustomers() {
 }
 
 export async function apiCreateRider(payload) {
+  const isFormData = payload instanceof FormData;
   const res = await fetch(`${API_URL}/api/admin/riders`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeader(),
-    },
-    body: JSON.stringify(payload),
+    headers: isFormData ? getAuthHeader() : { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: isFormData ? payload : JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to create rider');
@@ -198,13 +196,11 @@ export async function apiCreateRider(payload) {
 }
 
 export async function apiUpdateRider(id, payload) {
+  const isFormData = payload instanceof FormData;
   const res = await fetch(`${API_URL}/api/admin/riders/${id}`, {
     method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeader(),
-    },
-    body: JSON.stringify(payload),
+    headers: isFormData ? getAuthHeader() : { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: isFormData ? payload : JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to update rider');

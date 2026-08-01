@@ -11,6 +11,7 @@ import AdminProtectedRoute from "./admin/AdminProtectedRoute";
 import AdminRiders from "./admin/AdminRiders";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footerlink/Footer";
+import NewVisitorSignup from "./components/NewVisitorSignup";
 import ScrollToTop from "./components/ScrollToTop";
 import Home from "./components/Pages/Home";
 import Login from "./components/Signup/Login";
@@ -111,6 +112,7 @@ function App() {
         <Outlet />
       </div>
       <Footer />
+      <NewVisitorSignup />
     </div>
   );
 

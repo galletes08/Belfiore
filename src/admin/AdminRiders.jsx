@@ -1,27 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
-import { apiAdminRiders, apiCreateRider, apiUpdateRider } from '../api/client';
+﻿import { useEffect, useMemo, useState } from 'react';
+import { Camera, Mail, Phone, Search, UserRound, UsersRound } from 'lucide-react';
+import { apiAdminRiders, apiCreateRider, apiUpdateRider, getImageUrl } from '../api/client';
 
-const emptyForm = {
-  firstName: '',
-  lastName: '',
-  email: '',
-  password: '',
-  phone: '',
-  status: 'active',
-  isAvailable: true,
-};
+const emptyForm = { firstName: '', lastName: '', email: '', password: '', phone: '', status: 'active', isAvailable: true, profileImage: null };
 
 function formatDateTime(value) {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString([], {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return date.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function initials(rider) {
+  return `${rider?.firstName?.[0] || ''}${rider?.lastName?.[0] || ''}`.toUpperCase() || 'R';
 }
 
 export default function AdminRiders() {
@@ -32,87 +23,71 @@ export default function AdminRiders() {
   const [form, setForm] = useState(emptyForm);
   const [selectedRider, setSelectedRider] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState('');
 
   useEffect(() => {
     let mounted = true;
-
-    async function loadRiders() {
-      setLoading(true);
-      try {
-        const data = await apiAdminRiders();
-        if (!mounted) return;
-        setRiders(Array.isArray(data) ? data : []);
-        setError('');
-      } catch (err) {
-        if (!mounted) return;
-        setError(err.message || 'Failed to load riders');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-
-    loadRiders();
-    return () => {
-      mounted = false;
-    };
+    apiAdminRiders()
+      .then((data) => { if (mounted) { setRiders(Array.isArray(data) ? data : []); setError(''); } })
+      .catch((err) => { if (mounted) setError(err.message || 'Failed to load riders'); })
+      .finally(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; };
   }, []);
+
+  useEffect(() => () => { if (photoPreview.startsWith('blob:')) URL.revokeObjectURL(photoPreview); }, [photoPreview]);
 
   const filteredRiders = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return riders;
-
-    return riders.filter((rider) =>
-      [rider.fullName, rider.email, rider.phone, rider.status, rider.isAvailable ? 'available' : 'busy']
-        .join(' ')
-        .toLowerCase()
-        .includes(query)
-    );
+    return riders.filter((rider) => [rider.fullName, rider.email, rider.phone, rider.status, rider.isAvailable ? 'available' : 'busy'].join(' ').toLowerCase().includes(query));
   }, [riders, search]);
+
+  const activeCount = riders.filter((rider) => rider.status === 'active').length;
+  const availableCount = riders.filter((rider) => rider.isAvailable).length;
 
   function openCreateForm() {
     setSelectedRider(null);
     setForm(emptyForm);
+    setPhotoPreview('');
     setError('');
   }
 
   function openEditForm(rider) {
     setSelectedRider(rider);
-    setForm({
-      firstName: rider.firstName || '',
-      lastName: rider.lastName || '',
-      email: rider.email || '',
-      password: '',
-      phone: rider.phone || '',
-      status: rider.status || 'active',
-      isAvailable: Boolean(rider.isAvailable),
-    });
+    setForm({ firstName: rider.firstName || '', lastName: rider.lastName || '', email: rider.email || '', password: '', phone: rider.phone || '', status: rider.status || 'active', isAvailable: Boolean(rider.isAvailable), profileImage: null });
+    setPhotoPreview(rider.profileImageUrl ? getImageUrl(rider.profileImageUrl) : '');
     setError('');
+  }
+
+  function handlePhotoChange(event) {
+    const file = event.target.files?.[0] || null;
+    setForm((current) => ({ ...current, profileImage: file }));
+    setPhotoPreview(file ? URL.createObjectURL(file) : (selectedRider?.profileImageUrl ? getImageUrl(selectedRider.profileImageUrl) : ''));
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
     setSaving(true);
     setError('');
-
     try {
-      const payload = {
-        firstName: form.firstName,
-        lastName: form.lastName,
-        email: form.email,
-        password: form.password,
-        phone: form.phone,
-        status: form.status,
-        isAvailable: form.isAvailable,
-      };
+      const payload = new FormData();
+      payload.append('firstName', form.firstName);
+      payload.append('lastName', form.lastName);
+      payload.append('email', form.email);
+      payload.append('password', form.password);
+      payload.append('phone', form.phone);
+      payload.append('status', form.status);
+      payload.append('isAvailable', String(form.isAvailable));
+      if (form.profileImage) payload.append('profileImage', form.profileImage);
 
       if (selectedRider) {
         const updated = await apiUpdateRider(selectedRider.id, payload);
-        setRiders((current) => current.map((rider) => (rider.id === updated.id ? updated : rider)));
-        setSelectedRider(updated);
+        setRiders((current) => current.map((rider) => rider.id === updated.id ? updated : rider));
+        openEditForm(updated);
       } else {
         const created = await apiCreateRider(payload);
         setRiders((current) => [created, ...current]);
-        setSelectedRider(created);
+        openEditForm(created);
       }
     } catch (err) {
       setError(err.message || 'Failed to save rider');
@@ -121,192 +96,81 @@ export default function AdminRiders() {
     }
   }
 
+  const fieldClass = 'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100';
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold text-gray-900">Riders</h1>
-          <p className="mt-2 text-sm text-gray-500">Create rider records here, then assign them from the Orders page.</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Delivery team</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">Riders</h1>
+          <p className="mt-2 text-sm text-slate-500">Manage rider profiles, availability, and account access.</p>
         </div>
+        <button type="button" onClick={openCreateForm} className="rounded-xl bg-[#1f5a43] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#174533]">+ Add new rider</button>
+      </header>
+
+      <section className="grid gap-3 sm:grid-cols-3">
+        {[[riders.length, 'Total riders'], [activeCount, 'Active accounts'], [availableCount, 'Available now']].map(([value, label]) => (
+          <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-2xl font-bold text-slate-900">{value}</p><p className="mt-1 text-xs font-medium uppercase tracking-wider text-slate-500">{label}</p></div>
+        ))}
+      </section>
+
+      {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(380px,0.85fr)]">
+        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 p-5">
+            <div className="relative"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name, phone, or email" className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-emerald-600 focus:bg-white focus:ring-4 focus:ring-emerald-100" /></div>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {loading ? <div className="p-12 text-center text-slate-500">Loading riders...</div> : filteredRiders.length === 0 ? (
+              <div className="flex flex-col items-center p-12 text-center"><UsersRound size={32} className="text-slate-300" /><p className="mt-3 font-medium text-slate-700">No riders found</p><p className="mt-1 text-sm text-slate-500">Try another search or add a rider.</p></div>
+            ) : filteredRiders.map((rider) => (
+              <article key={rider.id} className={`p-5 transition hover:bg-emerald-50/40 ${selectedRider?.id === rider.id ? 'bg-emerald-50/70' : ''}`}>
+                <div className="flex items-start gap-4">
+                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-emerald-100">
+                    {rider.profileImageUrl ? <img src={getImageUrl(rider.profileImageUrl)} alt={rider.fullName} className="h-full w-full object-cover" /> : <span className="flex h-full w-full items-center justify-center text-sm font-bold text-emerald-800">{initials(rider)}</span>}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div><h3 className="font-semibold text-slate-900">{rider.fullName}</h3><p className="mt-1 flex items-center gap-1.5 truncate text-xs text-slate-500"><Mail size={13} />{rider.email || 'No email'}</p></div>
+                      <button type="button" onClick={() => openEditForm(rider)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 transition hover:border-emerald-600">Edit profile</button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                      <span className="flex items-center gap-1.5 text-slate-600"><Phone size={13} />{rider.phone || 'No phone'}</span>
+                      <span className={`rounded-full px-2.5 py-1 font-semibold ${rider.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>{rider.status}</span>
+                      <span className={`rounded-full px-2.5 py-1 font-semibold ${rider.isAvailable ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'}`}>{rider.isAvailable ? 'Available' : 'Busy'}</span>
+                      <span className="ml-auto text-slate-400">Updated {formatDateTime(rider.updatedAt)}</span>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <form onSubmit={handleSubmit} className="sticky top-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-bold text-slate-900">{selectedRider ? 'Edit rider' : 'New rider'}</h2><p className="mt-1 text-sm text-slate-500">Profile and login information</p></div>{selectedRider ? <button type="button" onClick={openCreateForm} className="text-sm font-semibold text-emerald-700 hover:text-emerald-900">Create new</button> : null}</div>
+
+          <div className="mt-6 flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl border-2 border-white bg-emerald-100 shadow-sm">{photoPreview ? <img src={photoPreview} alt="Rider preview" className="h-full w-full object-cover" /> : <span className="flex h-full w-full items-center justify-center"><UserRound size={30} className="text-emerald-700" /></span>}</div>
+            <div><p className="text-sm font-semibold text-slate-800">Rider photo</p><p className="mt-1 text-xs text-slate-500">JPG or PNG, up to 5 MB</p><label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-emerald-800 shadow-sm ring-1 ring-slate-200 hover:ring-emerald-500"><Camera size={14} />Choose photo<input type="file" accept="image/*" onChange={handlePhotoChange} className="sr-only" /></label></div>
+          </div>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <label><span className="mb-1.5 block text-xs font-semibold text-slate-700">First name</span><input required value={form.firstName} onChange={(e) => setForm((c) => ({...c, firstName:e.target.value}))} className={fieldClass} /></label>
+            <label><span className="mb-1.5 block text-xs font-semibold text-slate-700">Last name</span><input required value={form.lastName} onChange={(e) => setForm((c) => ({...c, lastName:e.target.value}))} className={fieldClass} /></label>
+            <label className="sm:col-span-2"><span className="mb-1.5 block text-xs font-semibold text-slate-700">Email address</span><input type="email" required value={form.email} onChange={(e) => setForm((c) => ({...c, email:e.target.value}))} className={fieldClass} /></label>
+            <label className="sm:col-span-2"><span className="mb-1.5 block text-xs font-semibold text-slate-700">Password {selectedRider ? <span className="font-normal text-slate-400">— leave blank to keep</span> : null}</span><input type="password" required={!selectedRider} value={form.password} onChange={(e) => setForm((c) => ({...c, password:e.target.value}))} placeholder={selectedRider ? 'Optional new password' : 'Create a secure password'} autoComplete="new-password" className={fieldClass} /></label>
+            <label><span className="mb-1.5 block text-xs font-semibold text-slate-700">Phone</span><input required value={form.phone} onChange={(e) => setForm((c) => ({...c, phone:e.target.value}))} className={fieldClass} /></label>
+            <label><span className="mb-1.5 block text-xs font-semibold text-slate-700">Account status</span><select value={form.status} onChange={(e) => setForm((c) => ({...c, status:e.target.value}))} className={fieldClass}><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+          </div>
+
+          <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"><input type="checkbox" checked={form.isAvailable} onChange={(e) => setForm((c) => ({...c, isAvailable:e.target.checked}))} className="h-4 w-4 accent-[#1f5a43]" /><span><strong className="block font-semibold">Available for orders</strong><span className="text-xs text-slate-500">Rider can be assigned to a new delivery.</span></span></label>
+          <button type="submit" disabled={saving} className="mt-5 w-full rounded-xl bg-[#1f5a43] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#163f2f] disabled:opacity-60">{saving ? 'Saving...' : selectedRider ? 'Save changes' : 'Create rider'}</button>
+        </form>
       </div>
-
-      {error && !saving ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      ) : null}
-
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-100 px-5 py-4">
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search rider by name, phone, or email"
-              className="w-full rounded-full border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43] focus:bg-white"
-            />
-          </div>
-
-          {loading ? (
-            <div className="p-10 text-center text-gray-500">Loading riders...</div>
-          ) : filteredRiders.length === 0 ? (
-            <div className="p-10 text-center text-gray-500">No riders found yet.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-[#1f5a43] text-white">
-                  <tr>
-                    <th className="px-5 py-4 font-medium">Name</th>
-                    <th className="px-5 py-4 font-medium">Phone</th>
-                    <th className="px-5 py-4 font-medium">Status</th>
-                    <th className="px-5 py-4 font-medium">Availability</th>
-                    <th className="px-5 py-4 font-medium">Updated</th>
-                    <th className="px-5 py-4 font-medium text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRiders.map((rider) => (
-                    <tr key={rider.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
-                      <td className="px-5 py-4">
-                        <div className="font-medium text-gray-900">{rider.fullName}</div>
-                        <div className="mt-1 text-xs text-gray-500">{rider.email || 'No email'}</div>
-                      </td>
-                      <td className="px-5 py-4 text-gray-700">{rider.phone}</td>
-                      <td className="px-5 py-4">
-                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${rider.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-700'}`}>
-                          {rider.status}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${rider.isAvailable ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'}`}>
-                          {rider.isAvailable ? 'Available' : 'Busy'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4 text-gray-600">{formatDateTime(rider.updatedAt)}</td>
-                      <td className="px-5 py-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => openEditForm(rider)}
-                          className="rounded-full border border-[#1f5a43]/20 px-4 py-2 text-sm font-medium text-[#1f5a43] transition hover:bg-[#1f5a43] hover:text-white"
-                        >
-                          Edit
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        <form onSubmit={handleSubmit} className="rounded-3xl border border-gray-200 bg-white px-5 py-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">{selectedRider ? 'Edit Rider' : 'New Rider'}</h2>
-              <p className="mt-2 text-sm text-gray-500">Riders created here will appear as assignable options in Admin Orders.</p>
-            </div>
-            {selectedRider ? (
-              <button
-                type="button"
-                onClick={openCreateForm}
-                className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-              >
-                Back
-              </button>
-            ) : null}
-          </div>
-
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-gray-700">First Name</span>
-              <input
-                type="text"
-                value={form.firstName}
-                onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))}
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-gray-700">Last Name</span>
-              <input
-                type="text"
-                value={form.lastName}
-                onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))}
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
-              />
-            </label>
-
-            <label className="block md:col-span-2">
-              <span className="mb-1 block text-sm font-medium text-gray-700">Email</span>
-              <input
-                type="email"
-                value={form.email}
-                onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
-                required
-              />
-            </label>
-
-            <label className="block md:col-span-2">
-              <span className="mb-1 block text-sm font-medium text-gray-700">
-                Password {selectedRider ? '(leave blank to keep current password)' : ''}
-              </span>
-              <input
-                type="password"
-                value={form.password}
-                onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-                placeholder={selectedRider ? 'Optional new password' : 'Create rider password'}
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
-                autoComplete="new-password"
-                required={!selectedRider}
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-gray-700">Phone</span>
-              <input
-                type="text"
-                value={form.phone}
-                onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-gray-700">Status</span>
-              <select
-                value={form.status}
-                onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </label>
-          </div>
-
-          <label className="mt-4 flex items-center gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={form.isAvailable}
-              onChange={(event) => setForm((current) => ({ ...current, isAvailable: event.target.checked }))}
-              className="h-4 w-4 accent-[#1f5a43]"
-            />
-            Rider is currently available for new orders
-          </label>
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="mt-5 w-full rounded-xl bg-[#1f5a43] px-4 py-3 text-sm font-medium text-white transition hover:bg-[#163f2f] disabled:cursor-not-allowed disabled:opacity-70"
-            >
-            {saving ? 'Saving Rider...' : selectedRider ? 'Update Rider' : 'Create Rider'}
-            </button>
-          </form>
-        </div>
     </div>
   );
 }

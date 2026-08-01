@@ -46,47 +46,47 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1a3d2e] to-[#2d5a45]">
-      <div className="bg-white p-10 rounded-xl shadow-2xl w-full max-w-[380px]">
-        <h1 className="m-0 mb-1 text-[1.75rem] text-[#1a3d2e]">Admin / Rider Login</h1>
-        <p className="m-0 mb-6 text-[#5a7a6a] text-[0.95rem]">PlantDelivery secure portal</p>
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0f3225] px-4 py-10">
+      <div className="relative w-full max-w-[440px] rounded-[2rem] border border-white/10 bg-[#fffef9] p-7 shadow-[0_30px_90px_rgba(0,0,0,0.35)] sm:p-10">
+        <h1 className="m-0 text-3xl font-semibold tracking-tight text-[#173d2b]">Welcome back</h1>
+        <p className="mb-8 mt-2 text-sm leading-6 text-[#687c71]">Sign in with your admin or rider account to continue.</p>
         <form onSubmit={handleSubmit}>
-          <label className="block mb-4 font-medium text-gray-800 text-[0.9rem]">
+          <label className="mb-5 block text-sm font-medium text-[#294b3a]">
             Email
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@example.com or rider@example.com"
+              placeholder="name@belfiore.com"
               required
               autoComplete="email"
-              className="w-full mt-1.5 px-3.5 py-2.5 border border-gray-300 rounded-lg text-base focus:outline-none focus:border-[#2d5a45] focus:ring-2 focus:ring-[#2d5a45]/20"
+              className="mt-2 h-12 w-full rounded-xl border border-[#d7e2da] bg-white px-4 text-sm text-[#173d2b] outline-none transition placeholder:text-[#9aa9a1] focus:border-[#4b916d] focus:ring-4 focus:ring-[#4b916d]/10"
             />
           </label>
-          <label className="block mb-4 font-medium text-gray-800 text-[0.9rem]">
+          <label className="mb-5 block text-sm font-medium text-[#294b3a]">
             Password
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="Enter your password"
               required
               autoComplete="current-password"
-              className="w-full mt-1.5 px-3.5 py-2.5 border border-gray-300 rounded-lg text-base focus:outline-none focus:border-[#2d5a45] focus:ring-2 focus:ring-[#2d5a45]/20"
+              className="mt-2 h-12 w-full rounded-xl border border-[#d7e2da] bg-white px-4 text-sm text-[#173d2b] outline-none transition placeholder:text-[#9aa9a1] focus:border-[#4b916d] focus:ring-4 focus:ring-[#4b916d]/10"
             />
           </label>
           {error && (
-            <p className="text-red-600 text-sm mb-3">{error}</p>
+            <p className="mb-4 rounded-xl border border-[#f1c7c1] bg-[#fff2f0] px-3.5 py-3 text-sm text-[#a33d35]">{error}</p>
           )}
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-[#2d5a45] text-white border-0 rounded-lg text-base font-semibold cursor-pointer mt-1 disabled:opacity-70 disabled:cursor-not-allowed hover:enabled:bg-[#1a3d2e]"
+            className="h-12 w-full rounded-xl bg-[#176b4d] px-5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(23,107,77,0.22)] transition hover:enabled:bg-[#12573e] focus:outline-none focus:ring-4 focus:ring-[#4b916d]/25 disabled:cursor-not-allowed disabled:opacity-65"
           >
-            {loading ? 'Signing in...' : 'Sign in'}
+            {loading ? 'Signing in...' : 'Sign in securely'}
           </button>
         </form>
-        <p className="mt-4 text-sm text-[#5a7a6a]">Admins go to the admin panel. Riders go straight to the rider page.</p>
+        <p className="mt-6 text-center text-xs leading-5 text-[#7b8e84]">Your role automatically determines which workspace opens after sign-in.</p>
       </div>
     </div>
   );

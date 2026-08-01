@@ -294,7 +294,7 @@ router.get('/api/admin/riders', async (_req, res) => {
     await ensureRidersTable();
 
     const result = await pool.query(`
-      SELECT id, first_name, last_name, email, phone, status, is_available, created_at, updated_at
+      SELECT id, first_name, last_name, email, phone, profile_image_url, status, is_available, created_at, updated_at
       FROM riders
       ORDER BY updated_at DESC, created_at DESC
     `);
@@ -305,7 +305,7 @@ router.get('/api/admin/riders', async (_req, res) => {
   }
 });
 
-router.post('/api/admin/riders', async (req, res) => {
+router.post('/api/admin/riders', upload.single('profileImage'), async (req, res) => {
   try {
     await ensureRidersTable();
 
@@ -315,7 +315,8 @@ router.post('/api/admin/riders', async (req, res) => {
     const phone = String(req.body?.phone || '').trim();
     const password = String(req.body?.password || '').trim();
     const status = String(req.body?.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active';
-    const isAvailable = req.body?.isAvailable == null ? true : Boolean(req.body.isAvailable);
+    const isAvailable = req.body?.isAvailable == null ? true : String(req.body.isAvailable).toLowerCase() === 'true';
+    const profileImageUrl = req.file ? `/uploads/riders/${req.file.filename}` : null;
 
     if (!firstName || !lastName || !phone) {
       return res.status(400).json({ error: 'First name, last name, and phone are required' });
@@ -331,11 +332,11 @@ router.post('/api/admin/riders', async (req, res) => {
 
     const result = await pool.query(
       `
-      INSERT INTO riders (first_name, last_name, email, phone, user_id, status, is_available, updated_at)
-      VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, NOW())
-      RETURNING id, first_name, last_name, email, phone, status, is_available, created_at, updated_at
+      INSERT INTO riders (first_name, last_name, email, phone, user_id, status, is_available, profile_image_url, updated_at)
+      VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, NOW())
+      RETURNING id, first_name, last_name, email, phone, profile_image_url, status, is_available, created_at, updated_at
       `,
-      [firstName, lastName, email, phone, linkedUserId, status, isAvailable]
+      [firstName, lastName, email, phone, linkedUserId, status, isAvailable, profileImageUrl]
     );
 
     res.status(201).json(formatRiderRow(result.rows[0]));
@@ -347,7 +348,7 @@ router.post('/api/admin/riders', async (req, res) => {
   }
 });
 
-router.patch('/api/admin/riders/:id', async (req, res) => {
+router.patch('/api/admin/riders/:id', upload.single('profileImage'), async (req, res) => {
   try {
     await ensureRidersTable();
 
@@ -362,7 +363,8 @@ router.patch('/api/admin/riders/:id', async (req, res) => {
     const phone = String(req.body?.phone || '').trim();
     const password = String(req.body?.password || '').trim();
     const status = String(req.body?.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active';
-    const isAvailable = Boolean(req.body?.isAvailable);
+    const isAvailable = String(req.body?.isAvailable).toLowerCase() === 'true';
+    const profileImageUrl = req.file ? `/uploads/riders/${req.file.filename}` : null;
 
     if (!firstName || !lastName || !phone) {
       return res.status(400).json({ error: 'First name, last name, and phone are required' });
@@ -384,11 +386,12 @@ router.patch('/api/admin/riders/:id', async (req, res) => {
         user_id = COALESCE($6, user_id),
         status = $7,
         is_available = $8,
+        profile_image_url = COALESCE($9, profile_image_url),
         updated_at = NOW()
       WHERE id = $1
-      RETURNING id, first_name, last_name, email, phone, status, is_available, created_at, updated_at
+      RETURNING id, first_name, last_name, email, phone, profile_image_url, status, is_available, created_at, updated_at
       `,
-      [riderId, firstName, lastName, email, phone, linkedUserId, status, isAvailable]
+      [riderId, firstName, lastName, email, phone, linkedUserId, status, isAvailable, profileImageUrl]
     );
 
     if (!result.rows.length) {

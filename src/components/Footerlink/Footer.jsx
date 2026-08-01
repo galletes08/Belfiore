@@ -80,7 +80,7 @@ export default function Footer() {
               </p>
               <p className="flex items-center gap-2">
                 <Mail size={16} className="text-emerald-200" />
-                hello@belfioresucculents.ph
+                belfioresucculentsph@gmail.com
               </p>
             </div>
 

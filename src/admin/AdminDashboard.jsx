@@ -1,214 +1,124 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, ArrowUpRight, PackageCheck, ReceiptText, ShoppingBag, TrendingUp } from 'lucide-react';
 import { apiDashboard } from '../api/client';
 
 const statusStyles = {
-  shipped: 'bg-green-100 text-green-800',
-  delivered: 'bg-green-100 text-green-800',
-  processing: 'bg-amber-100 text-amber-800',
-  pending: 'bg-amber-100 text-amber-800',
+  shipped: 'bg-blue-50 text-blue-700 ring-blue-200',
+  delivered: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  processing: 'bg-amber-50 text-amber-700 ring-amber-200',
+  pending: 'bg-orange-50 text-orange-700 ring-orange-200',
+  cancelled: 'bg-rose-50 text-rose-700 ring-rose-200',
 };
 
 const tagStyles = {
-  white: 'bg-gray-100 text-gray-700 ring-gray-200',
-  green: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
-  red: 'bg-rose-100 text-rose-700 ring-rose-200',
-  aquaponics: 'bg-amber-100 text-amber-800 ring-amber-200',
-  unassigned: 'bg-slate-100 text-slate-700 ring-slate-200',
+  white: 'bg-slate-100 text-slate-700',
+  green: 'bg-emerald-100 text-emerald-700',
+  red: 'bg-rose-100 text-rose-700',
+  aquaponics: 'bg-cyan-100 text-cyan-800',
+  unassigned: 'bg-slate-100 text-slate-700',
 };
 
+const currency = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 });
+
+function formatCurrency(value) {
+  return currency.format(Number(value) || 0).replace('PHP', '₱');
+}
+
 export default function AdminDashboard() {
-  const [chartView, setChartView] = useState('monthly');
   const [salesData, setSalesData] = useState([]);
   const [lowStock, setLowStock] = useState([]);
   const [recentOrders, setRecentOrders] = useState([]);
   const [totals, setTotals] = useState({ monthlySales: 0, monthlyOrders: 0 });
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const maxSales = useMemo(() => {
-    if (!salesData.length) return 1;
-    return Math.max(...salesData.map((d) => Number(d.value) || 0), 1);
-  }, [salesData]);
-
   useEffect(() => {
-    let isMounted = true;
-
-    async function loadDashboard() {
-      try {
-        const data = await apiDashboard();
-        if (!isMounted) return;
-
+    let mounted = true;
+    apiDashboard()
+      .then((data) => {
+        if (!mounted) return;
         setSalesData(Array.isArray(data.salesData) ? data.salesData : []);
         setLowStock(Array.isArray(data.lowStock) ? data.lowStock : []);
         setRecentOrders(Array.isArray(data.recentOrders) ? data.recentOrders : []);
-        setTotals({
-          monthlySales: Number(data.totals?.monthlySales) || 0,
-          monthlyOrders: Number(data.totals?.monthlyOrders) || 0,
-        });
+        setTotals({ monthlySales: Number(data.totals?.monthlySales) || 0, monthlyOrders: Number(data.totals?.monthlyOrders) || 0 });
         setError('');
-      } catch (err) {
-        if (!isMounted) return;
-        setError(err.message || 'Failed to load dashboard');
-      }
-    }
-
-    loadDashboard();
-    return () => {
-      isMounted = false;
-    };
+      })
+      .catch((err) => { if (mounted) setError(err.message || 'Failed to load dashboard'); })
+      .finally(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; };
   }, []);
 
+  const maxSales = useMemo(() => Math.max(...salesData.map((item) => Number(item.value) || 0), 1), [salesData]);
+  const chartPoints = useMemo(() => salesData.map((item, index) => {
+    const x = 12 + (index / Math.max(salesData.length - 1, 1)) * 376;
+    const y = 102 - ((Number(item.value) || 0) / maxSales) * 78;
+    return { ...item, x, y };
+  }), [salesData, maxSales]);
+  const linePath = chartPoints.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
+  const averageOrder = totals.monthlyOrders ? totals.monthlySales / totals.monthlyOrders : 0;
+  const lowStockUnits = lowStock.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+
+  const stats = [
+    { label: 'Monthly sales', value: formatCurrency(totals.monthlySales), note: 'Revenue this month', icon: <TrendingUp size={20} />, tone: 'bg-emerald-100 text-emerald-700' },
+    { label: 'Monthly orders', value: totals.monthlyOrders, note: 'Orders received', icon: <ShoppingBag size={20} />, tone: 'bg-blue-100 text-blue-700' },
+    { label: 'Average order', value: formatCurrency(averageOrder), note: 'Per transaction', icon: <ReceiptText size={20} />, tone: 'bg-violet-100 text-violet-700' },
+    { label: 'Low-stock units', value: lowStockUnits, note: `${lowStock.length} tag${lowStock.length === 1 ? '' : 's'} need attention`, icon: <PackageCheck size={20} />, tone: 'bg-amber-100 text-amber-700' },
+  ];
+
   return (
-    <div className="max-w-300 mx-auto">
-      {error ? (
-        <div className="mb-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      ) : null}
+    <div className="mx-auto max-w-7xl space-y-6">
+      <header>
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Business overview</p>
+        <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">Dashboard</h1>
+        <p className="mt-2 text-sm text-slate-500">A quick look at sales, orders, and inventory health.</p>
+      </header>
 
-      <div className="grid grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-[10px] p-6 shadow-sm">
-          <h3 className="m-0 mb-2 text-[0.95rem] font-semibold text-gray-500">Total Sales</h3>
-          <p className="m-0 text-2xl font-bold text-[#2d5a45]">
-            ₱{totals.monthlySales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </p>
-          <p className="mt-1 text-sm text-gray-500">This Month</p>
-        </div>
-        <div className="bg-white rounded-[10px] p-6 shadow-sm">
-          <h3 className="m-0 mb-2 text-[0.95rem] font-semibold text-gray-500">Total Orders</h3>
-          <p className="m-0 text-2xl font-bold text-gray-800">{totals.monthlyOrders}</p>
-          <p className="mt-1 text-sm text-gray-500">This Month</p>
-        </div>
-      </div>
+      {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 mb-6">
-        <div className="bg-white rounded-[10px] p-6 shadow-sm">
-          <h3 className="m-0 mb-4 text-[1.1rem] font-bold text-gray-800">Sales Chart</h3>
-          <div className="flex gap-2 mb-4">
-            <button
-              type="button"
-              onClick={() => setChartView('daily')}
-              className={`px-4 py-1.5 border rounded-md text-sm cursor-pointer ${chartView === 'daily' ? 'bg-[#2d5a45] text-white border-[#2d5a45]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
-            >
-              Daily
-            </button>
-            <button
-              type="button"
-              onClick={() => setChartView('monthly')}
-              className={`px-4 py-1.5 border rounded-md text-sm cursor-pointer ${chartView === 'monthly' ? 'bg-[#2d5a45] text-white border-[#2d5a45]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
-            >
-              Monthly
-            </button>
-          </div>
-          <div className="flex flex-col gap-2">
-            <div className="flex justify-end gap-4 text-xs text-gray-500 h-4">
-              <span>₱0</span>
-              <span>₱1k</span>
-              <span>₱2k</span>
-              <span>₱4k</span>
-            </div>
-            <div className="h-[140px] w-full">
-              <svg viewBox="0 0 400 120" className="w-full h-full" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="chartGradient" x1="0" x2="0" y1="1" y2="0">
-                    <stop offset="0%" stopColor="#2d5a45" stopOpacity="0.3" />
-                    <stop offset="100%" stopColor="#2d5a45" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                <path
-                  fill="none"
-                  stroke="#2d5a45"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d={salesData.map((d, i) => {
-                    const x = (i / Math.max(salesData.length - 1, 1)) * 400;
-                    const y = 100 - (Number(d.value) / maxSales) * 80;
-                    return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-                  }).join(' ')}
-                />
-                <path
-                  fill="url(#chartGradient)"
-                  d={`${salesData.map((d, i) => {
-                    const x = (i / Math.max(salesData.length - 1, 1)) * 400;
-                    const y = 100 - (Number(d.value) / maxSales) * 80;
-                    return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-                  }).join(' ')} L 400 100 L 0 100 Z`}
-                />
-                {salesData.map((d, i) => {
-                  const x = (i / Math.max(salesData.length - 1, 1)) * 400;
-                  const y = 100 - (Number(d.value) / maxSales) * 80;
-                  return (
-                    <circle
-                      key={`${d.month}-${i}`}
-                      cx={x}
-                      cy={y}
-                      r="4"
-                      fill="#2d5a45"
-                    />
-                  );
-                })}
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {stats.map(({ label, value, note, icon, tone }) => (
+          <article key={label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</p><p className="mt-3 text-2xl font-bold tracking-tight text-slate-900">{loading ? '—' : value}</p></div><span className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}>{icon}</span></div>
+            <p className="mt-2 text-xs text-slate-500">{note}</p>
+          </article>
+        ))}
+      </section>
+
+      <div className="grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">Sales performance</h2><p className="mt-1 text-sm text-slate-500">Revenue trend across the last six months</p></div><span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">Last 6 months</span></div>
+
+          <div className="mt-6 h-64 w-full">
+            {loading ? <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading sales data...</div> : chartPoints.length === 0 ? <div className="flex h-full items-center justify-center text-sm text-slate-400">No sales data available.</div> : (
+              <svg viewBox="0 0 400 150" className="h-full w-full overflow-visible" preserveAspectRatio="none" role="img" aria-label="Sales for the last six months">
+                <defs><linearGradient id="dashboardSalesGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#1f5a43" stopOpacity="0.25" /><stop offset="100%" stopColor="#1f5a43" stopOpacity="0.02" /></linearGradient></defs>
+                {[24, 50, 76, 102].map((y) => <line key={y} x1="12" x2="388" y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="3 4" />)}
+                <path d={`${linePath} L ${chartPoints.at(-1)?.x || 388} 110 L ${chartPoints[0]?.x || 12} 110 Z`} fill="url(#dashboardSalesGradient)" />
+                <path d={linePath} fill="none" stroke="#1f5a43" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                {chartPoints.map((point, index) => <g key={`${point.month}-${index}`}><circle cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#1f5a43" strokeWidth="2.5" vectorEffect="non-scaling-stroke" /><text x={point.x} y="135" textAnchor="middle" fill="#64748b" fontSize="9">{point.month}</text></g>)}
               </svg>
-            </div>
-            <div className="flex justify-between text-xs text-gray-500 pr-8">
-              {salesData.map((d, i) => (
-                <span key={`${d.month}-${i}`}>{d.month}</span>
-              ))}
-            </div>
+            )}
           </div>
-        </div>
+          <div className="mt-1 flex items-center justify-between border-t border-slate-100 pt-4"><p className="text-xs text-slate-500">Highest month in this period</p><p className="text-sm font-bold text-emerald-700">{formatCurrency(maxSales === 1 && salesData.every((item) => !Number(item.value)) ? 0 : maxSales)}</p></div>
+        </section>
 
-        <div className="bg-white rounded-[10px] p-6 shadow-sm">
-          <h3 className="m-0 mb-2 text-[1.1rem] font-bold text-gray-800">Low Stock Alert</h3>
-          <p className="text-red-600 text-sm font-semibold m-0 mb-4">Tag-based restock needed</p>
-          {lowStock.length === 0 ? (
-            <div className="rounded-lg bg-gray-50 p-3 text-sm text-gray-500">No tags are currently at low stock.</div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {lowStock.map((item, i) => (
-                <div key={`${item.tag_key || item.tag_label || i}`} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${tagStyles[item.tag_key] || tagStyles.unassigned}`}>
-                    {item.tag_label || item.tag_key || 'Tag'}
-                  </span>
-                  <div>
-                    <p className="m-0 text-sm font-semibold text-gray-800">{item.qty} total stock</p>
-                    <p className="m-0.5 mt-0 text-[0.8rem] text-gray-600">{item.product_count} product(s) in this tag</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+        <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700"><AlertTriangle size={20} /></span><div><h2 className="text-lg font-bold text-slate-900">Stock alerts</h2><p className="mt-1 text-sm text-slate-500">Tags at or below five units</p></div></div>
+          {lowStock.length === 0 ? <div className="mt-6 rounded-2xl bg-emerald-50 p-5 text-center"><PackageCheck className="mx-auto text-emerald-600" size={26} /><p className="mt-2 text-sm font-semibold text-emerald-800">Stock levels look healthy</p></div> : (
+            <div className="mt-5 space-y-3">{lowStock.map((item, index) => <div key={item.tag_key || index} className="rounded-2xl border border-slate-100 bg-slate-50 p-4"><div className="flex items-center justify-between gap-3"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${tagStyles[item.tag_key] || tagStyles.unassigned}`}>{item.tag_label || 'Unassigned'}</span><span className="text-lg font-bold text-slate-900">{item.qty}</span></div><div className="mt-2 flex items-center justify-between text-xs text-slate-500"><span>{item.product_count} product{Number(item.product_count) === 1 ? '' : 's'}</span><span>units left</span></div></div>)}</div>
           )}
-        </div>
+        </aside>
       </div>
 
-      <div className="bg-white rounded-[10px] p-6 shadow-sm">
-        <h3 className="m-0 mb-4 text-[1.1rem] font-bold text-gray-800">Recent Orders</h3>
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr>
-              <th className="text-left py-3 px-4 font-semibold text-gray-500 bg-gray-50 border-b border-gray-200">Order ID</th>
-              <th className="text-left py-3 px-4 font-semibold text-gray-500 bg-gray-50 border-b border-gray-200">Customer</th>
-              <th className="text-left py-3 px-4 font-semibold text-gray-500 bg-gray-50 border-b border-gray-200">Date</th>
-              <th className="text-left py-3 px-4 font-semibold text-gray-500 bg-gray-50 border-b border-gray-200">Status</th>
-              <th className="text-left py-3 px-4 font-semibold text-gray-500 bg-gray-50 border-b border-gray-200">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {recentOrders.map((order) => (
-              <tr key={order.id} className="hover:bg-gray-50 border-b border-gray-100">
-                <td className="py-3 px-4">{String(order.id).startsWith('#') ? order.id : `#${order.id}`}</td>
-                <td className="py-3 px-4">{order.customer}</td>
-                <td className="py-3 px-4">{new Date(order.date).toLocaleDateString()}</td>
-                <td className="py-3 px-4">
-                  <span className={`inline-block py-1 px-2.5 rounded-full text-xs font-medium ${statusStyles[String(order.status).toLowerCase()] || 'bg-gray-100 text-gray-700'}`}>
-                    {order.status}
-                  </span>
-                </td>
-                <td className="py-3 px-4">₱{Number(order.total || 0).toFixed(2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5"><div><h2 className="text-lg font-bold text-slate-900">Recent orders</h2><p className="mt-1 text-sm text-slate-500">Latest customer transactions</p></div><ArrowUpRight size={19} className="text-slate-400" /></div>
+        {recentOrders.length === 0 ? <div className="p-12 text-center"><ReceiptText className="mx-auto text-slate-300" size={30} /><p className="mt-3 text-sm font-semibold text-slate-700">No recent orders</p><p className="mt-1 text-xs text-slate-500">New orders will appear here.</p></div> : (
+          <>
+            <div className="divide-y divide-slate-100 md:hidden">{recentOrders.map((order) => <article key={order.id} className="p-5"><div className="flex items-start justify-between"><div><p className="font-semibold text-slate-900">{order.customer}</p><p className="mt-1 text-xs text-slate-500">Order #{String(order.id).replace('#', '')} · {new Date(order.date).toLocaleDateString()}</p></div><p className="font-bold text-slate-900">{formatCurrency(order.total)}</p></div><span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusStyles[String(order.status).toLowerCase()] || 'bg-slate-50 text-slate-700 ring-slate-200'}`}>{order.status}</span></article>)}</div>
+            <div className="hidden overflow-x-auto md:block"><table className="w-full text-left text-sm"><thead><tr className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><th className="px-6 py-4 font-semibold">Order</th><th className="px-6 py-4 font-semibold">Customer</th><th className="px-6 py-4 font-semibold">Date</th><th className="px-6 py-4 font-semibold">Status</th><th className="px-6 py-4 text-right font-semibold">Total</th></tr></thead><tbody className="divide-y divide-slate-100">{recentOrders.map((order) => <tr key={order.id} className="transition hover:bg-slate-50"><td className="px-6 py-4 font-semibold text-slate-800">#{String(order.id).replace('#', '')}</td><td className="px-6 py-4 text-slate-700">{order.customer}</td><td className="px-6 py-4 text-slate-500">{new Date(order.date).toLocaleDateString()}</td><td className="px-6 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusStyles[String(order.status).toLowerCase()] || 'bg-slate-50 text-slate-700 ring-slate-200'}`}>{order.status}</span></td><td className="px-6 py-4 text-right font-bold text-slate-900">{formatCurrency(order.total)}</td></tr>)}</tbody></table></div>
+          </>
+        )}
+      </section>
     </div>
   );
 }

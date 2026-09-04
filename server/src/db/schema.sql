@@ -139,9 +139,18 @@ CREATE TABLE IF NOT EXISTS orders (
   paymongo_payment_id TEXT,
   paymongo_payment_intent_id TEXT,
   paymongo_paid_at TIMESTAMPTZ,
+  subtotal_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  shipping_fee NUMERIC(10, 2),
+  shipping_status TEXT NOT NULL DEFAULT 'To be confirmed',
+  parcel_weight_kg NUMERIC(10, 3),
   total_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   status_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  cancel_reason TEXT,
+  cancellation_requested_at TIMESTAMPTZ,
+  cancelled_at TIMESTAMPTZ,
+  cancelled_by TEXT,
+  inventory_restored_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -173,7 +182,16 @@ ALTER TABLE orders
   ADD COLUMN IF NOT EXISTS paymongo_payment_id TEXT,
   ADD COLUMN IF NOT EXISTS paymongo_payment_intent_id TEXT,
   ADD COLUMN IF NOT EXISTS paymongo_paid_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS subtotal_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS shipping_fee NUMERIC(10, 2),
+  ADD COLUMN IF NOT EXISTS shipping_status TEXT NOT NULL DEFAULT 'To be confirmed',
+  ADD COLUMN IF NOT EXISTS parcel_weight_kg NUMERIC(10, 3),
   ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS cancel_reason TEXT,
+  ADD COLUMN IF NOT EXISTS cancellation_requested_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS cancelled_by TEXT,
+  ADD COLUMN IF NOT EXISTS inventory_restored_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_driver_access_token
@@ -236,6 +254,9 @@ CREATE TABLE IF NOT EXISTS order_items (
   line_total NUMERIC(10, 2) NOT NULL CHECK (line_total >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE order_items
+  ADD COLUMN IF NOT EXISTS image_url TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_products_stock ON products(stock);

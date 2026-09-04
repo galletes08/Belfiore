@@ -2,16 +2,19 @@ import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { pool } from '../config/db.js';
 import { ensureRidersTable } from './riders.js';
-import { createPayMongoCheckoutSession, isPayMongoConfigured } from '../utils/paymongo.js';
+import { verifyRequestToken } from '../utils/auth.js';
+import { createPayMongoCheckoutSession, isPayMongoConfigured, retrievePayMongoCheckoutSession } from '../utils/paymongo.js';
 import { isTrack123Configured, queryTrack123TrackingDetails, syncTrack123Tracking } from '../utils/track123.js';
+import { getShippingQuote } from '../utils/shipping.js';
 
 const router = Router();
 let ensureOrdersAdminColumnsPromise;
 
-const ORDER_STATUSES = ['Pending', 'Preparing', 'Out for Delivery', 'Delivered', 'Cancelled'];
+const ORDER_STATUSES = ['Pending', 'Preparing', 'Cancellation Requested', 'Out for Delivery', 'Delivered', 'Cancelled'];
 const TRACKING_STATUSES = ['Pending', 'Preparing', 'Packed', 'In Transit', 'Out for Delivery', 'Delivered', 'Cancelled'];
-const PAYMENT_STATUSES = ['Pending', 'Paid', 'Unpaid', 'Failed', 'Refunded'];
+const PAYMENT_STATUSES = ['Pending', 'Paid', 'Unpaid', 'Failed', 'Refund Pending', 'Refunded'];
 const DELIVERY_MODES = ['rider', 'logistics'];
+const LOGISTICS_COURIERS = ['J&T Express', 'LBC'];
 
 const BASE_ORDER_SELECT = `
   SELECT
@@ -25,6 +28,7 @@ const BASE_ORDER_SELECT = `
     o.delivery_mode,
     o.payment_method,
     o.payment_status,
+    o.cod_status,
     o.status,
     o.rider_id,
     COALESCE(NULLIF(TRIM(o.courier_name), ''), CONCAT_WS(' ', r.first_name, r.last_name)) AS courier_name,
@@ -45,10 +49,20 @@ const BASE_ORDER_SELECT = `
     o.paymongo_payment_id,
     o.paymongo_payment_intent_id,
     o.paymongo_paid_at,
+    o.subtotal_amount,
+    o.shipping_fee,
+    o.shipping_status,
+    o.parcel_weight_kg,
     o.total_amount,
     o.created_at,
     o.updated_at,
     o.status_updated_at,
+    o.admin_confirmed_at,
+    o.cancel_reason,
+    o.cancellation_requested_at,
+    o.cancelled_at,
+    o.cancelled_by,
+    o.inventory_restored_at,
     COALESCE(SUM(oi.qty), 0)::int AS item_count,
     COALESCE(
       json_agg(
@@ -56,7 +70,7 @@ const BASE_ORDER_SELECT = `
           'id', oi.id,
           'productId', oi.product_id,
           'productName', oi.product_name,
-          'imageUrl', oi.image_url,
+          'imageUrl', COALESCE(NULLIF(oi.image_url, ''), p.image_url),
           'qty', oi.qty,
           'unitPrice', oi.unit_price,
           'lineTotal', oi.line_total
@@ -68,6 +82,7 @@ const BASE_ORDER_SELECT = `
   FROM orders o
   LEFT JOIN riders r ON r.id = o.rider_id
   LEFT JOIN order_items oi ON oi.order_id = o.id
+  LEFT JOIN products p ON p.id = oi.product_id
 `;
 
 function normalizePaymentMethod(value) {
@@ -109,6 +124,18 @@ function deriveTrackingStatus(orderStatus) {
   }
 }
 
+function deriveCodStatus(row) {
+  if (row.payment_method !== 'COD') return 'Not Applicable';
+  if (row.cod_status && row.cod_status !== 'Not Applicable') return row.cod_status;
+  if (row.payment_status === 'Paid') {
+    return row.delivery_mode === 'logistics' ? 'Remitted' : 'Collected';
+  }
+  if (row.delivery_mode === 'logistics' && row.tracking_status === 'Delivered') {
+    return 'Remittance Pending';
+  }
+  return 'Awaiting Payment';
+}
+
 function formatOrderRow(row, options = {}) {
   const { includeDriverAccessToken = false } = options;
 
@@ -124,6 +151,7 @@ function formatOrderRow(row, options = {}) {
     deliveryMode: row.delivery_mode || 'rider',
     paymentMethod: row.payment_method,
     paymentStatus: row.payment_status,
+    codStatus: deriveCodStatus(row),
     status: row.status,
     riderId: row.rider_id == null ? null : Number(row.rider_id),
     courierName: row.courier_name || '',
@@ -135,7 +163,11 @@ function formatOrderRow(row, options = {}) {
     driverLocationUpdatedAt: row.driver_location_updated_at || null,
     trackingCode: row.tracking_code || '',
     trackingCourierCode: row.tracking_courier_code || '',
-    trackingStatus: row.tracking_status || deriveTrackingStatus(row.status),
+    trackingStatus:
+      row.status === 'Delivered' ||
+      ['Remittance Pending', 'Remitted'].includes(deriveCodStatus(row))
+        ? 'Delivered'
+        : row.tracking_status || deriveTrackingStatus(row.status),
     track123TrackingId: row.track123_tracking_id || '',
     track123LastCheckpointAt: row.track123_last_checkpoint_at || null,
     track123LastSyncedAt: row.track123_last_synced_at || null,
@@ -143,11 +175,21 @@ function formatOrderRow(row, options = {}) {
     paymongoPaymentId: row.paymongo_payment_id || '',
     paymongoPaymentIntentId: row.paymongo_payment_intent_id || '',
     paymongoPaidAt: row.paymongo_paid_at || null,
+    subtotalAmount: Number(row.subtotal_amount) > 0 ? Number(row.subtotal_amount) : Number(row.total_amount || 0),
+    shippingFee: row.shipping_fee == null ? null : Number(row.shipping_fee),
+    shippingStatus: row.shipping_status || 'To be confirmed',
+    parcelWeightKg: row.parcel_weight_kg == null ? null : Number(row.parcel_weight_kg),
     totalAmount: Number(row.total_amount || 0),
     itemCount: Number(row.item_count || 0),
     createdAt: row.created_at,
     updatedAt: row.updated_at || row.status_updated_at || row.created_at,
     statusUpdatedAt: row.status_updated_at || row.updated_at || row.created_at,
+    adminConfirmedAt: row.admin_confirmed_at || null,
+    cancelReason: row.cancel_reason || '',
+    cancellationRequestedAt: row.cancellation_requested_at || null,
+    cancelledAt: row.cancelled_at || null,
+    cancelledBy: row.cancelled_by || '',
+    inventoryRestoredAt: row.inventory_restored_at || null,
     items: Array.isArray(row.items)
       ? row.items.map((item) => ({
         id: Number(item.id),
@@ -189,9 +231,25 @@ async function ensureOrderAdminColumns() {
         ADD COLUMN IF NOT EXISTS paymongo_payment_id TEXT,
         ADD COLUMN IF NOT EXISTS paymongo_payment_intent_id TEXT,
         ADD COLUMN IF NOT EXISTS paymongo_paid_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS cod_status TEXT NOT NULL DEFAULT 'Not Applicable',
+        ADD COLUMN IF NOT EXISTS subtotal_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS shipping_fee NUMERIC(10, 2),
+        ADD COLUMN IF NOT EXISTS shipping_status TEXT NOT NULL DEFAULT 'To be confirmed',
+        ADD COLUMN IF NOT EXISTS parcel_weight_kg NUMERIC(10, 3),
         ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ADD COLUMN IF NOT EXISTS admin_confirmed_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS cancel_reason TEXT,
+        ADD COLUMN IF NOT EXISTS cancellation_requested_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS cancelled_by TEXT,
+        ADD COLUMN IF NOT EXISTS inventory_restored_at TIMESTAMPTZ,
         ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     `).then(() =>
+      pool.query(`
+        ALTER TABLE order_items
+          ADD COLUMN IF NOT EXISTS image_url TEXT
+      `)
+    ).then(() =>
       pool.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_driver_access_token
         ON orders(driver_access_token)
@@ -203,7 +261,8 @@ async function ensureOrderAdminColumns() {
 }
 
 async function fetchOrderById(orderId, options = {}) {
-  const result = await pool.query(
+  const queryClient = options.queryClient || pool;
+  const result = await queryClient.query(
     `
     ${BASE_ORDER_SELECT}
     WHERE o.id = $1
@@ -216,17 +275,101 @@ async function fetchOrderById(orderId, options = {}) {
   return formatOrderRow(result.rows[0], options);
 }
 
+async function cancelOrderAndRestoreInventory(client, orderId, { reason, cancelledBy }) {
+  const orderResult = await client.query(
+    'SELECT id, status, cancel_reason, inventory_restored_at FROM orders WHERE id = $1 FOR UPDATE',
+    [orderId]
+  );
+  if (!orderResult.rows.length) return null;
+
+  const order = orderResult.rows[0];
+  if (['Delivered', 'Out for Delivery'].includes(order.status)) {
+    const error = new Error(
+      order.status === 'Delivered'
+        ? 'Delivered orders must use the return/refund process'
+        : 'This order is already with the rider. Complete the return process before restoring inventory.'
+    );
+    error.status = 409;
+    throw error;
+  }
+  if (!String(reason || order.cancel_reason || '').trim()) {
+    const error = new Error('A cancellation reason is required');
+    error.status = 400;
+    throw error;
+  }
+
+  if (!order.inventory_restored_at) {
+    await client.query(
+      `
+      UPDATE products p
+      SET stock = p.stock + item_totals.qty
+      FROM (
+        SELECT product_id, SUM(qty)::int AS qty
+        FROM order_items
+        WHERE order_id = $1 AND product_id IS NOT NULL
+        GROUP BY product_id
+      ) item_totals
+      WHERE p.id = item_totals.product_id
+      `,
+      [orderId]
+    );
+  }
+
+  await client.query(
+    `
+    UPDATE orders
+    SET
+      status = 'Cancelled',
+      tracking_status = 'Cancelled',
+      payment_status = CASE
+        WHEN payment_status = 'Paid' THEN 'Refund Pending'
+        WHEN payment_status = 'Pending' THEN 'Failed'
+        ELSE payment_status
+      END,
+      cod_status = CASE
+        WHEN payment_method = 'COD' THEN 'Cancelled'
+        ELSE cod_status
+      END,
+      cancel_reason = COALESCE(NULLIF($2, ''), cancel_reason),
+      cancelled_by = $3,
+      cancelled_at = COALESCE(cancelled_at, NOW()),
+      inventory_restored_at = COALESCE(inventory_restored_at, NOW()),
+      driver_access_token = NULL,
+      driver_latitude = NULL,
+      driver_longitude = NULL,
+      driver_location_updated_at = NULL,
+      status_updated_at = NOW(),
+      updated_at = NOW()
+    WHERE id = $1
+    `,
+    [orderId, reason, cancelledBy]
+  );
+
+  return fetchOrderById(orderId, {
+    includeDriverAccessToken: cancelledBy === 'Admin',
+    queryClient: client,
+  });
+}
+
 router.post('/api/orders', async (req, res) => {
   const client = await pool.connect();
   try {
     await ensureOrderAdminColumns();
     await ensureRidersTable();
 
+    const authUser = req.headers.authorization ? verifyRequestToken(req) : null;
+    if (authUser && authUser.role !== 'customer') {
+      return res.status(403).json({ error: 'Customer access only' });
+    }
     const fullName = String(req.body?.fullName || '').trim();
-    const gmail = String(req.body?.gmail || '').trim();
+    const gmail = String(authUser?.email || req.body?.gmail || '').trim();
     const mobileNumber = String(req.body?.mobileNumber || '').trim();
     const location = String(req.body?.location || '').trim();
-    const deliveryMode = normalizeDeliveryMode(req.body?.deliveryMode);
+    const country = String(req.body?.country || '').trim();
+    const province = String(req.body?.province || '').trim();
+    const city = String(req.body?.city || '').trim();
+    const barangay = String(req.body?.barangay || '').trim();
+    const postalCode = String(req.body?.postalCode || req.body?.zipCode || '').trim();
     const paymentMethod = normalizePaymentMethod(req.body?.paymentMethod);
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     const customerLatitude = normalizeCoordinate(req.body?.customerLatitude, -90, 90);
@@ -240,6 +383,9 @@ router.post('/api/orders', async (req, res) => {
       return res.status(400).json({ error: 'Valid mobile number is required' });
     }
     if (!location) return res.status(400).json({ error: 'Location is required' });
+    if (!country || !province || !city || !barangay || !postalCode) {
+      return res.status(400).json({ error: 'Country, province, city, barangay, and postal code are required' });
+    }
     if (!paymentMethod) return res.status(400).json({ error: 'Payment method must be COD or ONLINE' });
     if (!items.length) return res.status(400).json({ error: 'Order items are required' });
     if (paymentMethod === 'ONLINE' && !isPayMongoConfigured()) {
@@ -282,7 +428,7 @@ router.post('/api/orders', async (req, res) => {
 
     const productsById = new Map(productsResult.rows.map((row) => [Number(row.id), row]));
     const orderItems = [];
-    let totalAmount = 0;
+    let subtotalAmount = 0;
 
     for (const [productId, qty] of qtyById.entries()) {
       const product = productsById.get(productId);
@@ -295,7 +441,7 @@ router.post('/api/orders', async (req, res) => {
         return res.status(400).json({ error: `${product.name} has insufficient stock` });
       }
       const lineTotal = unitPrice * qty;
-      totalAmount += lineTotal;
+      subtotalAmount += lineTotal;
       orderItems.push({
         productId,
         productName: product.name,
@@ -306,27 +452,53 @@ router.post('/api/orders', async (req, res) => {
       });
     }
 
+    const shippingQuote = getShippingQuote({
+      country,
+      province,
+      city,
+      barangay,
+      postalCode,
+      subtotal: subtotalAmount,
+    });
+    const deliveryMode = shippingQuote.deliveryMode;
+    const totalAmount = subtotalAmount + (shippingQuote.fee ?? 0);
+    const orderCustomerLatitude = deliveryMode === 'rider' ? customerLatitude : null;
+    const orderCustomerLongitude = deliveryMode === 'rider' ? customerLongitude : null;
+
+    if (paymentMethod === 'ONLINE' && shippingQuote.fee == null) {
+      return res.status(400).json({
+        error: 'Online payment is unavailable until the J&T Express/LBC shipping fee is confirmed. Please use COD.',
+      });
+    }
+
     await client.query('BEGIN');
 
     const orderResult = await client.query(
       `
       INSERT INTO orders (
         customer_name, gmail, mobile_num, location, customer_latitude, customer_longitude,
-        delivery_mode, payment_method, payment_status, status, tracking_status, total_amount, status_updated_at, updated_at
+        delivery_mode, courier_name, payment_method, payment_status, cod_status, status, tracking_status,
+        subtotal_amount, shipping_fee, shipping_status, parcel_weight_kg, total_amount, status_updated_at, updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Pending', 'Pending', $10, NOW(), NOW())
-      RETURNING id, delivery_mode, status, tracking_status, total_amount, created_at, updated_at, status_updated_at
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'Pending', 'Pending', $12, $13, $14, $15, $16, NOW(), NOW())
+      RETURNING id, delivery_mode, courier_name, payment_status, cod_status, subtotal_amount, shipping_fee, shipping_status, status, tracking_status, total_amount, created_at, updated_at, status_updated_at
       `,
       [
         fullName,
         gmail,
         mobileNumber,
         location,
-        customerLatitude,
-        customerLongitude,
+        orderCustomerLatitude,
+        orderCustomerLongitude,
         deliveryMode,
+        shippingQuote.courierName,
         paymentMethod,
         paymentMethod === 'ONLINE' ? 'Pending' : 'Unpaid',
+        paymentMethod === 'COD' ? 'Awaiting Payment' : 'Not Applicable',
+        subtotalAmount,
+        shippingQuote.fee,
+        shippingQuote.status,
+        shippingQuote.parcelWeightKg,
         totalAmount,
       ]
     );
@@ -365,6 +537,7 @@ router.post('/api/orders', async (req, res) => {
         customerName: fullName,
         customerEmail: gmail,
         items: orderItems,
+        shippingFee: shippingQuote.fee,
         requestOrigin: req.get('origin'),
       });
 
@@ -390,11 +563,16 @@ router.post('/api/orders', async (req, res) => {
       id: Number(order.id),
       orderCode: `ORD-${String(order.id).padStart(3, '0')}`,
       deliveryMode: order.delivery_mode || deliveryMode,
+      courierName: order.courier_name || shippingQuote.courierName,
       paymentMethod,
       paymentStatus: paymentMethod === 'ONLINE' ? 'Pending' : 'Unpaid',
+      codStatus: order.cod_status,
       checkoutUrl: checkoutSession?.checkoutUrl || '',
       status: order.status,
       totalAmount: Number(order.total_amount),
+      subtotalAmount: Number(order.subtotal_amount),
+      shippingFee: order.shipping_fee == null ? null : Number(order.shipping_fee),
+      shippingStatus: order.shipping_status,
       createdAt: order.created_at,
     });
   } catch (error) {
@@ -409,26 +587,19 @@ router.post('/api/orders/lookup', async (req, res) => {
   try {
     await ensureOrderAdminColumns();
     await ensureRidersTable();
-
-    const ids = Array.isArray(req.body?.ids)
-      ? req.body.ids
-        .map((value) => Number(value))
-        .filter((value) => Number.isInteger(value) && value > 0)
-      : [];
-
-    if (!ids.length) {
-      return res.json([]);
+    const authUser = verifyRequestToken(req);
+    if (authUser.role !== 'customer') {
+      return res.status(403).json({ error: 'Customer access only' });
     }
 
-    const uniqueIds = [...new Set(ids)];
     const result = await pool.query(
       `
       ${BASE_ORDER_SELECT}
-      WHERE o.id = ANY($1::bigint[])
+      WHERE LOWER(COALESCE(o.gmail, '')) = LOWER($1)
       GROUP BY o.id, r.first_name, r.last_name, r.phone
       ORDER BY o.created_at DESC
       `,
-      [uniqueIds]
+      [String(authUser.email || '').trim()]
     );
 
     res.json(result.rows.map((row) => formatOrderRow(row)));
@@ -437,8 +608,154 @@ router.post('/api/orders/lookup', async (req, res) => {
   }
 });
 
-router.get('/api/admin/orders', async (_req, res) => {
+router.post('/api/orders/:id/cancel', async (req, res) => {
+  const client = await pool.connect();
   try {
+    await ensureOrderAdminColumns();
+    const authUser = verifyRequestToken(req);
+    if (authUser.role !== 'customer') {
+      return res.status(403).json({ error: 'Customer access only' });
+    }
+
+    const orderId = Number(req.params.id);
+    const reason = String(req.body?.reason || '').trim();
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ error: 'Invalid order id' });
+    }
+    if (reason.length < 3 || reason.length > 500) {
+      return res.status(400).json({ error: 'Please provide a cancellation reason (3 to 500 characters)' });
+    }
+
+    await client.query('BEGIN');
+    const result = await client.query(
+      'SELECT id, gmail, status FROM orders WHERE id = $1 FOR UPDATE',
+      [orderId]
+    );
+    if (!result.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const order = result.rows[0];
+    if (String(order.gmail || '').trim().toLowerCase() !== String(authUser.email || '').trim().toLowerCase()) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'This order does not belong to your account' });
+    }
+    if (order.status === 'Cancelled') {
+      await client.query('COMMIT');
+      return res.json(await fetchOrderById(orderId, { queryClient: client }));
+    }
+    if (order.status === 'Delivered' || order.status === 'Out for Delivery') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: order.status === 'Delivered'
+          ? 'Delivered orders must use the return/refund process'
+          : 'This order is already out for delivery. Please contact Belfiore support.',
+      });
+    }
+
+    let updatedOrder;
+    if (order.status === 'Pending') {
+      updatedOrder = await cancelOrderAndRestoreInventory(client, orderId, {
+        reason,
+        cancelledBy: 'Customer',
+      });
+    } else {
+      await client.query(
+        `
+        UPDATE orders
+        SET status = 'Cancellation Requested', cancel_reason = $2,
+            cancellation_requested_at = NOW(), status_updated_at = NOW(), updated_at = NOW()
+        WHERE id = $1
+        `,
+        [orderId, reason]
+      );
+      updatedOrder = await fetchOrderById(orderId, { queryClient: client });
+    }
+
+    await client.query('COMMIT');
+    return res.json(updatedOrder);
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    return res.status(error.status || 500).json({ error: error.message || 'Failed to cancel order' });
+  } finally {
+    client.release();
+  }
+});
+
+router.post('/api/orders/:id/payment/verify', async (req, res) => {
+  try {
+    await ensureOrderAdminColumns();
+
+    const authUser = verifyRequestToken(req);
+    if (authUser.role !== 'customer') {
+      return res.status(403).json({ error: 'Customer access only' });
+    }
+
+    const orderId = Number(req.params.id);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ error: 'Invalid order id' });
+    }
+
+    const orderResult = await pool.query(
+      'SELECT id, gmail, status, payment_method, payment_status, paymongo_checkout_session_id FROM orders WHERE id = $1 LIMIT 1',
+      [orderId]
+    );
+
+    if (!orderResult.rows.length) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const order = orderResult.rows[0];
+    if (String(order.gmail || '').trim().toLowerCase() !== String(authUser.email || '').trim().toLowerCase()) {
+      return res.status(403).json({ error: 'This order does not belong to your account' });
+    }
+    if (order.payment_method !== 'ONLINE') {
+      return res.status(400).json({ error: 'This order does not use online payment' });
+    }
+    if (order.status === 'Cancelled') {
+      return res.status(409).json({ error: 'This order was cancelled. Contact support if a payment was still charged.' });
+    }
+    if (order.payment_status === 'Paid') {
+      return res.json({ verified: true, paymentStatus: 'Paid' });
+    }
+    if (!order.paymongo_checkout_session_id) {
+      return res.status(409).json({ error: 'PayMongo checkout session is not ready yet' });
+    }
+
+    const checkoutSession = await retrievePayMongoCheckoutSession(order.paymongo_checkout_session_id);
+    const payments = Array.isArray(checkoutSession?.attributes?.payments)
+      ? checkoutSession.attributes.payments
+      : [];
+    const paidPayment = payments.find((payment) => payment?.attributes?.status === 'paid');
+
+    if (!paidPayment) {
+      return res.json({ verified: false, paymentStatus: order.payment_status || 'Pending' });
+    }
+
+    const rawPaidAt = paidPayment.attributes?.paid_at;
+    const paidAt =
+      typeof rawPaidAt === 'number'
+        ? new Date(rawPaidAt * 1000).toISOString()
+        : rawPaidAt || new Date().toISOString();
+    const paymentIntentId = String(paidPayment.attributes?.payment_intent_id || '').trim() || null;
+
+    await pool.query(
+      "UPDATE orders SET payment_status = 'Paid', paymongo_payment_id = COALESCE($2, paymongo_payment_id), paymongo_payment_intent_id = COALESCE($3, paymongo_payment_intent_id), paymongo_paid_at = COALESCE($4::timestamptz, paymongo_paid_at), updated_at = NOW() WHERE id = $1 AND payment_method = 'ONLINE' AND status <> 'Cancelled' AND paymongo_checkout_session_id = $5",
+      [orderId, paidPayment.id || null, paymentIntentId, paidAt, order.paymongo_checkout_session_id]
+    );
+
+    res.json({ verified: true, paymentStatus: 'Paid' });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || 'Failed to verify online payment' });
+  }
+});
+router.get('/api/admin/orders', async (req, res) => {
+  try {
+    const authUser = verifyRequestToken(req);
+    if (authUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access only' });
+    }
     await ensureOrderAdminColumns();
     await ensureRidersTable();
 
@@ -454,8 +771,128 @@ router.get('/api/admin/orders', async (_req, res) => {
   }
 });
 
+router.post('/api/admin/orders/:id/confirm', async (req, res) => {
+  try {
+    const authUser = verifyRequestToken(req);
+    if (authUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access only' });
+    }
+    await ensureOrderAdminColumns();
+    await ensureRidersTable();
+
+    const orderId = Number(req.params.id);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ error: 'Invalid order id' });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE orders
+      SET
+        status = 'Preparing',
+        tracking_status = 'Preparing',
+        admin_confirmed_at = COALESCE(admin_confirmed_at, NOW()),
+        status_updated_at = NOW(),
+        updated_at = NOW()
+      WHERE id = $1 AND status = 'Pending'
+      RETURNING id
+      `,
+      [orderId]
+    );
+
+    if (!result.rows.length) {
+      const existingResult = await pool.query(
+        'SELECT status FROM orders WHERE id = $1 LIMIT 1',
+        [orderId]
+      );
+      if (!existingResult.rows.length) {
+        return res.status(404).json({ error: 'Order not found' });
+      }
+      return res.status(409).json({
+        error: `Only Pending orders can be confirmed. Current status: ${existingResult.rows[0].status}`,
+      });
+    }
+
+    const updatedOrder = await fetchOrderById(orderId, { includeDriverAccessToken: true });
+    return res.json(updatedOrder);
+  } catch (error) {
+    return res.status(error.status || 500).json({ error: error.message || 'Failed to confirm order' });
+  }
+});
+
+router.post('/api/admin/orders/:id/confirm-cod-remittance', async (req, res) => {
+  try {
+    const authUser = verifyRequestToken(req);
+    if (authUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access only' });
+    }
+    await ensureOrderAdminColumns();
+    await ensureRidersTable();
+
+    const orderId = Number(req.params.id);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ error: 'Invalid order id' });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE orders
+      SET
+        cod_status = 'Remitted',
+        payment_status = 'Paid',
+        status_updated_at = NOW(),
+        updated_at = NOW()
+      WHERE id = $1
+        AND payment_method = 'COD'
+        AND delivery_mode = 'logistics'
+        AND tracking_status = 'Delivered'
+        AND cod_status IN ('Remittance Pending', 'Not Applicable')
+      RETURNING id
+      `,
+      [orderId]
+    );
+
+    if (!result.rows.length) {
+      const existingResult = await pool.query(
+        `
+        SELECT payment_method, delivery_mode, tracking_status, cod_status
+        FROM orders
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [orderId]
+      );
+      if (!existingResult.rows.length) {
+        return res.status(404).json({ error: 'Order not found' });
+      }
+
+      const order = existingResult.rows[0];
+      if (order.payment_method !== 'COD' || order.delivery_mode !== 'logistics') {
+        return res.status(409).json({ error: 'COD remittance applies only to J&T/LBC COD orders' });
+      }
+      if (order.tracking_status !== 'Delivered') {
+        return res.status(409).json({ error: 'Mark the Delivery Status as Delivered first' });
+      }
+      return res.status(409).json({
+        error: `COD remittance cannot be confirmed from status: ${order.cod_status}`,
+      });
+    }
+
+    const updatedOrder = await fetchOrderById(orderId, { includeDriverAccessToken: true });
+    return res.json(updatedOrder);
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      error: error.message || 'Failed to confirm COD remittance',
+    });
+  }
+});
+
 router.patch('/api/admin/orders/:id', async (req, res) => {
   try {
+    const authUser = verifyRequestToken(req);
+    if (authUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access only' });
+    }
     await ensureOrderAdminColumns();
     await ensureRidersTable();
 
@@ -490,6 +927,38 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
     if (riderId !== null && (!Number.isInteger(riderId) || riderId <= 0)) {
       return res.status(400).json({ error: 'Valid rider is required' });
     }
+    if (deliveryMode === 'logistics' && !LOGISTICS_COURIERS.includes(courierName)) {
+      return res.status(400).json({ error: 'Select J&T Express or LBC for courier delivery' });
+    }
+    if (
+      deliveryMode === 'logistics' &&
+      !['Pending', 'Preparing'].includes(trackingStatus || deriveTrackingStatus(status)) &&
+      !trackingCode
+    ) {
+      return res.status(400).json({ error: 'Tracking number is required before shipping the order' });
+    }
+
+    if (status === 'Cancelled') {
+      const cancelClient = await pool.connect();
+      try {
+        await cancelClient.query('BEGIN');
+        const updatedOrder = await cancelOrderAndRestoreInventory(cancelClient, orderId, {
+          reason: String(req.body?.cancelReason || '').trim(),
+          cancelledBy: 'Admin',
+        });
+        if (!updatedOrder) {
+          await cancelClient.query('ROLLBACK');
+          return res.status(404).json({ error: 'Order not found' });
+        }
+        await cancelClient.query('COMMIT');
+        return res.json(updatedOrder);
+      } catch (error) {
+        await cancelClient.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        cancelClient.release();
+      }
+    }
 
     let resolvedRiderName = courierName;
     let resolvedDriverPhone = driverPhone;
@@ -516,7 +985,8 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
 
     const existingResult = await pool.query(
       `
-      SELECT rider_id, courier_name, driver_phone, driver_access_token, driver_assigned_at
+      SELECT rider_id, courier_name, driver_phone, driver_access_token, driver_assigned_at,
+             status, payment_method, payment_status, cod_status, tracking_status, admin_confirmed_at
       FROM orders
       WHERE id = $1
       LIMIT 1
@@ -529,9 +999,31 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
     }
 
     const existing = existingResult.rows[0];
+    if (existing.status === 'Cancelled') {
+      return res.status(409).json({ error: 'Cancelled orders cannot be reopened' });
+    }
+    if (
+      deliveryMode === 'logistics' &&
+      trackingCode &&
+      existing.status === 'Pending' &&
+      !existing.admin_confirmed_at
+    ) {
+      return res.status(409).json({
+        error: 'Confirm the order before adding its shipping tracking number',
+      });
+    }
+    if (
+      existing.payment_method === 'COD' &&
+      deliveryMode === 'logistics' &&
+      paymentStatus === 'Paid' &&
+      existing.cod_status !== 'Remitted'
+    ) {
+      return res.status(409).json({
+        error: 'Courier COD can only be marked Paid after Belfiore confirms the remittance',
+      });
+    }
     const finalRiderId = deliveryMode === 'logistics' ? null : riderId;
     if (deliveryMode === 'logistics') {
-      resolvedRiderName = '';
       resolvedDriverPhone = '';
     }
 
@@ -540,56 +1032,83 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
       resolvedRiderName !== String(existing.courier_name || '') ||
       resolvedDriverPhone !== String(existing.driver_phone || '');
 
-    const nextDriverAccessToken = resolvedRiderName
+    const nextDriverAccessToken = deliveryMode === 'rider' && resolvedRiderName
       ? assignmentChanged
         ? randomUUID()
         : String(existing.driver_access_token || randomUUID())
       : null;
 
-    const finalTrackingStatus = trackingStatus || deriveTrackingStatus(status);
+    let finalStatus = status;
+    let finalTrackingStatus = trackingStatus || deriveTrackingStatus(status);
+    if (deliveryMode === 'logistics' && trackingCode) {
+      if (['Pending', 'Preparing'].includes(finalStatus)) {
+        finalStatus = 'Out for Delivery';
+      }
+      if (['Pending', 'Preparing'].includes(finalTrackingStatus)) {
+        finalTrackingStatus = 'In Transit';
+      }
+    }
 
     await pool.query(
       `
       UPDATE orders
       SET
         status = $2,
-        payment_status = COALESCE(NULLIF($3, ''), payment_status),
+        payment_status = CASE
+          WHEN payment_method = 'COD'
+            AND $4 = 'logistics'
+            AND cod_status <> 'Remitted'
+          THEN 'Unpaid'
+          ELSE COALESCE(NULLIF($3, ''), payment_status)
+        END,
+        cod_status = CASE
+          WHEN payment_method = 'COD'
+            AND $4 = 'logistics'
+            AND $12 = 'Delivered'
+            AND cod_status <> 'Remitted'
+          THEN 'Remittance Pending'
+          ELSE cod_status
+        END,
         delivery_mode = $4,
         rider_id = $5,
         courier_name = $6,
         driver_phone = $7,
         driver_access_token = $8,
         driver_assigned_at = CASE
-          WHEN NULLIF($6, '') IS NULL THEN NULL
+          WHEN $4 = 'logistics' OR NULLIF($6, '') IS NULL THEN NULL
           WHEN $9::boolean OR driver_assigned_at IS NULL THEN NOW()
           ELSE driver_assigned_at
         END,
         driver_accepted_at = CASE
-          WHEN NULLIF($6, '') IS NULL OR $9::boolean THEN NULL
+          WHEN $4 = 'logistics' OR NULLIF($6, '') IS NULL OR $9::boolean THEN NULL
           ELSE driver_accepted_at
         END,
         driver_latitude = CASE
-          WHEN NULLIF($6, '') IS NULL OR $9::boolean THEN NULL
+          WHEN $4 = 'logistics' OR NULLIF($6, '') IS NULL OR $9::boolean THEN NULL
           ELSE driver_latitude
         END,
         driver_longitude = CASE
-          WHEN NULLIF($6, '') IS NULL OR $9::boolean THEN NULL
+          WHEN $4 = 'logistics' OR NULLIF($6, '') IS NULL OR $9::boolean THEN NULL
           ELSE driver_longitude
         END,
         driver_location_updated_at = CASE
-          WHEN NULLIF($6, '') IS NULL OR $9::boolean THEN NULL
+          WHEN $4 = 'logistics' OR NULLIF($6, '') IS NULL OR $9::boolean THEN NULL
           ELSE driver_location_updated_at
         END,
         tracking_code = $10,
         tracking_courier_code = $11,
         tracking_status = $12,
+        admin_confirmed_at = CASE
+          WHEN $2 IN ('Preparing', 'Out for Delivery') AND admin_confirmed_at IS NULL THEN NOW()
+          ELSE admin_confirmed_at
+        END,
         status_updated_at = NOW(),
         updated_at = NOW()
       WHERE id = $1
       `,
       [
         orderId,
-        status,
+        finalStatus,
         paymentStatus,
         deliveryMode,
         finalRiderId,
@@ -684,6 +1203,14 @@ router.patch('/api/driver/orders/:token', async (req, res) => {
           WHEN $2::boolean AND status NOT IN ('Delivered', 'Cancelled') THEN 'Out for Delivery'
           ELSE status
         END,
+        payment_status = CASE
+          WHEN $5::boolean AND payment_method = 'COD' AND delivery_mode = 'rider' THEN 'Paid'
+          ELSE payment_status
+        END,
+        cod_status = CASE
+          WHEN $5::boolean AND payment_method = 'COD' AND delivery_mode = 'rider' THEN 'Collected'
+          ELSE cod_status
+        END,
         tracking_status = CASE
           WHEN $5::boolean THEN 'Delivered'
           WHEN $2::boolean AND tracking_status NOT IN ('Delivered', 'Cancelled') THEN 'Out for Delivery'
@@ -695,12 +1222,20 @@ router.patch('/api/driver/orders/:token', async (req, res) => {
         END,
         updated_at = NOW()
       WHERE driver_access_token = $1
+        AND status NOT IN ('Cancelled', 'Cancellation Requested')
       RETURNING id
       `,
       [token, acceptOrder, driverLatitude, driverLongitude, markDelivered]
     );
 
     if (!result.rows.length) {
+      const blockedResult = await pool.query(
+        'SELECT status FROM orders WHERE driver_access_token = $1 LIMIT 1',
+        [token]
+      );
+      if (blockedResult.rows[0]?.status === 'Cancellation Requested') {
+        return res.status(409).json({ error: 'The customer requested cancellation. Wait for the admin decision.' });
+      }
       return res.status(404).json({ error: 'Driver order link is invalid or expired' });
     }
 
@@ -758,7 +1293,26 @@ router.post('/api/admin/orders/:id/track123/sync', async (req, res) => {
       SET
         tracking_code = $2,
         tracking_courier_code = NULLIF($3, ''),
-        tracking_status = $4,
+        tracking_status = CASE
+          WHEN tracking_status IN ('Delivered', 'Cancelled') THEN tracking_status
+          WHEN $4 = 'Pending' AND tracking_status <> 'Pending' THEN tracking_status
+          ELSE $4
+        END,
+        payment_status = CASE
+          WHEN payment_method = 'COD'
+            AND delivery_mode = 'logistics'
+            AND cod_status <> 'Remitted'
+          THEN 'Unpaid'
+          ELSE payment_status
+        END,
+        cod_status = CASE
+          WHEN payment_method = 'COD'
+            AND delivery_mode = 'logistics'
+            AND $4 = 'Delivered'
+            AND cod_status <> 'Remitted'
+          THEN 'Remittance Pending'
+          ELSE cod_status
+        END,
         track123_tracking_id = NULLIF($5, ''),
         track123_last_checkpoint_at = $6::timestamptz,
         track123_last_synced_at = NOW(),
@@ -827,7 +1381,26 @@ router.get('/api/orders/:id/logistics-updates', async (req, res) => {
       UPDATE orders
       SET
         tracking_courier_code = COALESCE(NULLIF($2, ''), tracking_courier_code),
-        tracking_status = COALESCE(NULLIF($3, ''), tracking_status),
+        tracking_status = CASE
+          WHEN tracking_status IN ('Delivered', 'Cancelled') THEN tracking_status
+          WHEN $3 = 'Pending' AND tracking_status <> 'Pending' THEN tracking_status
+          ELSE COALESCE(NULLIF($3, ''), tracking_status)
+        END,
+        payment_status = CASE
+          WHEN payment_method = 'COD'
+            AND delivery_mode = 'logistics'
+            AND cod_status <> 'Remitted'
+          THEN 'Unpaid'
+          ELSE payment_status
+        END,
+        cod_status = CASE
+          WHEN payment_method = 'COD'
+            AND delivery_mode = 'logistics'
+            AND $3 = 'Delivered'
+            AND cod_status <> 'Remitted'
+          THEN 'Remittance Pending'
+          ELSE cod_status
+        END,
         track123_tracking_id = COALESCE(NULLIF($4, ''), track123_tracking_id),
         track123_last_checkpoint_at = COALESCE($5::timestamptz, track123_last_checkpoint_at),
         track123_last_synced_at = NOW(),

@@ -4,6 +4,7 @@ import { apiAdminCustomers, apiAdminOrders, apiAdminRiders, apiDashboard } from 
 const statusLabelMap = {
   Pending: 'Pending',
   Preparing: 'Preparing',
+  'Cancellation Requested': 'Cancellation Requested',
   'Out for Delivery': 'Out for Delivery',
   Delivered: 'Delivered',
   Cancelled: 'Cancelled',
@@ -136,6 +137,7 @@ export default function AdminReports() {
     const counts = {
       Pending: 0,
       Preparing: 0,
+      'Cancellation Requested': 0,
       'Out for Delivery': 0,
       Delivered: 0,
       Cancelled: 0,

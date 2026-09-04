@@ -6,6 +6,7 @@ import multer from 'multer';
 import { pool } from '../config/db.js';
 
 const router = Router();
+const ALOE_CATEGORY = 'Aloe Hybrids';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsDir = path.resolve(__dirname, '../../uploads');
@@ -24,12 +25,23 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 5 * 1024 * 1024, files: 50 },
   fileFilter: (_req, file, cb) => {
     if (file.mimetype?.startsWith('image/')) return cb(null, true);
     return cb(new Error('Only image files are allowed'));
   },
 });
+
+function removeUploadedFiles(files = []) {
+  for (const file of files) {
+    if (!file?.path) continue;
+    try {
+      fs.unlinkSync(file.path);
+    } catch {
+      // Keep the original request error if cleanup is unsuccessful.
+    }
+  }
+}
 
 function mapProductRow(row) {
   return {
@@ -104,6 +116,85 @@ router.get('/api/products', async (_req, res) => {
   }
 });
 
+router.post('/api/products/bulk', upload.array('images', 50), async (req, res) => {
+  const files = Array.isArray(req.files) ? req.files : [];
+  let client = null;
+  let transactionStarted = false;
+
+  try {
+    const category = String(req.body?.category || '').trim();
+    const name = String(req.body?.name || '').trim();
+    const tag = String(req.body?.tag || '').trim();
+    const price = Number(req.body?.price);
+    const description = String(req.body?.description || '').trim();
+
+    if (category.toLowerCase() !== ALOE_CATEGORY.toLowerCase()) {
+      removeUploadedFiles(files);
+      return res.status(400).json({ error: 'Bulk product creation is available for Aloe Hybrids only' });
+    }
+    if (!name) {
+      removeUploadedFiles(files);
+      return res.status(400).json({ error: 'Name is required' });
+    }
+    if (!tag) {
+      removeUploadedFiles(files);
+      return res.status(400).json({ error: 'Tag / Type is required' });
+    }
+    if (!Number.isFinite(price) || price < 0) {
+      removeUploadedFiles(files);
+      return res.status(400).json({ error: 'Invalid price' });
+    }
+    if (!files.length) {
+      return res.status(400).json({ error: 'Select at least one Aloe image' });
+    }
+
+    client = await pool.connect();
+    await client.query('BEGIN');
+    transactionStarted = true;
+    const typeId = await ensureTypeId(client, category, tag);
+    const products = [];
+
+    for (const file of files) {
+      const imageUrl = `/uploads/${file.filename}`;
+      const result = await client.query(
+        `
+        WITH inserted AS (
+          INSERT INTO products (type_id, name, tag, price, stock, description, image_url)
+          VALUES ($1, $2, $3, $4, 1, $5, $6)
+          RETURNING id, type_id, name, tag, price, stock, description, image_url, created_at, updated_at
+        )
+        SELECT
+          i.id,
+          COALESCE(c.name, 'Aloe Hybrids') AS category,
+          i.name,
+          i.tag,
+          i.price,
+          i.stock,
+          i.description,
+          i.image_url,
+          i.created_at,
+          i.updated_at
+        FROM inserted i
+        LEFT JOIN types t ON t.id = i.type_id
+        LEFT JOIN categories c ON c.id = t.category_id
+        `,
+        [typeId, name, tag, price, description || null, imageUrl]
+      );
+      products.push(mapProductRow(result.rows[0]));
+    }
+
+    await client.query('COMMIT');
+    transactionStarted = false;
+    res.status(201).json({ count: products.length, products });
+  } catch (error) {
+    if (transactionStarted && client) await client.query('ROLLBACK');
+    removeUploadedFiles(files);
+    res.status(500).json({ error: error.message || 'Failed to create products' });
+  } finally {
+    client?.release();
+  }
+});
+
 router.post('/api/products', upload.single('image'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -111,7 +202,8 @@ router.post('/api/products', upload.single('image'), async (req, res) => {
     const name = String(req.body?.name || '').trim();
     const tag = String(req.body?.tag || '').trim();
     const price = Number(req.body?.price);
-    const stock = Number(req.body?.stock);
+    const submittedStock = Number(req.body?.stock);
+    const stock = category.toLowerCase() === ALOE_CATEGORY.toLowerCase() ? 1 : submittedStock;
     const description = String(req.body?.description || '').trim();
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : String(req.body?.imageUrl || '').trim();
 
@@ -166,6 +258,7 @@ router.patch('/api/products/:id', upload.single('image'), async (req, res) => {
     let idx = 1;
     let categoryValue;
     let tagValue;
+    let stockValue;
 
     if (req.body?.name !== undefined) {
       const value = String(req.body.name).trim();
@@ -190,12 +283,9 @@ router.patch('/api/products/:id', upload.single('image'), async (req, res) => {
       values.push(value);
     }
     if (req.body?.stock !== undefined) {
-      const value = Number(req.body.stock);
-      if (!Number.isInteger(value) || value < 0) return res.status(400).json({ error: 'Invalid stock' });
-      fields.push(`stock = $${idx++}`);
-      values.push(value);
-    }
-    if (req.body?.description !== undefined) {
+      stockValue = Number(req.body.stock);
+      if (!Number.isInteger(stockValue) || stockValue < 0) return res.status(400).json({ error: 'Invalid stock' });
+    }    if (req.body?.description !== undefined) {
       fields.push(`description = $${idx++}`);
       values.push(String(req.body.description).trim() || null);
     }
@@ -208,26 +298,28 @@ router.patch('/api/products/:id', upload.single('image'), async (req, res) => {
       values.push(`/uploads/${req.file.filename}`);
     }
 
-    if (categoryValue !== undefined || tagValue !== undefined) {
+    if (categoryValue !== undefined || tagValue !== undefined || stockValue !== undefined) {
       const current = await client.query(
-        `
-        SELECT p.tag, c.name AS category
-        FROM products p
-        LEFT JOIN types t ON t.id = p.type_id
-        LEFT JOIN categories c ON c.id = t.category_id
-        WHERE p.id = $1
-        LIMIT 1
-        `,
+        'SELECT p.tag, c.name AS category FROM products p LEFT JOIN types t ON t.id = p.type_id LEFT JOIN categories c ON c.id = t.category_id WHERE p.id = $1 LIMIT 1',
         [id]
       );
       if (!current.rows.length) return res.status(404).json({ error: 'Product not found' });
-      const resolvedCategory = categoryValue !== undefined ? categoryValue : (current.rows[0].category || 'Aloe Hybrids');
-      const resolvedTag = tagValue !== undefined ? tagValue : current.rows[0].tag;
-      const typeId = await ensureTypeId(client, resolvedCategory, resolvedTag);
-      fields.push(`type_id = $${idx++}`);
-      values.push(typeId);
-    }
 
+      const resolvedCategory = categoryValue !== undefined ? categoryValue : (current.rows[0].category || ALOE_CATEGORY);
+      const resolvedTag = tagValue !== undefined ? tagValue : current.rows[0].tag;
+
+      if (categoryValue !== undefined || tagValue !== undefined) {
+        const typeId = await ensureTypeId(client, resolvedCategory, resolvedTag);
+        fields.push('type_id = $' + idx++);
+        values.push(typeId);
+      }
+
+      if (stockValue !== undefined || resolvedCategory.toLowerCase() === ALOE_CATEGORY.toLowerCase()) {
+        const resolvedStock = resolvedCategory.toLowerCase() === ALOE_CATEGORY.toLowerCase() ? 1 : stockValue;
+        fields.push('stock = $' + idx++);
+        values.push(resolvedStock);
+      }
+    }
     if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
     fields.push(`updated_at = NOW()`);
     values.push(id);

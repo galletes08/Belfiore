@@ -282,6 +282,19 @@ function extractTrack123Updates(data) {
   });
 }
 
+function resolveTrackingStatusFromUpdates(fallbackStatus, updates) {
+  if (!Array.isArray(updates) || !updates.length) return fallbackStatus;
+  if (updates.some((update) => update.status === 'Delivered')) return 'Delivered';
+  if (updates.some((update) => update.status === 'Cancelled')) return 'Cancelled';
+
+  const latestMeaningfulUpdate = updates.find(
+    (update) => update.status && update.status !== 'Pending'
+  );
+  return fallbackStatus === 'Pending' && latestMeaningfulUpdate
+    ? latestMeaningfulUpdate.status
+    : fallbackStatus;
+}
+
 function normalizeTrack123Tracking(data, fallback = {}) {
   const acceptedContent = extractAcceptedContent(data);
   const primaryAccepted = selectBestAcceptedEntry(acceptedContent);
@@ -373,10 +386,12 @@ export async function queryTrack123TrackingDetails({ trackingNumber, courierCode
     trackingNumber: registered.trackingNumber || trackingNumber,
     courierCode: registered.courierCode || courierCode,
   });
+  const updates = extractTrack123Updates(tracking.raw);
   return {
     ...tracking,
+    trackingStatus: resolveTrackingStatusFromUpdates(tracking.trackingStatus, updates),
     courierCode: tracking.courierCode || registered.courierCode || courierCode || '',
-    updates: extractTrack123Updates(tracking.raw),
+    updates,
   };
 }
 
@@ -387,12 +402,16 @@ export async function syncTrack123Tracking({ trackingNumber, courierCode }) {
     courierCode: registerResult.courierCode || courierCode,
   });
 
+  const updates = extractTrack123Updates(queryResult.raw || registerResult.raw);
   return {
     trackingId: queryResult.trackingId || registerResult.trackingId,
     trackingNumber: queryResult.trackingNumber || registerResult.trackingNumber || trackingNumber,
     courierCode: queryResult.courierCode || registerResult.courierCode || courierCode || '',
     rawStatus: queryResult.rawStatus || registerResult.rawStatus || '',
-    trackingStatus: queryResult.trackingStatus || registerResult.trackingStatus || 'Pending',
+    trackingStatus: resolveTrackingStatusFromUpdates(
+      queryResult.trackingStatus || registerResult.trackingStatus || 'Pending',
+      updates
+    ),
     checkpointTime: queryResult.checkpointTime || registerResult.checkpointTime,
     raw: queryResult.raw || registerResult.raw,
   };

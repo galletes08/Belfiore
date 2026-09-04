@@ -46,7 +46,9 @@ const createInvoiceHtml = ({
 }) => {
   const safeItems = getSafeItems(items);
   const subtotal = safeItems.reduce((sum, item) => sum + item.qty * item.unitPrice, 0);
-  const total = subtotal + shippingFee;
+  const isShippingConfirmed = shippingFee !== null && Number.isFinite(Number(shippingFee));
+  const confirmedShippingFee = isShippingConfirmed ? Number(shippingFee) : 0;
+  const total = subtotal + confirmedShippingFee;
   const rows = safeItems
     .map(
       (item) => `
@@ -147,11 +149,11 @@ const createInvoiceHtml = ({
         </div>
         <div class="summary-row">
           <span>Shipping</span>
-          <span>${shippingFee === 0 ? "FREE" : formatPhp(shippingFee)}</span>
+          <span>${isShippingConfirmed ? (confirmedShippingFee === 0 ? "FREE" : formatPhp(confirmedShippingFee)) : "Shipping fee to be confirmed"}</span>
         </div>
         <div class="summary-row total">
           <span>Total</span>
-          <span>${formatPhp(total)}</span>
+          <span>${isShippingConfirmed ? formatPhp(total) : "To be confirmed"}</span>
         </div>
       </section>
 

@@ -29,7 +29,7 @@ export async function handlePayMongoWebhook(req, res) {
           `
           UPDATE orders
           SET
-            payment_status = 'Paid',
+            payment_status = CASE WHEN status = 'Cancelled' THEN 'Refund Pending' ELSE 'Paid' END,
             paymongo_payment_id = COALESCE($2, paymongo_payment_id),
             paymongo_payment_intent_id = COALESCE($3, paymongo_payment_intent_id),
             paymongo_paid_at = COALESCE($4::timestamptz, paymongo_paid_at),

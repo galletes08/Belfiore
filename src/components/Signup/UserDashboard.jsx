@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom";
-import { CircleCheckBig, Clock3, MapPinned, Package, ReceiptText, Truck, UserRound } from "lucide-react";
+import { CircleCheckBig, Clock3, MapPinned, Package, ReceiptText, Truck } from "lucide-react";
 import { clearCustomerToken } from "../../api/client";
+import { getStoredOrderIds } from "../../utils/customerOrders";
+import AccountSidebar from "./AccountSidebar";
 
 const orders = [
   { id: "ORD-1001", date: "March 5, 2026", total: 1250, status: "Out for Delivery", courier: "Personal Rider" },
@@ -21,45 +23,6 @@ const formatPhp = (amount) =>
     minimumFractionDigits: 0
   }).format(amount);
 
-function AccountSidebar({ onLogout }) {
-  return (
-    <aside className="self-start border-x border-[#e3eadf] bg-white px-5 py-6 lg:sticky lg:top-0 lg:z-40 lg:h-[100dvh] lg:overflow-y-auto">
-      <div className="mb-6 flex items-center gap-3">
-        <Link
-          to="/profile"
-          aria-label="Go to Profile"
-          className="grid h-11 w-11 place-items-center rounded-full bg-[#e8f3ea] text-[#0f4d2e] transition hover:bg-[#d9ebdc]"
-        >
-          <UserRound size={18} />
-        </Link>
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#6c786f]">Account</p>
-          <h2 className="mt-1 text-lg font-semibold text-[#173d2b]">User Panel</h2>
-        </div>
-      </div>
-
-      <nav className="grid grid-cols-2 gap-2 text-sm lg:grid-cols-1">
-        <Link to="/dashboard" className="rounded-xl bg-[#0f4d2e] px-3 py-2.5 text-left font-semibold text-white shadow-sm">
-          Dashboard
-        </Link>
-        <Link to="/orders" className="rounded-xl border border-[#e1e7dc] px-3 py-2.5 text-left text-[#405145] transition hover:border-[#b7ccb5] hover:text-[#0f4d2e]">
-          Orders
-        </Link>
-        <Link to="/profile" className="rounded-xl border border-[#e1e7dc] px-3 py-2.5 text-left text-[#405145] transition hover:border-[#b7ccb5] hover:text-[#0f4d2e]">
-          Profile
-        </Link>
-        <Link
-          to="/login"
-          onClick={onLogout}
-          className="col-span-2 rounded-xl border border-red-200 px-3 py-2.5 text-left text-red-600 transition hover:bg-red-50 lg:col-span-1"
-        >
-          Logout
-        </Link>
-      </nav>
-    </aside>
-  );
-}
-
 function StatCard({ icon, label, value, tone }) {
   return (
     <article className="rounded-2xl border border-[#e1e7dc] bg-white px-5 py-5 shadow-sm">
@@ -67,16 +30,18 @@ function StatCard({ icon, label, value, tone }) {
         {icon}
       </div>
       <p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-[#6c786f]">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-[#173d2b]">{value}</p>
+      <p className="mt-2 text-2xl font-semibold leading-none text-[#173d2b]">{value}</p>
     </article>
   );
 }
 
 export default function UserDashboard() {
-  const totalOrders = orders.length;
-  const inTransit = orders.filter((order) => order.status !== "Delivered").length;
-  const delivered = orders.filter((order) => order.status === "Delivered").length;
-  const activeOrder = orders.find((order) => order.status !== "Delivered") || orders[0];
+  const hasOrders = getStoredOrderIds().length > 0;
+  const dashboardOrders = hasOrders ? orders : [];
+  const totalOrders = dashboardOrders.length;
+  const inTransit = dashboardOrders.filter((order) => order.status !== "Delivered").length;
+  const delivered = dashboardOrders.filter((order) => order.status === "Delivered").length;
+  const activeOrder = dashboardOrders.find((order) => order.status !== "Delivered") || dashboardOrders[0];
   const dashboardStats = [
     { label: "Total Orders", value: totalOrders, icon: <Package size={18} />, tone: "bg-[#e8f3ea] text-[#0f4d2e]" },
     { label: "In Transit", value: inTransit, icon: <Truck size={18} />, tone: "bg-sky-50 text-sky-700" },
@@ -98,10 +63,10 @@ export default function UserDashboard() {
             <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
               <div className="max-w-2xl">
                 <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#5e6f65]">Dashboard</p>
-                <h1 className="mt-3 font-['Playfair_Display'] text-4xl leading-tight text-[#0f4d2e] md:text-5xl">
+                <h1 className="mt-3 font-['Playfair_Display'] text-3xl leading-tight text-[#0f4d2e] md:text-4xl">
                   Welcome back, Plant Lover
                 </h1>
-                <p className="mt-3 text-sm leading-7 text-[#5e6f65] md:text-base">
+                <p className="mt-3 text-sm leading-6 text-[#5e6f65]">
                   A calm overview of your purchases, delivery activity, and latest tracking progress.
                 </p>
               </div>
@@ -122,12 +87,13 @@ export default function UserDashboard() {
             ))}
           </section>
 
+{hasOrders ? (
           <section className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
             <article className="rounded-[1.35rem] border border-[#e1e7dc] bg-white p-5 shadow-[0_18px_45px_rgba(15,77,46,0.06)] md:p-6">
               <div className="mb-5 flex flex-col gap-3 border-b border-[#eef2ea] pb-5 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#6c786f]">Orders</p>
-                  <h2 className="mt-1 font-['Playfair_Display'] text-3xl text-[#0f4d2e]">Recent Activity</h2>
+                  <h2 className="mt-1 font-['Playfair_Display'] text-2xl leading-tight text-[#0f4d2e]">Recent Activity</h2>
                 </div>
                 <Link to="/orders" className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f6b45] hover:text-[#173d2b]">
                   View All
@@ -135,7 +101,7 @@ export default function UserDashboard() {
               </div>
 
               <div className="space-y-3">
-                {orders.map((order) => (
+                {dashboardOrders.map((order) => (
                   <article
                     key={order.id}
                     className="grid gap-4 rounded-2xl border border-[#e8eee6] bg-[#fbfcf8] p-4 md:grid-cols-[1.25fr_0.75fr_0.8fr_auto] md:items-center"
@@ -174,7 +140,7 @@ export default function UserDashboard() {
                 </span>
                 <div>
                   <p className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#6c786f]">Delivery</p>
-                  <h2 className="font-['Playfair_Display'] text-2xl text-[#0f4d2e]">Latest Tracking</h2>
+                  <h2 className="font-['Playfair_Display'] text-xl leading-tight text-[#0f4d2e]">Latest Tracking</h2>
                 </div>
               </div>
 
@@ -213,6 +179,14 @@ export default function UserDashboard() {
               </div>
             </article>
           </section>
+          ) : (
+            <section className="rounded-[1.35rem] border border-dashed border-[#c7d8c7] bg-white p-10 text-center shadow-sm">
+              <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[#e8f3ea] text-[#0f4d2e]"><Package size={21} /></span>
+              <h2 className="mt-4 font-['Playfair_Display'] text-2xl leading-tight text-[#0f4d2e]">No purchases yet</h2>
+              <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#5e6f65]">Your order activity and delivery tracking will appear here after your first checkout.</p>
+              <Link to="/products" className="mt-6 inline-flex rounded-xl bg-[#0f4d2e] px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-[#173d2b]">Browse Products</Link>
+            </section>
+          )}
         </main>
       </div>
     </div>

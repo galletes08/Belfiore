@@ -9,6 +9,13 @@ const STORAGE_KEYS = {
   riderToken: 'riderToken',
   riderUser: 'riderUser',
 };
+const CUSTOMER_SESSION_EVENT = 'belfiore-customer-session-changed';
+
+function notifyCustomerSessionChanged() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(CUSTOMER_SESSION_EVENT));
+  }
+}
 
 function getToken() {
   return localStorage.getItem(STORAGE_KEYS.adminToken);
@@ -27,6 +34,10 @@ function getAuthHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function getCustomerAuthHeader() {
+  const token = getCustomerToken();
+  return token ? { Authorization: 'Bearer ' + token } : {};
+}
 function getRiderAuthHeader() {
   const token = getRiderToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -94,6 +105,22 @@ export async function apiRegister(payload) {
   return data;
 }
 
+export async function apiChangePassword(currentPassword, newPassword) {
+  const token = getCustomerToken();
+  if (!token) throw new Error('Please sign in again before changing your password');
+
+  const res = await fetch(API_URL + '/api/auth/password', {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + token,
+    },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Unable to update password');
+  return data;
+}
 export async function apiProducts() {
   try {
     const supabaseProducts = await fetchSupabaseProducts();
@@ -121,6 +148,17 @@ export async function apiCreateProduct(payload) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to create product');
+  return data;
+}
+
+export async function apiCreateProductsBulk(payload) {
+  const res = await fetch(`${API_URL}/api/products/bulk`, {
+    method: 'POST',
+    headers: getAuthHeader(),
+    body: payload,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to create products');
   return data;
 }
 
@@ -221,6 +259,26 @@ export async function apiUpdateOrder(id, payload) {
   return data;
 }
 
+export async function apiConfirmOrder(id) {
+  const res = await fetch(`${API_URL}/api/admin/orders/${id}/confirm`, {
+    method: 'POST',
+    headers: getAuthHeader(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to confirm order');
+  return data;
+}
+
+export async function apiConfirmCodRemittance(id) {
+  const res = await fetch(`${API_URL}/api/admin/orders/${id}/confirm-cod-remittance`, {
+    method: 'POST',
+    headers: getAuthHeader(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to confirm COD payment received');
+  return data;
+}
+
 export async function apiSyncOrderTrack123(id) {
   const res = await fetch(`${API_URL}/api/admin/orders/${id}/track123/sync`, {
     method: 'POST',
@@ -231,14 +289,34 @@ export async function apiSyncOrderTrack123(id) {
   return data;
 }
 
+export async function apiVerifyOnlinePayment(id) {
+  const res = await fetch(API_URL + '/api/orders/' + id + '/payment/verify', {
+    method: 'POST',
+    headers: getCustomerAuthHeader(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to verify online payment');
+  return data;
+}
 export async function apiCustomerOrders(ids) {
   const res = await fetch(`${API_URL}/api/orders/lookup`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getCustomerAuthHeader() },
     body: JSON.stringify({ ids }),
   });
   const data = await res.json().catch(() => ([]));
   if (!res.ok) throw new Error(data.error || 'Failed to load your orders');
+  return data;
+}
+
+export async function apiCancelCustomerOrder(id, reason) {
+  const res = await fetch(`${API_URL}/api/orders/${id}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getCustomerAuthHeader() },
+    body: JSON.stringify({ reason }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to cancel order');
   return data;
 }
 
@@ -265,6 +343,28 @@ export async function apiLocationCities(countryCode, provinceCode = '') {
   const res = await fetch(endpoint.toString());
   const data = await res.json().catch(() => ([]));
   if (!res.ok) throw new Error(data.error || 'Failed to load cities');
+  return data;
+}
+
+export async function apiLocationBarangays(countryCode, province, city) {
+  const endpoint = new URL(`${API_URL}/api/location/${encodeURIComponent(countryCode)}/barangays`);
+  endpoint.searchParams.set('province', province);
+  endpoint.searchParams.set('city', city);
+
+  const res = await fetch(endpoint.toString());
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error(data.error || 'Failed to load barangays');
+  return data;
+}
+
+export async function apiLocationPostalCode(countryCode, province, city) {
+  const endpoint = new URL(`${API_URL}/api/location/${encodeURIComponent(countryCode)}/postal-code`);
+  endpoint.searchParams.set('province', province);
+  endpoint.searchParams.set('city', city);
+
+  const res = await fetch(endpoint.toString());
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load postal code');
   return data;
 }
 
@@ -319,7 +419,7 @@ export async function apiUpdateRiderProfile(payload) {
 export async function apiPlaceOrder(payload) {
   const res = await fetch(`${API_URL}/api/orders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getCustomerAuthHeader() },
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
@@ -348,6 +448,7 @@ export function setToken(token) {
 
 export function setCustomerToken(token) {
   localStorage.setItem(STORAGE_KEYS.customerToken, token);
+  notifyCustomerSessionChanged();
 }
 
 export function setRiderToken(token) {
@@ -376,6 +477,7 @@ export function getAdminUser() {
 
 export function setCustomerUser(user) {
   setStoredValue(STORAGE_KEYS.customerUser, user);
+  notifyCustomerSessionChanged();
 }
 
 export function getCustomerUser() {
@@ -398,6 +500,8 @@ export function clearToken() {
 export function clearCustomerToken() {
   localStorage.removeItem(STORAGE_KEYS.customerToken);
   localStorage.removeItem(STORAGE_KEYS.customerUser);
+  localStorage.removeItem('isLoggedIn');
+  notifyCustomerSessionChanged();
 }
 
 export function clearRiderToken() {

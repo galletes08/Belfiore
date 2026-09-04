@@ -6,50 +6,62 @@ import {
   DEFAULT_DELIVERY_COUNTRY_CODE,
   buildDeliveryLocation,
 } from '../../utils/deliveryLocations';
+import { getShippingQuote } from '../../utils/shipping';
 
 const PROFILE_STORAGE_KEY = 'customerProfile';
 
-function getStoredCustomerDetails() {
+function getSavedDefaultAddress() {
   try {
-    const rawProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
-    const profile = rawProfile ? JSON.parse(rawProfile) : {};
-
-    return {
-      fullName: String(profile?.name || localStorage.getItem('customerName') || '').trim(),
-      gmail: String(profile?.email || localStorage.getItem('customerEmail') || '').trim(),
-      mobileNumber: String(profile?.phone || localStorage.getItem('customerPhone') || '').trim(),
-      streetAddress: '',
-      barangay: '',
-      country: DEFAULT_DELIVERY_COUNTRY,
-      countryCode: DEFAULT_DELIVERY_COUNTRY_CODE,
-      province: '',
-      provinceCode: '',
-      city: '',
-      zipCode: '',
-      paymentMethod: 'COD',
-      customerLatitude: null,
-      customerLongitude: null,
-    };
+    const addresses = JSON.parse(localStorage.getItem('customerAddresses') || '[]');
+    if (!Array.isArray(addresses) || !addresses.length) return null;
+    return addresses.find((address) => address.isDefault) || addresses[0];
   } catch {
-    return {
-      fullName: String(localStorage.getItem('customerName') || '').trim(),
-      gmail: String(localStorage.getItem('customerEmail') || '').trim(),
-      mobileNumber: String(localStorage.getItem('customerPhone') || '').trim(),
-      streetAddress: '',
-      barangay: '',
-      country: DEFAULT_DELIVERY_COUNTRY,
-      countryCode: DEFAULT_DELIVERY_COUNTRY_CODE,
-      province: '',
-      provinceCode: '',
-      city: '',
-      zipCode: '',
-      paymentMethod: 'COD',
-      customerLatitude: null,
-      customerLongitude: null,
-    };
+    return null;
   }
 }
 
+function getStoredCustomerDetails() {
+  const savedAddress = getSavedDefaultAddress();
+  try {
+    const rawProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
+    const profile = rawProfile ? JSON.parse(rawProfile) : {};
+    return {
+      fullName: String(savedAddress?.name || profile?.name || localStorage.getItem('customerName') || '').trim(),
+      gmail: String(profile?.email || localStorage.getItem('customerEmail') || '').trim(),
+      mobileNumber: String(savedAddress?.phone || profile?.phone || localStorage.getItem('customerPhone') || '').trim(),
+      streetAddress: String(savedAddress?.addressLine || '').trim(),
+      barangay: String(savedAddress?.barangay || '').trim(),
+      country: DEFAULT_DELIVERY_COUNTRY,
+      countryCode: DEFAULT_DELIVERY_COUNTRY_CODE,
+      province: String(savedAddress?.province || '').trim(),
+      provinceCode: '',
+      city: String(savedAddress?.city || '').trim(),
+      zipCode: String(savedAddress?.postalCode || '').trim(),
+      landmark: String(savedAddress?.landmark || savedAddress?.deliveryInstructions || savedAddress?.instructions || '').trim(),
+      paymentMethod: 'COD',
+      customerLatitude: savedAddress?.latitude ?? savedAddress?.customerLatitude ?? null,
+      customerLongitude: savedAddress?.longitude ?? savedAddress?.customerLongitude ?? null,
+    };
+  } catch {
+    return {
+      fullName: String(savedAddress?.name || localStorage.getItem('customerName') || '').trim(),
+      gmail: String(localStorage.getItem('customerEmail') || '').trim(),
+      mobileNumber: String(savedAddress?.phone || localStorage.getItem('customerPhone') || '').trim(),
+      streetAddress: String(savedAddress?.addressLine || '').trim(),
+      barangay: String(savedAddress?.barangay || '').trim(),
+      country: DEFAULT_DELIVERY_COUNTRY,
+      countryCode: DEFAULT_DELIVERY_COUNTRY_CODE,
+      province: String(savedAddress?.province || '').trim(),
+      provinceCode: '',
+      city: String(savedAddress?.city || '').trim(),
+      zipCode: String(savedAddress?.postalCode || '').trim(),
+      landmark: String(savedAddress?.landmark || savedAddress?.deliveryInstructions || savedAddress?.instructions || '').trim(),
+      paymentMethod: 'COD',
+      customerLatitude: savedAddress?.latitude ?? savedAddress?.customerLatitude ?? null,
+      customerLongitude: savedAddress?.longitude ?? savedAddress?.customerLongitude ?? null,
+    };
+  }
+}
 export default function CheckoutSection({ items, total, formatPrice, onOrderPlaced, onPlaceOrder }) {
   const [form, setForm] = useState(getStoredCustomerDetails);
   const [errors, setErrors] = useState({});
@@ -73,22 +85,29 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
     () =>
       buildDeliveryLocation({
         streetAddress: form.streetAddress,
+        landmark: form.landmark,
         barangay: form.barangay,
         city: form.city,
         province: form.province,
         zipCode: form.zipCode,
         country: form.country,
       }),
-    [form.streetAddress, form.barangay, form.city, form.province, form.zipCode, form.country]
+    [form.streetAddress, form.landmark, form.barangay, form.city, form.province, form.zipCode, form.country]
   );
   const countryHasProvinces = provinceOptions.length > 0;
-  const isLagunaDeliveryArea = useMemo(() => {
-    const country = String(form.country || '').trim().toLowerCase();
-    const province = String(form.province || '').trim().toLowerCase();
-
-    if (country && country !== 'philippines') return false;
-    return province.includes('laguna');
-  }, [form.country, form.province]);
+  const shippingQuote = useMemo(
+    () => getShippingQuote({
+      country: form.country,
+      province: form.province,
+      city: form.city,
+      barangay: form.barangay,
+      postalCode: form.zipCode,
+      subtotal: total,
+      items,
+    }),
+    [form.country, form.province, form.city, form.barangay, form.zipCode, total, items]
+  );
+  const orderTotal = shippingQuote.isConfirmed ? total + shippingQuote.fee : null;
 
   useEffect(() => {
     let active = true;
@@ -151,11 +170,12 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
         setProvinceOptions(options);
         setLocationOptionsError('');
         setForm((prev) => {
-          const selectedProvince = options.find((option) => option.isoCode === prev.provinceCode);
+          const selectedProvince = options.find((option) => option.isoCode === prev.provinceCode || option.name === prev.province);
           if (selectedProvince) {
             return {
               ...prev,
               province: selectedProvince.name,
+              provinceCode: selectedProvince.isoCode,
             };
           }
 
@@ -307,8 +327,8 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
   }
 
   function handleCaptureMapLocation() {
-    if (!isLagunaDeliveryArea) {
-      setLocationCaptureMessage('Map pin tracking is available for Laguna deliveries only.');
+    if (!shippingQuote.isLocalDelivery) {
+      setLocationCaptureMessage('Map pin tracking is available for Belfiore local deliveries only.');
       return;
     }
 
@@ -368,6 +388,9 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
     if (!form.city.trim()) nextErrors.city = 'City is required.';
     if (!form.zipCode.trim()) nextErrors.zipCode = 'Postal code or ZIP code is required.';
     if (!form.paymentMethod) nextErrors.paymentMethod = 'Please select a payment method.';
+    if (form.paymentMethod === 'ONLINE' && !shippingQuote.isConfirmed) {
+      nextErrors.paymentMethod = 'Online payment is available after the courier shipping fee is confirmed. Please use COD for this order.';
+    }
 
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
@@ -379,8 +402,14 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
         gmail: form.gmail.trim(),
         mobileNumber: form.mobileNumber.trim(),
         location: deliveryLocation,
-        customerLatitude: form.customerLatitude ?? null,
-        customerLongitude: form.customerLongitude ?? null,
+        country: form.country.trim(),
+        province: form.province.trim(),
+        city: form.city.trim(),
+        barangay: form.barangay.trim(),
+        postalCode: form.zipCode.trim(),
+        zipCode: form.zipCode.trim(),
+        customerLatitude: shippingQuote.isLocalDelivery ? form.customerLatitude ?? null : null,
+        customerLongitude: shippingQuote.isLocalDelivery ? form.customerLongitude ?? null : null,
         paymentMethod: form.paymentMethod,
         items: items.map((item) => ({ id: item.id, qty: item.qty })),
       });
@@ -654,39 +683,48 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                   </p>
                 </div>
 
-                <div className="mt-3 rounded-xl border border-dashed border-[#c7d5c5] bg-white px-4 py-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-[#0f4d2e]">Map Pin for Rider Tracking</p>
-                      <p className="mt-1 text-xs text-[#5e6f65]">
-                        Save your current GPS position so the rider and customer map can show your location.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleCaptureMapLocation}
-                      disabled={isCapturingLocation || !isLagunaDeliveryArea}
-                      className="rounded-full border border-[#0b7a3c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7a3c] transition hover:bg-[#0b7a3c] hover:text-white disabled:cursor-not-allowed disabled:border-[#9eb1a5] disabled:text-[#9eb1a5] disabled:hover:bg-transparent disabled:hover:text-[#9eb1a5]"
-                    >
-                      {isCapturingLocation
-                        ? 'Getting GPS...'
-                        : !isLagunaDeliveryArea
-                          ? 'Laguna Orders Only'
+                {shippingQuote.deliveryMode ? (
+                  <div className="mt-3 rounded-xl border border-[#d8dfd3] bg-[#f8fbf6] px-4 py-3">
+                    <p className="text-sm font-semibold text-[#0f4d2e]">{shippingQuote.deliveryMethod}</p>
+                    <p className="mt-1 text-xs text-[#5e6f65]">{shippingQuote.message}</p>
+                    <p className="mt-1 text-xs font-medium text-[#0f4d2e]">{shippingQuote.trackingMessage}</p>
+                    {!shippingQuote.isLocalDelivery && shippingQuote.courierOptions?.length ? (
+                      <p className="mt-1 text-xs text-[#5e6f65]">Available courier may be {shippingQuote.courierOptions.join(', ')}.</p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {shippingQuote.isLocalDelivery ? (
+                  <div className="mt-3 rounded-xl border border-dashed border-[#c7d5c5] bg-white px-4 py-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-[#0f4d2e]">Map Pin for Rider Tracking</p>
+                        <p className="mt-1 text-xs text-[#5e6f65]">
+                          Save your current GPS position so the Belfiore rider can find your location.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleCaptureMapLocation}
+                        disabled={isCapturingLocation}
+                        className="rounded-full border border-[#0b7a3c] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7a3c] transition hover:bg-[#0b7a3c] hover:text-white disabled:cursor-not-allowed disabled:border-[#9eb1a5] disabled:text-[#9eb1a5] disabled:hover:bg-transparent disabled:hover:text-[#9eb1a5]"
+                      >
+                        {isCapturingLocation
+                          ? 'Getting GPS...'
                           : form.customerLatitude != null && form.customerLongitude != null
                             ? 'Update Map Pin'
                             : 'Use Current Location'}
-                    </button>
-                  </div>
+                      </button>
+                    </div>
 
-                  <p className="mt-3 text-xs text-[#5e6f65]">
-                    {form.customerLatitude != null && form.customerLongitude != null
-                      ? `Saved coordinates: ${Number(form.customerLatitude).toFixed(5)}, ${Number(form.customerLongitude).toFixed(5)}`
-                      : isLagunaDeliveryArea
-                        ? 'No GPS pin saved yet. The selected address above is still required.'
-                        : 'Map pin tracking is only enabled for Laguna delivery addresses.'}
-                  </p>
-                  {locationCaptureMessage ? <p className="mt-2 text-xs text-[#0f4d2e]">{locationCaptureMessage}</p> : null}
-                </div>
+                    <p className="mt-3 text-xs text-[#5e6f65]">
+                      {form.customerLatitude != null && form.customerLongitude != null
+                        ? `Saved coordinates: ${Number(form.customerLatitude).toFixed(5)}, ${Number(form.customerLongitude).toFixed(5)}`
+                        : 'No GPS pin saved yet. The selected address above is still required.'}
+                    </p>
+                    {locationCaptureMessage ? <p className="mt-2 text-xs text-[#0f4d2e]">{locationCaptureMessage}</p> : null}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -705,16 +743,17 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                 />
                 <span className="text-sm text-[#1f2f28]">Cash on Delivery (COD)</span>
               </label>
-              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-[#d8dfd3] p-4">
+              <label className={`flex items-center gap-3 rounded-xl border border-[#d8dfd3] p-4 ${shippingQuote.isConfirmed ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
                 <input
                   type="radio"
                   name="paymentMethod"
                   value="ONLINE"
                   checked={form.paymentMethod === 'ONLINE'}
                   onChange={handleFieldChange}
+                  disabled={!shippingQuote.isConfirmed}
                   className="h-4 w-4 accent-[#0b7a3c]"
                 />
-                <span className="text-sm text-[#1f2f28]">Online Payment</span>
+                <span className="text-sm text-[#1f2f28]">Online Payment{shippingQuote.isConfirmed ? '' : ' (available after shipping confirmation)'}</span>
               </label>
             </div>
             {errors.paymentMethod ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.paymentMethod}</p> : null}
@@ -774,9 +813,27 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
           </div>
 
           <div className="mt-6 border-t border-[#e1e7dc] pt-4">
-            <div className="flex items-center justify-between text-sm text-[#5e6f65]">
-              <span>Total</span>
-              <span className="font-semibold text-[#0f4d2e]">{formatPrice(total)}</span>
+            <div className="space-y-3 text-sm text-[#5e6f65]">
+              <div className="flex items-center justify-between gap-4">
+                <span>Delivery Method</span>
+                <span className="text-right font-medium text-[#0f4d2e]">{shippingQuote.deliveryMethod || 'Select delivery location'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Subtotal</span>
+                <span className="font-medium text-[#0f4d2e]">{formatPrice(total)}</span>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <span>Shipping Fee</span>
+                <span className="text-right font-medium text-[#0f4d2e]">{shippingQuote.isConfirmed ? formatPrice(shippingQuote.fee) : 'Shipping fee to be confirmed'}</span>
+              </div>
+              <div className="flex items-start justify-between gap-4 border-t border-[#e1e7dc] pt-3 text-base">
+                <span className="font-semibold text-[#1f2f28]">Total</span>
+                <span className="text-right font-semibold text-[#0f4d2e]">{orderTotal == null ? 'To be confirmed' : formatPrice(orderTotal)}</span>
+              </div>
+              <p className="rounded-xl bg-[#f8fbf6] px-3 py-2 text-xs leading-5 text-[#5e6f65]">{shippingQuote.message}</p>
+              {shippingQuote.trackingMessage ? (
+                <p className="px-3 text-xs font-medium leading-5 text-[#0f4d2e]">{shippingQuote.trackingMessage}</p>
+              ) : null}
             </div>
             <Link
               to="/cart"

@@ -1,4 +1,4 @@
-import { Facebook, Globe, Instagram, Mail, MapPin, Phone } from "lucide-react";
+import { Mail, MapPin, Phone } from "lucide-react";
 import { Link } from "react-router-dom";
 import logoImage from "../../assets/Logo.png";
 
@@ -74,32 +74,20 @@ export default function Footer() {
                 <MapPin size={16} className="mt-0.5 text-emerald-200" />
                 Brgy. Palo-Alto, Calamba City, Laguna, Philippines
               </p>
-              <p className="flex items-center gap-2">
+              <a className="flex items-center gap-2 transition hover:text-white" href="tel:+639761972581">
                 <Phone size={16} className="text-emerald-200" />
                 0976 197 2581
-              </p>
-              <p className="flex items-center gap-2">
+              </a>
+              <a className="flex items-center gap-2 break-all transition hover:text-white" href="mailto:belfioresucculentsph@gmail.com">
                 <Mail size={16} className="text-emerald-200" />
                 belfioresucculentsph@gmail.com
-              </p>
-            </div>
-
-            <div className="mt-4 flex items-center gap-3">
-              <a href="#" aria-label="Instagram" className="rounded-full border border-emerald-300/40 p-2 hover:bg-emerald-700/50">
-                <Instagram size={16} />
-              </a>
-              <a href="#" aria-label="Website" className="rounded-full border border-emerald-300/40 p-2 hover:bg-emerald-700/50">
-                <Globe size={16} />
-              </a>
-              <a href="#" aria-label="Facebook" className="rounded-full border border-emerald-300/40 p-2 hover:bg-emerald-700/50">
-                <Facebook size={16} />
               </a>
             </div>
           </article>
         </section>
 
         <div className="mt-10 border-t border-emerald-900/70 pt-4 text-center text-xs text-emerald-200/90">
-          (c) {year} Belfiore Succulents PH. All rights reserved.
+          © {year} Belfiore Succulents PH. All rights reserved.
         </div>
       </div>
     </footer>

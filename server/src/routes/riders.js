@@ -13,6 +13,13 @@ const __dirname = path.dirname(__filename);
 const uploadsDir = path.resolve(__dirname, '../../uploads/riders');
 let ensureRidersTablePromise;
 let ensureUsersTablePromise;
+const RIDER_VEHICLE_TYPES = new Set(['Tricycle', 'SUV']);
+const DEFAULT_RIDER_VEHICLE_TYPE = 'Tricycle';
+
+function normalizeRiderVehicleType(value) {
+  const vehicleType = String(value || '').trim();
+  return RIDER_VEHICLE_TYPES.has(vehicleType) ? vehicleType : DEFAULT_RIDER_VEHICLE_TYPE;
+}
 
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -45,7 +52,7 @@ function formatRiderRow(row) {
     email: row.email || '',
     phone: row.phone || '',
     address: row.address || '',
-    vehicleType: row.vehicle_type || '',
+    vehicleType: normalizeRiderVehicleType(row.vehicle_type),
     plateNumber: row.plate_number || '',
     licenseNumber: row.license_number || '',
     emergencyContact: row.emergency_contact || '',
@@ -443,7 +450,7 @@ router.patch('/api/rider/profile', upload.single('profileImage'), async (req, re
     const email = String(req.body?.email || '').trim().toLowerCase();
     const phone = String(req.body?.phone || '').trim();
     const address = String(req.body?.address || '').trim();
-    const vehicleType = String(req.body?.vehicleType || '').trim();
+    const vehicleType = normalizeRiderVehicleType(req.body?.vehicleType);
     const plateNumber = String(req.body?.plateNumber || '').trim();
     const licenseNumber = String(req.body?.licenseNumber || '').trim();
     const emergencyContact = String(req.body?.emergencyContact || '').trim();

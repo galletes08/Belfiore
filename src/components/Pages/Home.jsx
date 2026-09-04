@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, CreditCard, Headset, Leaf, ShieldCheck, Truck } from "lucide-react";
+import { ArrowRight, CreditCard, Headset, Leaf, MapPin, ShieldCheck, Sprout, Truck } from "lucide-react";
 import { productsData } from "../../data/productsData";
 import blogImage from "../../assets/Blog.png";
 import aloeImage from "../../assets/aloe.jpg";
@@ -8,6 +8,7 @@ import whiteImage from "../../assets/white.jpg";
 import greenImage from "../../assets/green.jpg";
 import redImage from "../../assets/red.jpg";
 import letuceImage from "../../assets/letuce.jpg";
+import plantsImage from "../../assets/Plants.jpg";
 
 const serviceHighlights = [
   {
@@ -72,7 +73,7 @@ export default function Home() {
   return (
     <div className="bg-[linear-gradient(180deg,#f5f8f4_0%,#ffffff_40%,#f4f7f3_100%)] text-gray-900">
       <section className="relative isolate overflow-hidden">
-        <img src={blogImage} alt="Succulent collection showcase" className="h-[58vh] w-full object-cover md:h-[70vh]" />
+        <img src={blogImage} alt="Succulent collection showcase" fetchPriority="high" className="h-[58vh] w-full object-cover md:h-[70vh]" />
         <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(6,78,59,0.82)_0%,rgba(6,95,70,0.58)_50%,rgba(0,0,0,0.35)_100%)]" />
 
         <div className="absolute left-1/2 top-1/2 mx-auto w-full max-w-6xl -translate-x-1/2 -translate-y-1/2 px-6">
@@ -103,6 +104,13 @@ export default function Home() {
       </section>
 
       <section className="mx-auto max-w-6xl px-6 py-14">
+        <div className="mb-7 max-w-2xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-700">Why choose Belfiore?</p>
+          <h2 className="mt-2 text-2xl font-bold text-gray-900 md:text-3xl">Local care from selection to delivery</h2>
+          <p className="mt-3 text-sm leading-relaxed text-gray-600">
+            Thoughtfully selected plants, careful handling, and support from a team that understands every order.
+          </p>
+        </div>
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {serviceHighlights.map((service) => {
             const Icon = service.icon;
@@ -123,6 +131,42 @@ export default function Home() {
       </section>
 
       <section className="mx-auto max-w-6xl px-6 pb-14">
+        <div className="grid overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-sm lg:grid-cols-[0.95fr_1.05fr]">
+          <div className="min-h-72 overflow-hidden">
+            <img
+              src={plantsImage}
+              alt="Belfiore plants grown and cared for in Calamba"
+              loading="lazy"
+              className="h-full w-full object-cover transition duration-700 hover:scale-105"
+            />
+          </div>
+          <div className="flex flex-col justify-center p-7 md:p-10">
+            <p className="inline-flex w-fit items-center gap-2 text-xs font-semibold uppercase tracking-[0.25em] text-emerald-700">
+              <Sprout size={15} />
+              Our roots
+            </p>
+            <h2 className="mt-3 text-2xl font-bold leading-tight text-gray-900 md:text-3xl">
+              Rooted in Calamba, growing for every kind of plant lover
+            </h2>
+            <p className="mt-4 text-sm leading-relaxed text-gray-600">
+              Belfiore grew from a home plant collection into a local shop for distinctive Aloe Hybrids and fresh aquaponics produce. We keep the experience personal, from choosing a product to receiving it at your door.
+            </p>
+            <p className="mt-4 inline-flex items-start gap-2 text-sm font-medium text-emerald-800">
+              <MapPin className="mt-0.5 shrink-0" size={17} />
+              Brgy. Palo-Alto, Calamba City, Laguna — serving Laguna and nearby cities.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link to="/about" className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800">
+                Read Our Story <ArrowRight size={16} />
+              </Link>
+              <Link to="/contact" className="rounded-lg border border-emerald-200 px-5 py-2.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50">
+                Visit or Contact Us
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="mx-auto max-w-6xl px-6 pb-14">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-700">Collections</p>
@@ -135,17 +179,29 @@ export default function Home() {
 
         <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
           {collectionCards.map((collection) => (
-            <article key={collection.key} className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-              <img src={collection.image} alt={collection.label} className="h-44 w-full object-cover" />
-              <div className="p-4">
-                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${collection.bg} ${collection.accent}`}>
+            <Link
+              key={collection.key}
+              to={"/products?tag=" + collection.key}
+              aria-label={"Browse " + collection.label}
+              className="group block cursor-pointer overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-emerald-300 hover:shadow-xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200"
+            >
+              <div className="overflow-hidden">
+                <img
+                  src={collection.image}
+                  alt={collection.label}
+                  loading="lazy"
+                  className="h-44 w-full object-cover transition duration-500 group-hover:scale-105"
+                />
+              </div>
+              <div className="p-4 transition-colors duration-300 group-hover:bg-emerald-50/50">
+                <span className={"inline-flex rounded-full px-2.5 py-1 text-xs font-semibold " + collection.bg + " " + collection.accent}>
                   {collection.label}
                 </span>
-                <p className="mt-3 text-sm text-gray-600">
+                <p className="mt-3 text-sm text-gray-600 transition-colors group-hover:text-emerald-800">
                   Available items: <span className="font-semibold text-gray-900">{getTagCount(collection.key)}</span>
                 </p>
               </div>
-            </article>
+            </Link>
           ))}
         </div>
       </section>
@@ -168,7 +224,7 @@ export default function Home() {
               className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md"
             >
               <div className="grid md:grid-cols-2">
-                <img src={collection.image} alt={collection.title} className="h-full min-h-64 w-full object-cover" />
+                <img src={collection.image} alt={collection.title} loading="lazy" className="h-full min-h-64 w-full object-cover" />
                 <div className="flex flex-col justify-between p-5">
                   <div>
                     <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${collection.bg} ${collection.accent}`}>
@@ -190,7 +246,7 @@ export default function Home() {
           <div>
             <p className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-700">
               <ShieldCheck size={16} />
-              Trusted by plant lovers nationwide
+              Based in Brgy. Palo-Alto, Calamba City, Laguna
             </p>
             <h2 className="mt-2 text-2xl font-bold text-gray-900">Ready to grow your plant collection?</h2>
           </div>

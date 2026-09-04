@@ -49,6 +49,7 @@ export async function createPayMongoCheckoutSession({
   customerName,
   customerEmail,
   items,
+  shippingFee = 0,
   requestOrigin,
 }) {
   const frontendUrl = getFrontendUrl(requestOrigin);
@@ -65,13 +66,22 @@ export async function createPayMongoCheckoutSession({
         },
         cancel_url: `${frontendUrl}/orders?paymongo=cancel&orderId=${orderId}`,
         description: `Payment for ${orderCode}`,
-        line_items: items.map((item) => ({
-          amount: toCentavos(item.unitPrice),
-          currency: 'PHP',
-          description: item.productName,
-          name: item.productName,
-          quantity: Number(item.qty),
-        })),
+        line_items: [
+          ...items.map((item) => ({
+            amount: toCentavos(item.unitPrice),
+            currency: 'PHP',
+            description: item.productName,
+            name: item.productName,
+            quantity: Number(item.qty),
+          })),
+          ...(Number(shippingFee) > 0 ? [{
+            amount: toCentavos(shippingFee),
+            currency: 'PHP',
+            description: 'Confirmed delivery fee',
+            name: 'Shipping Fee',
+            quantity: 1,
+          }] : []),
+        ],
         payment_method_types: getRequestedPaymentMethodTypes(),
         send_email_receipt: true,
         success_url: `${frontendUrl}/orders?paymongo=success&orderId=${orderId}`,
@@ -105,6 +115,31 @@ export async function createPayMongoCheckoutSession({
   };
 }
 
+export async function retrievePayMongoCheckoutSession(checkoutSessionId) {
+  const normalizedId = String(checkoutSessionId || '').trim();
+  if (!normalizedId) {
+    throw new Error('PayMongo checkout session ID is required.');
+  }
+
+  const response = await fetch(PAYMONGO_API_URL + '/checkout_sessions/' + encodeURIComponent(normalizedId), {
+    headers: {
+      Accept: 'application/json',
+      Authorization: getAuthHeader(),
+    },
+  });
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message =
+      data?.errors?.[0]?.detail ||
+      data?.errors?.[0]?.code ||
+      data?.message ||
+      'Unable to verify the PayMongo checkout session.';
+    throw new Error(message);
+  }
+
+  return data?.data || null;
+}
 function parseSignatureHeader(signatureHeader) {
   return String(signatureHeader || '')
     .split(',')

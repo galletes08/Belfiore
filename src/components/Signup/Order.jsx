@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { CircleCheckBig, Clock3, MapPinned, Package, ReceiptText, Truck, UserRound } from 'lucide-react';
-import { apiCustomerOrders, apiLogisticsUpdates, clearCustomerToken, getImageUrl } from '../../api/client';
+import { useLocation } from 'react-router-dom';
+import { CircleCheckBig, Clock3, MapPinned, Package, ReceiptText, Search, Truck } from 'lucide-react';
+import { apiCancelCustomerOrder, apiCustomerOrders, apiLogisticsUpdates, apiVerifyOnlinePayment, clearCustomerToken, getImageUrl } from '../../api/client';
 import TrackingMap from '../TrackingMap';
 import { getStoredOrderIds } from '../../utils/customerOrders';
+import AccountSidebar from './AccountSidebar';
 import { printInvoice } from '../../utils/invoice';
 
 const statusConfig = {
   Pending: { label: 'Pending', badgeClass: 'bg-amber-100 text-amber-800 ring-amber-200' },
   Preparing: { label: 'Preparing', badgeClass: 'bg-sky-100 text-sky-800 ring-sky-200' },
+  'Cancellation Requested': { label: 'Cancellation Requested', badgeClass: 'bg-orange-100 text-orange-800 ring-orange-200' },
   'Out for Delivery': { label: 'Out for Delivery', badgeClass: 'bg-violet-100 text-violet-800 ring-violet-200' },
   Delivered: { label: 'Delivered', badgeClass: 'bg-emerald-100 text-emerald-800 ring-emerald-200' },
   Cancelled: { label: 'Cancelled', badgeClass: 'bg-rose-100 text-rose-700 ring-rose-200' },
@@ -30,8 +32,30 @@ const paymentConfig = {
   Unpaid: 'bg-stone-100 text-stone-700 ring-stone-200',
   Failed: 'bg-rose-100 text-rose-700 ring-rose-200',
   Refunded: 'bg-orange-100 text-orange-800 ring-orange-200',
+  'Refund Pending': 'bg-orange-100 text-orange-800 ring-orange-200',
 };
 
+const cancellationReasons = [
+  'Changed my mind',
+  'Ordered by mistake',
+  'Need to change the items or address',
+  'Delivery is taking too long',
+  'Other',
+];
+
+const purchaseTabs = [
+  { id: 'all', label: 'All' }, { id: 'to-pay', label: 'To Pay' }, { id: 'to-ship', label: 'To Ship' }, { id: 'to-receive', label: 'To Receive' }, { id: 'completed', label: 'Completed' }, { id: 'refund', label: 'Return / Refund' }, { id: 'cancelled', label: 'Cancelled' },
+];
+function matchesPurchaseStatus(order, tab) {
+  if (tab === 'all') return true;
+  const orderStatus = order.status || 'Pending'; const paymentStatus = order.paymentStatus || 'Pending'; const trackingStatus = order.trackingStatus || 'Pending';
+  if (tab === 'to-pay') return ['Pending', 'Unpaid', 'Failed'].includes(paymentStatus) && !['Cancelled', 'Cancellation Requested'].includes(orderStatus);
+  if (tab === 'to-ship') return ['Pending', 'Preparing'].includes(orderStatus) && ['Paid', 'Pending'].includes(paymentStatus);
+  if (tab === 'to-receive') return ['Packed', 'In Transit', 'Out for Delivery'].includes(trackingStatus) || orderStatus === 'Out for Delivery';
+  if (tab === 'completed') return orderStatus === 'Delivered';
+  if (tab === 'refund') return ['Refund Pending', 'Refunded'].includes(paymentStatus) || ['Cancellation Requested', 'Refunded', 'Returned'].includes(orderStatus);
+  return orderStatus === 'Cancelled';
+}
 function formatPhp(amount) {
   return new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -59,6 +83,19 @@ function badgeClass(value) {
 
 function paymentBadgeClass(value) {
   return paymentConfig[value] || 'bg-stone-100 text-stone-700 ring-stone-200';
+}
+
+function codBadgeClass(value) {
+  if (value === 'Remitted' || value === 'Collected') {
+    return 'bg-emerald-100 text-emerald-800 ring-emerald-200';
+  }
+  if (value === 'Cancelled') {
+    return 'bg-rose-100 text-rose-700 ring-rose-200';
+  }
+  if (value === 'Remittance Pending') {
+    return 'bg-orange-100 text-orange-800 ring-orange-200';
+  }
+  return 'bg-amber-100 text-amber-800 ring-amber-200';
 }
 
 function isLogisticsOrder(order) {
@@ -185,36 +222,67 @@ export default function Order() {
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [logisticsUpdatesByOrder, setLogisticsUpdatesByOrder] = useState({});
+  const [activeTab, setActiveTab] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [orderToCancel, setOrderToCancel] = useState(null);
+  const [cancelReason, setCancelReason] = useState(cancellationReasons[0]);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState('');
 
   const orderIds = useMemo(() => getStoredOrderIds(), []);
   const orderedOrders = useMemo(() => [...orders].sort(compareNewestOrders), [orders]);
-  const totalOrders = orderedOrders.length;
-  const activeOrdersCount = orderedOrders.filter((order) => !['Delivered', 'Cancelled'].includes(order.status)).length;
-  const completedCount = orderedOrders.filter((order) => order.status === 'Delivered').length;
-  const liveTrackedOrders = orderedOrders.filter((order) => !isLogisticsOrder(order) && order.driverLatitude != null && order.driverLongitude != null).length;
-  const orderStats = [
-    { label: 'Total', value: totalOrders, icon: <Package size={17} />, accent: 'text-[#0f4d2e] bg-[#e8f3ea]' },
-    { label: 'Active', value: activeOrdersCount, icon: <Truck size={17} />, accent: 'text-sky-700 bg-sky-50' },
-    { label: 'Delivered', value: completedCount, icon: <CircleCheckBig size={17} />, accent: 'text-emerald-700 bg-emerald-50' },
-    { label: 'Live map', value: liveTrackedOrders, icon: <MapPinned size={17} />, accent: 'text-violet-700 bg-violet-50' },
-  ];
-  const paymongoStatus = new URLSearchParams(location.search).get('paymongo');
+  const filteredOrders = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    return orderedOrders.filter((order) => {
+      if (!matchesPurchaseStatus(order, activeTab)) return false;
+      if (!query) return true;
+      const items = Array.isArray(order.items) ? order.items : [];
+      return [getOrderCode(order), order.customerName, ...items.map((item) => item.productName)].filter(Boolean).join(' ').toLowerCase().includes(query);
+    });
+  }, [activeTab, orderedOrders, searchTerm]);
+  const paymongoParams = new URLSearchParams(location.search);
+  const paymongoStatus = paymongoParams.get('paymongo');
+  const paymongoOrderId = Number(paymongoParams.get('orderId'));
+  const [paymentVerification, setPaymentVerification] = useState('idle');
+
+  useEffect(() => {
+    if (paymongoStatus !== 'success' || !Number.isInteger(paymongoOrderId) || paymongoOrderId <= 0) {
+      return undefined;
+    }
+
+    let isMounted = true;
+    setPaymentVerification('checking');
+
+    apiVerifyOnlinePayment(paymongoOrderId)
+      .then((result) => {
+        if (!isMounted) return;
+        const isPaid = result.paymentStatus === 'Paid';
+        setPaymentVerification(isPaid ? 'paid' : 'pending');
+        if (isPaid) {
+          setOrders((current) =>
+            current.map((order) => (order.id === paymongoOrderId ? { ...order, paymentStatus: 'Paid' } : order))
+          );
+        }
+      })
+      .catch(() => {
+        if (isMounted) setPaymentVerification('error');
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [paymongoOrderId, paymongoStatus]);
 
   useEffect(() => {
     let isMounted = true;
 
     async function loadOrders() {
-      if (!orderIds.length) {
-        setOrders([]);
-        setStatus('empty');
-        return;
-      }
-
       try {
         const data = await apiCustomerOrders(orderIds);
         if (!isMounted) return;
-        setOrders(Array.isArray(data) ? data : []);
-        setStatus('success');
+        const nextOrders = Array.isArray(data) ? data : [];
+        setOrders(nextOrders);
+        setStatus(nextOrders.length ? 'success' : 'empty');
         setError('');
       } catch (err) {
         if (!isMounted) return;
@@ -282,62 +350,46 @@ export default function Order() {
       paymentStatus: order.paymentStatus || '',
       storeName: 'Belfiore Succulents PH',
       items: order.items,
-      shippingFee: 0,
+      shippingFee: order.shippingFee,
       note: 'Thank you for shopping with Belfiore Succulents PH. Please keep this invoice for your records.',
     });
+  };
+
+  const handleCancelOrder = async (event) => {
+    event.preventDefault();
+    if (!orderToCancel) return;
+
+    setCancelling(true);
+    setCancelError('');
+    try {
+      const updatedOrder = await apiCancelCustomerOrder(orderToCancel.id, cancelReason);
+      setOrders((current) => current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)));
+      setOrderToCancel(null);
+      setCancelReason(cancellationReasons[0]);
+    } catch (err) {
+      setCancelError(err.message || 'Unable to cancel this order.');
+    } finally {
+      setCancelling(false);
+    }
   };
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#f8faf6] font-['Montserrat'] text-[#24372d]">
       <div className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-0 px-4 md:px-6 lg:grid-cols-[250px_minmax(0,1fr)]">
-        <aside className="self-start border-x border-[#e3eadf] bg-white px-5 py-6 lg:sticky lg:top-0 lg:z-40 lg:h-[100dvh] lg:overflow-y-auto">
-          <div className="mb-6 flex items-center gap-3">
-            <Link
-              to="/profile"
-              aria-label="Go to Profile"
-              className="grid h-11 w-11 place-items-center rounded-full bg-[#e8f3ea] text-[#0f4d2e] transition hover:bg-[#d9ebdc]"
-            >
-              <UserRound size={18} />
-            </Link>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#6c786f]">Account</p>
-              <h2 className="mt-1 text-lg font-semibold text-[#173d2b]">User Panel</h2>
-            </div>
-          </div>
-
-          <nav className="grid grid-cols-2 gap-2 text-sm lg:grid-cols-1">
-            <Link
-              to="/dashboard"
-              className="rounded-xl border border-[#e1e7dc] px-3 py-2.5 text-left text-[#405145] transition hover:border-[#b7ccb5] hover:text-[#0f4d2e]"
-            >
-              Dashboard
-            </Link>
-            <Link to="/orders" className="rounded-xl bg-[#0f4d2e] px-3 py-2.5 text-left font-semibold text-white shadow-sm">
-              Orders
-            </Link>
-            <Link
-              to="/profile"
-              className="rounded-xl border border-[#e1e7dc] px-3 py-2.5 text-left text-[#405145] transition hover:border-[#b7ccb5] hover:text-[#0f4d2e]"
-            >
-              Profile
-            </Link>
-            <Link
-              to="/login"
-              onClick={handleLogout}
-              className="col-span-2 rounded-xl border border-red-200 px-3 py-2.5 text-left text-red-600 transition hover:bg-red-50 lg:col-span-1"
-            >
-              Logout
-            </Link>
-          </nav>
-        </aside>
+        <AccountSidebar onLogout={handleLogout} />
 
         <main className="min-w-0 space-y-6 py-6 lg:px-6">
           {paymongoStatus === 'success' ? (
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm leading-6 text-emerald-800">
-              PayMongo sent you back successfully. Your payment is being confirmed and the order status will update here once the webhook arrives.
+              {paymentVerification === 'paid'
+                ? 'Online payment confirmed. Your payment status is now Paid.'
+                : paymentVerification === 'error'
+                  ? 'We could not verify the payment yet. Please refresh in a moment or contact support if the payment was deducted.'
+                  : paymentVerification === 'pending'
+                    ? 'PayMongo has not confirmed a paid transaction yet. Your payment will remain Pending.'
+                    : 'Verifying your completed PayMongo payment...'}
             </div>
           ) : null}
-
           {paymongoStatus === 'cancel' ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-6 text-amber-800">
               PayMongo checkout was canceled. Your order was created, but it will stay unpaid until you complete the online payment.
@@ -345,29 +397,21 @@ export default function Order() {
           ) : null}
 
           <section className="py-2">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-              <div className="max-w-2xl">
-                <p className="font-['Montserrat'] text-xs font-semibold uppercase tracking-[0.35em] text-[#5e6f65]">Order Center</p>
-                <h1 className="mt-3 font-['Playfair_Display'] text-4xl leading-tight text-[#0f4d2e] md:text-5xl">Track your deliveries</h1>
-                <p className="mt-3 text-sm leading-7 text-[#5e6f65] md:text-base">
-                  Recent purchases, payment status, and delivery progress in one clean view.
-                </p>
-              </div>
-
-              <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-4 xl:w-auto xl:min-w-[32rem]">
-                {orderStats.map(({ label, value, icon, accent }) => (
-                  <article key={label} className="min-w-0 rounded-2xl border border-[#e1e7dc] bg-white px-4 py-4 shadow-sm">
-                    <div className={`mb-3 grid h-9 w-9 place-items-center rounded-xl ${accent}`}>
-                      {icon}
-                    </div>
-                    <p className="whitespace-nowrap text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-[#6c786f]">{label}</p>
-                    <p className="mt-1 text-2xl font-semibold text-[#173d2b]">{value}</p>
-                  </article>
-                ))}
-              </div>
+            <div className="max-w-2xl">
+              <p className="font-['Montserrat'] text-xs font-semibold uppercase tracking-[0.35em] text-[#5e6f65]">Purchase Center</p>
+              <h1 className="mt-3 font-['Playfair_Display'] text-3xl leading-tight text-[#0f4d2e] md:text-4xl">My Purchases</h1>
+              <p className="mt-3 text-sm leading-7 text-[#5e6f65] md:text-base">
+                Find and sort every purchase by payment, shipping, delivery, and refund status.
+              </p>
             </div>
           </section>
 
+          <section className="overflow-hidden rounded-[1.35rem] border border-[#e1e7dc] bg-white shadow-sm">
+            <div className="flex overflow-x-auto border-b border-[#e7ece4] px-2">
+              {purchaseTabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`shrink-0 border-b-2 px-4 py-4 text-sm font-medium transition sm:px-5 ${activeTab === tab.id ? 'border-[#f04b2f] text-[#e44227]' : 'border-transparent text-[#405145] hover:text-[#0f4d2e]'}`}>{tab.label}</button>)}
+            </div>
+            <div className="p-4"><label className="flex items-center gap-3 rounded-xl bg-[#f1f3f0] px-4 py-3 text-sm text-[#405145] focus-within:ring-2 focus-within:ring-[#b9d7c3]"><Search size={20} className="shrink-0 text-[#7b867d]" /><input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search by product name or Order ID" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[#7b867d]" /></label></div>
+          </section>
           {status === 'loading' ? (
             <div className="rounded-2xl border border-[#e1e7dc] bg-white p-8 text-sm text-[#5e6f65] shadow-sm">
               Loading your orders...
@@ -382,13 +426,17 @@ export default function Order() {
 
           {status === 'empty' ? (
             <div className="rounded-2xl border border-dashed border-[#c7d0c3] bg-white p-10 text-center shadow-sm">
-              <h2 className="font-['Playfair_Display'] text-3xl text-[#0f4d2e]">No tracked orders yet</h2>
+              <h2 className="font-['Playfair_Display'] text-2xl text-[#0f4d2e]">No tracked orders yet</h2>
               <p className="mt-3 text-sm leading-6 text-[#5e6f65]">Place an order first, then it will appear here with rider tracking.</p>
             </div>
           ) : null}
 
+                    {status === 'success' && filteredOrders.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-[#c7d0c3] bg-white p-10 text-center shadow-sm"><h2 className="font-['Playfair_Display'] text-2xl text-[#0f4d2e]">No matching purchases</h2><p className="mt-3 text-sm text-[#5e6f65]">Try another status or search term.</p></div>
+          ) : null}
+
           {status === 'success'
-            ? orderedOrders.map((order) => {
+            ? filteredOrders.map((order) => {
               const orderStatus = statusConfig[order.status] || statusConfig.Pending;
               const trackingStatus = order.trackingStatus || 'Pending';
               const paymentStatus = order.paymentStatus || 'Pending';
@@ -414,7 +462,7 @@ export default function Order() {
                           {logisticsOnly ? 'Logistics' : 'Rider delivery'}
                         </span>
                       </div>
-                      <h2 className="mt-2 truncate font-['Playfair_Display'] text-3xl leading-tight text-[#0f4d2e]">{order.customerName || 'Valued Customer'}</h2>
+                      <h2 className="mt-2 truncate font-['Playfair_Display'] text-2xl leading-tight text-[#0f4d2e]">{order.customerName || 'Valued Customer'}</h2>
                       <p className="mt-2 text-sm text-[#6c786f]">Placed on {formatDate(order.createdAt)}</p>
                     </div>
 
@@ -427,8 +475,13 @@ export default function Order() {
                           Payment: {paymentStatus}
                         </span>
                         <span className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${badgeClass(trackingStatus)}`}>
-                          Tracking: {trackingStatus}
+                          Delivery: {trackingStatus}
                         </span>
+                        {order.paymentMethod === 'COD' ? (
+                          <span className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ring-1 ${codBadgeClass(order.codStatus)}`}>
+                            COD: {order.codStatus || 'Awaiting Payment'}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap items-center gap-3 sm:justify-end">
                         <div className="sm:text-right">
@@ -443,9 +496,59 @@ export default function Order() {
                           <ReceiptText size={15} />
                           Invoice
                         </button>
+                        {['Pending', 'Preparing'].includes(order.status) ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOrderToCancel(order);
+                              setCancelReason(cancellationReasons[0]);
+                              setCancelError('');
+                            }}
+                            className="inline-flex items-center justify-center rounded-xl border border-rose-300 bg-white px-3.5 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-rose-700 shadow-sm transition hover:bg-rose-50"
+                          >
+                            Cancel order
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   </div>
+
+                  {order.adminConfirmedAt ? (
+                    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-900">
+                      <p className="font-semibold">Checkout confirmed by admin</p>
+                      <p className="mt-1">
+                        Your order has been confirmed and is now being prepared.
+                        {' '}Confirmed {formatDate(order.adminConfirmedAt)}.
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {order.paymentMethod === 'COD' ? (
+                    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+                      <p className="font-semibold">Cash on Delivery · {order.codStatus || 'Awaiting Payment'}</p>
+                      <p className="mt-1">
+                        {logisticsOnly
+                          ? order.codStatus === 'Cancelled'
+                            ? 'This COD order was cancelled.'
+                            : order.codStatus === 'Remittance Pending'
+                            ? 'Your order was delivered and paid to the courier. Belfiore is waiting for the courier remittance; Payment Status remains Unpaid.'
+                            : order.codStatus === 'Remitted'
+                              ? 'Belfiore received the courier COD remittance. Payment Status is Paid.'
+                              : `Pay ${order.courierName || 'the J&T/LBC courier'} when your order is delivered.`
+                          : order.codStatus === 'Cancelled'
+                            ? 'This COD order was cancelled.'
+                            : order.codStatus === 'Collected'
+                            ? 'Payment was received by the Belfiore Rider upon delivery.'
+                            : 'Pay cash directly to the Belfiore Rider when your order is delivered.'}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {order.cancelReason ? (
+                    <div className="mt-4 rounded-2xl border border-orange-100 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+                      <span className="font-semibold">Cancellation reason:</span> {order.cancelReason}
+                    </div>
+                  ) : null}
 
                   <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
                     <div className="space-y-5">
@@ -453,8 +556,8 @@ export default function Order() {
                         <h3 className="font-['Playfair_Display'] text-xl text-[#0f4d2e]">Delivery Details</h3>
                         <div className="mt-4 grid gap-5 md:grid-cols-2">
                           <DetailField label={logisticsOnly ? 'Courier' : 'Rider'}>
-                            <p className="font-semibold">{logisticsOnly ? 'Logistics provider' : order.courierName || 'Waiting for assignment'}</p>
-                            <p className="mt-1 text-[#5e6f65]">{logisticsOnly ? order.trackingCourierCode || 'External logistics tracking' : order.driverPhone || 'No rider contact yet'}</p>
+                            <p className="font-semibold">{logisticsOnly ? order.courierName || 'Waiting for courier selection' : order.courierName || 'Waiting for assignment'}</p>
+                            <p className="mt-1 text-[#5e6f65]">{logisticsOnly ? order.trackingCode || 'Waiting for tracking number' : order.driverPhone || 'No rider contact yet'}</p>
                           </DetailField>
                           <DetailField label="Latest Update">
                             <p className="font-semibold">{formatDate(order.statusUpdatedAt || order.updatedAt)}</p>
@@ -496,9 +599,19 @@ export default function Order() {
                             </div>
                           ))}
                         </div>
-                        <div className="mt-4 flex items-center justify-between border-t border-[#eef2ea] pt-4">
-                          <span className="text-sm text-[#5e6f65]">Order Total</span>
-                          <span className="text-xl font-semibold text-[#0f4d2e]">{formatPhp(order.totalAmount)}</span>
+                        <div className="mt-4 space-y-2 border-t border-[#eef2ea] pt-4 text-sm">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[#5e6f65]">Subtotal</span>
+                            <span className="font-medium text-[#173d2b]">{formatPhp(order.subtotalAmount ?? order.totalAmount)}</span>
+                          </div>
+                          <div className="flex items-start justify-between gap-4">
+                            <span className="text-[#5e6f65]">Shipping Fee</span>
+                            <span className="text-right font-medium text-[#173d2b]">{order.shippingFee == null ? 'Shipping fee to be confirmed' : formatPhp(order.shippingFee)}</span>
+                          </div>
+                          <div className="flex items-start justify-between gap-4 border-t border-[#eef2ea] pt-3">
+                            <span className="text-[#5e6f65]">Total</span>
+                            <span className="text-right text-xl font-semibold text-[#0f4d2e]">{order.shippingFee == null ? 'To be confirmed' : formatPhp(order.totalAmount)}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -565,6 +678,52 @@ export default function Order() {
             : null}
         </main>
       </div>
+
+      {orderToCancel ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="purchase-cancel-title">
+          <form onSubmit={handleCancelOrder} className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <h2 id="purchase-cancel-title" className="font-['Playfair_Display'] text-2xl text-[#0f4d2e]">
+              Cancel {getOrderCode(orderToCancel)}?
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-[#5e6f65]">
+              {orderToCancel.status === 'Pending'
+                ? 'The order will be cancelled immediately and its reserved stock will be returned.'
+                : 'Preparation has started, so this will be sent to the admin as a cancellation request.'}
+            </p>
+
+            <label className="mt-5 block">
+              <span className="mb-2 block text-sm font-semibold text-[#294b39]">Reason for cancellation</span>
+              <select
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                className="w-full rounded-xl border border-[#d7dfd3] bg-white px-3 py-3 text-sm text-[#294b39] outline-none focus:border-[#0b7a3c]"
+              >
+                {cancellationReasons.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+              </select>
+            </label>
+
+            {cancelError ? <p className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{cancelError}</p> : null}
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={cancelling}
+                onClick={() => setOrderToCancel(null)}
+                className="rounded-full border border-[#d7dfd3] px-5 py-2.5 text-sm font-semibold text-[#355441]"
+              >
+                Keep order
+              </button>
+              <button
+                type="submit"
+                disabled={cancelling}
+                className="rounded-full bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {cancelling ? 'Processing...' : 'Confirm cancellation'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -4,6 +4,7 @@ export const DEFAULT_DELIVERY_COUNTRY_CODE = 'PH';
 export function buildDeliveryLocation(parts) {
   const orderedParts = [
     parts.streetAddress,
+    parts.landmark ? `Landmark: ${parts.landmark}` : '',
     parts.barangay,
     parts.city,
     parts.province,

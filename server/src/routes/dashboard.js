@@ -19,6 +19,7 @@ router.get('/api/admin/dashboard', async (_req, res) => {
       FROM months m
       LEFT JOIN orders o
         ON date_trunc('month', o.created_at) = m.month_start
+        AND o.status = 'Delivered'
       GROUP BY m.month_start
       ORDER BY m.month_start;
     `;
@@ -69,7 +70,8 @@ router.get('/api/admin/dashboard', async (_req, res) => {
         COALESCE(SUM(total_amount), 0)::float AS monthly_sales,
         COUNT(*)::int AS monthly_orders
       FROM orders
-      WHERE created_at >= date_trunc('month', now());
+      WHERE created_at >= date_trunc('month', now())
+        AND status = 'Delivered';
     `;
 
     const [salesData, lowStock, recentOrders, totalsResult] = await Promise.all([

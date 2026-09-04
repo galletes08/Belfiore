@@ -7,6 +7,7 @@ import {
   setRiderUser,
   setToken,
 } from '../api/client';
+import { loadAdminPreferences } from '../utils/adminPreferences';
 
 export default function AdminLogin() {
   const [email, setEmail] = useState('');
@@ -31,7 +32,7 @@ export default function AdminLogin() {
       if (role === 'admin') {
         setAdminUser(response.user || null);
         setToken(token);
-        navigate('/admin', { replace: true });
+        navigate(loadAdminPreferences().startPage, { replace: true });
         return;
       }
 

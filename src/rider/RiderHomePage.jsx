@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ExternalLink, Package, UserRound, Truck, MapPinned } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { apiRiderOrders, getImageUrl, getRiderUser } from '../api/client';
+import { apiRiderOrders, getImageUrl } from '../api/client';
 
 function formatDate(value) {
   if (!value) return '-';
@@ -51,7 +51,7 @@ function trackingBadgeClass(status) {
 }
 
 function isActiveOrder(order) {
-  return !['Delivered', 'Cancelled'].includes(order.status);
+  return !['Delivered', 'Cancelled', 'Cancellation Requested'].includes(order.status);
 }
 
 function buildDriverLink(token) {
@@ -64,7 +64,6 @@ export default function RiderHomePage() {
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
-  const riderUser = getRiderUser();
 
   useEffect(() => {
     let mounted = true;
@@ -115,59 +114,50 @@ export default function RiderHomePage() {
         : 'No orders are assigned to this rider account yet.';
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-5 font-['Montserrat'] sm:space-y-7">
-      <section className="overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-sm">
-        <div className="bg-green-900 px-5 py-7 text-white sm:px-8 sm:py-10">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-100/90">Rider Dashboard</p>
-              <h1 className="mt-3 font-['Playfair_Display'] text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
-                {riderUser?.name || 'Assigned Deliveries'}
-              </h1>
-              <p className="mt-4 max-w-3xl text-sm leading-7 text-emerald-50/90 sm:text-base">
-                Compact order cards with the essentials only, so the page stays quick and readable on mobile.
-              </p>
-            </div>
+    <div className="mx-auto max-w-7xl space-y-6 font-['Montserrat']">
+      <header>
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Assigned deliveries</p>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl text-slate-900">Rider Dashboard</h1>
+      </header>
 
-            <div className="grid grid-cols-3 gap-3 sm:min-w-[300px]">
-              <article className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-50/80">Orders</p>
-                <p className="mt-2 text-3xl font-semibold leading-none">{totals.all}</p>
-              </article>
-              <article className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-50/80">Active</p>
-                <p className="mt-2 text-3xl font-semibold leading-none">{totals.active}</p>
-              </article>
-              <article className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-50/80">Done</p>
-                <p className="mt-2 text-3xl font-semibold leading-none">{totals.delivered}</p>
-              </article>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-3 border-b border-gray-100 bg-white px-5 py-4 sm:px-8 sm:py-5">
-          {[
-            { key: 'all', label: 'All Orders', count: totals.all },
-            { key: 'active', label: 'Active', count: totals.active },
-            { key: 'delivered', label: 'Delivered', count: totals.delivered },
-          ].map((filter) => (
-            <button
-              key={filter.key}
-              type="button"
-              onClick={() => setSelectedFilter(filter.key)}
-              className={`rounded-full px-5 py-2.5 text-sm font-semibold transition ${
-                selectedFilter === filter.key
-                  ? 'bg-[#0f4d2e] text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              {filter.label} <span className="ml-1.5 opacity-80">{filter.count}</span>
-            </button>
-          ))}
-        </div>
+      <section className="grid grid-cols-3 gap-2 sm:gap-4">
+        <article className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:text-xs">Orders</p>
+          <p className="mt-2 text-xl font-bold tracking-tight sm:mt-3 sm:text-2xl text-slate-900">{totals.all}</p>
+          <p className="mt-2 hidden text-xs text-slate-500 sm:block">All assigned deliveries</p>
+        </article>
+        <article className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:text-xs">Active</p>
+          <p className="mt-2 text-xl font-bold tracking-tight sm:mt-3 sm:text-2xl text-emerald-700">{totals.active}</p>
+          <p className="mt-2 hidden text-xs text-slate-500 sm:block">Deliveries in progress</p>
+        </article>
+        <article className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:text-xs">Delivered</p>
+          <p className="mt-2 text-xl font-bold tracking-tight sm:mt-3 sm:text-2xl text-slate-900">{totals.delivered}</p>
+          <p className="mt-2 hidden text-xs text-slate-500 sm:block">Completed deliveries</p>
+        </article>
       </section>
 
+      <section className="flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        {[
+          { key: 'all', label: 'All Orders', count: totals.all },
+          { key: 'active', label: 'Active', count: totals.active },
+          { key: 'delivered', label: 'Delivered', count: totals.delivered },
+        ].map((filter) => (
+          <button
+            key={filter.key}
+            type="button"
+            onClick={() => setSelectedFilter(filter.key)}
+            className={"min-h-11 shrink-0 rounded-xl px-3 py-2 text-sm font-semibold transition " + (
+              selectedFilter === filter.key
+                ? "bg-[#1f5a43] text-white shadow-sm"
+                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+            )}
+          >
+            {filter.label} <span className="ml-1 opacity-80">{filter.count}</span>
+          </button>
+        ))}
+      </section>
       {status === 'loading' ? (
         <section className="rounded-3xl border border-white/80 bg-white p-8 text-sm font-medium text-gray-500 shadow-sm">
           Loading rider orders...
@@ -187,34 +177,36 @@ export default function RiderHomePage() {
       ) : null}
 
       {status === 'success' && filteredOrders.length > 0 ? (
-        <section className="grid gap-5 xl:grid-cols-2">
+        <section className="grid gap-4 xl:grid-cols-2">
           {filteredOrders.map((order) => {
             const deliveryLink = buildDriverLink(order.driverAccessToken);
             const imageCount = order.items.length;
 
             return (
-              <article key={order.id} className="overflow-hidden rounded-[1.75rem] border border-white/80 bg-white shadow-sm">
-                <div className="border-b border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] px-5 py-5 sm:px-6">
+              <article key={order.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white sm:rounded-3xl shadow-sm transition hover:shadow-md">
+                <div className="border-b border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] p-4 sm:px-5">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-500">{order.orderCode}</p>
-                      <h2 className="mt-2 truncate font-['Playfair_Display'] text-2xl font-semibold leading-tight text-gray-900">{order.customerName}</h2>
+                      <h2 className="mt-2 truncate font-['Playfair_Display'] text-xl font-semibold leading-tight text-gray-900">{order.customerName}</h2>
                       <p className="mt-2 text-sm text-gray-500">{formatDate(order.createdAt)}</p>
                     </div>
                     <div className="flex flex-wrap justify-end gap-2">
                       <span className={`inline-flex rounded-full px-3.5 py-1.5 text-xs font-semibold ${statusBadgeClass(order.status)}`}>
                         {order.status}
                       </span>
-                      <span className={`inline-flex rounded-full px-3.5 py-1.5 text-xs font-semibold ${trackingBadgeClass(order.trackingStatus)}`}>
-                        {order.trackingStatus}
-                      </span>
+                      {order.trackingStatus && order.trackingStatus !== order.status ? (
+                        <span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold " + trackingBadgeClass(order.trackingStatus)}>
+                          {order.trackingStatus}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </div>
 
-                <div className="grid gap-4 px-5 py-5 sm:px-6 md:grid-cols-2">
+                <div className="grid gap-3 p-4 sm:gap-4 md:grid-cols-2">
                   <div className="space-y-4">
-                    <div className="rounded-2xl bg-gray-50 p-5">
+                    <div className="rounded-2xl bg-gray-50 p-4">
                       <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">
                         <UserRound size={14} />
                         Customer
@@ -223,7 +215,7 @@ export default function RiderHomePage() {
                       <p className="mt-1 text-sm leading-6 text-gray-600">{order.mobileNumber || order.gmail || '-'}</p>
                     </div>
 
-                    <div className="rounded-2xl bg-gray-50 p-5">
+                    <div className="rounded-2xl bg-gray-50 p-4">
                       <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">
                         <Package size={14} />
                         Items
@@ -255,7 +247,7 @@ export default function RiderHomePage() {
                   </div>
 
                   <div className="space-y-4">
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-5">
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
                       <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">
                         <Truck size={14} />
                         Delivery
@@ -276,14 +268,14 @@ export default function RiderHomePage() {
                       </div>
                     </div>
 
-                    <div className="rounded-2xl bg-gray-50 p-5">
+                    <div className="rounded-2xl bg-gray-50 p-4">
                       <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">
                         <MapPinned size={14} />
                         Quick details
                       </p>
                       <div className="mt-3 space-y-2.5 text-sm leading-6 text-gray-700">
                         <p>
-                          <span className="font-semibold text-gray-900">Address:</span> {order.location || 'No delivery location yet'}
+                          <span className="font-semibold text-gray-900">Address:</span> <span className="break-words">{order.location || 'No delivery location yet'}</span>
                         </p>
                         <p>
                           <span className="font-semibold text-gray-900">Accepted:</span> {formatDate(order.driverAcceptedAt)}
@@ -298,7 +290,7 @@ export default function RiderHomePage() {
                       {deliveryLink ? (
                         <Link
                           to={`/rider/delivery/${order.driverAccessToken}`}
-                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#0f4d2e] px-4 py-3.5 text-sm font-semibold text-white transition hover:bg-[#163f2f]"
+                          className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#0f4d2e] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#163f2f]"
                         >
                           Open Delivery Page
                           <ExternalLink size={16} />

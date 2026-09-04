@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { MapPinned, Navigation, RefreshCw, ShieldCheck, Truck } from 'lucide-react';
+import { CheckCircle2, MapPinned, Navigation, RefreshCw, ShieldCheck, Truck } from 'lucide-react';
 import { apiDriverOrder, apiUpdateDriverOrder } from '../api/client';
 import TrackingMap from '../components/TrackingMap';
 
 const TEST_DRIVER_COORDINATES = (() => {
+  const useTestLocation =
+    import.meta.env.DEV && String(import.meta.env.VITE_USE_TEST_RIDER_LOCATION || '').toLowerCase() === 'true';
+
+  if (!useTestLocation) {
+    return null;
+  }
+
   const latitude = Number(import.meta.env.VITE_TEST_RIDER_LATITUDE);
   const longitude = Number(import.meta.env.VITE_TEST_RIDER_LONGITUDE);
 
@@ -20,6 +27,7 @@ const TEST_DRIVER_COORDINATES = (() => {
 })();
 
 function formatDate(value) {
+  if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
   return date.toLocaleString([], {
@@ -135,22 +143,22 @@ export default function DriverOrderPage() {
     };
   }, [isLiveSharing, token]);
 
-  async function updateDriver(payload, successMessage) {
+  async function handleAcceptOrder() {
     setIsUpdating(true);
     setNotice('');
 
     try {
-      const data = await apiUpdateDriverOrder(token, payload);
+      const data = await apiUpdateDriverOrder(token, { acceptOrder: true });
       setOrder(data);
-      setNotice(successMessage);
+      setNotice('Order accepted. Status is now Out for Delivery.');
     } catch (err) {
-      setNotice(err.message || 'Unable to update this order.');
+      setNotice(err.message || 'Unable to accept this order.');
     } finally {
       setIsUpdating(false);
     }
   }
 
-  function handleShareCurrentLocation(acceptOrder = false) {
+  function handleShareCurrentLocation() {
     setIsUpdating(true);
     setNotice('');
 
@@ -158,19 +166,15 @@ export default function DriverOrderPage() {
       .then(async ({ latitude, longitude, usesTestLocation }) => {
         try {
           const data = await apiUpdateDriverOrder(token, {
-            acceptOrder,
             driverLatitude: latitude,
             driverLongitude: longitude,
           });
           setOrder(data);
           setNotice(
             usesTestLocation
-              ? `${acceptOrder ? 'Order accepted' : 'Rider location updated'} using the ${TEST_DRIVER_COORDINATES.label} test pin.`
-              : acceptOrder
-                ? 'Order accepted and location shared.'
-                : 'Current location updated.'
-          );
-          setIsLiveSharing(true);
+              ? 'Rider location updated using the ' + TEST_DRIVER_COORDINATES.label + ' test pin.'
+              : 'Current location updated.'
+          );          setIsLiveSharing(true);
         } catch (err) {
           setNotice(err.message || 'Unable to share your current location.');
         } finally {
@@ -183,6 +187,34 @@ export default function DriverOrderPage() {
       });
   }
 
+  async function handleFinishDelivery() {
+    const isPersonalCod = order?.paymentMethod === 'COD' && order?.deliveryMode === 'rider';
+    const confirmed = window.confirm(
+      isPersonalCod
+        ? 'Confirm that the order was handed to the customer and the COD payment was collected? This will mark the order as delivered and paid.'
+        : 'Confirm that the order was handed to the customer? This will mark the order as delivered.'
+    );
+
+    if (!confirmed) return;
+
+    setIsUpdating(true);
+    setNotice('');
+
+    try {
+      const data = await apiUpdateDriverOrder(token, { markDelivered: true });
+      setOrder(data);
+      setIsLiveSharing(false);
+      setNotice(
+        data.paymentMethod === 'COD' && data.deliveryMode === 'rider' && data.paymentStatus === 'Paid'
+          ? 'Delivery completed. The COD payment is now marked as paid.'
+          : 'Delivery completed. The customer order is now marked as delivered.'
+      );
+    } catch (err) {
+      setNotice(err.message || 'Unable to finish this delivery.');
+    } finally {
+      setIsUpdating(false);
+    }
+  }
   const customerPosition =
     order?.customerLatitude != null && order?.customerLongitude != null
       ? [order.customerLatitude, order.customerLongitude]
@@ -246,7 +278,7 @@ export default function DriverOrderPage() {
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Assigned Rider</p>
                     <p className="mt-2 text-base font-semibold text-gray-900">{order.courierName || 'Rider not set'}</p>
                     <p className="mt-1 text-sm text-gray-600">{order.driverPhone || 'No contact number'}</p>
-                    <p className="mt-1 text-sm text-gray-600">Accepted: {formatDate(order.driverAcceptedAt)}</p>
+                    <p className="mt-1 text-sm text-gray-600">Accepted: {order.driverAcceptedAt ? formatDate(order.driverAcceptedAt) : 'Not accepted yet'}</p>
                   </div>
 
                   <div className="rounded-2xl bg-gray-50 p-4 md:col-span-2">
@@ -264,15 +296,15 @@ export default function DriverOrderPage() {
                   <div className="mt-4 flex flex-wrap gap-3">
                     <button
                       type="button"
-                      onClick={() => handleShareCurrentLocation(!order.driverAcceptedAt)}
-                      disabled={isUpdating}
+                      onClick={order.driverAcceptedAt ? handleShareCurrentLocation : handleAcceptOrder}
+                      disabled={isUpdating || ['Delivered', 'Cancelled', 'Cancellation Requested'].includes(order.status)}
                       className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       {isUpdating
                         ? 'Updating...'
                         : order.driverAcceptedAt
                           ? 'Share Current Location'
-                          : 'Accept Order & Share Location'}
+                          : 'Accept Order'}
                     </button>
 
                     <button
@@ -286,15 +318,6 @@ export default function DriverOrderPage() {
 
                     <button
                       type="button"
-                      onClick={() => updateDriver({ markDelivered: true }, 'Order marked as delivered.')}
-                      disabled={isUpdating || order.status === 'Delivered'}
-                      className="rounded-full border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-70"
-                    >
-                      Mark Delivered
-                    </button>
-
-                    <button
-                      type="button"
                       onClick={() => window.location.reload()}
                       className="rounded-full border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
                     >
@@ -302,6 +325,29 @@ export default function DriverOrderPage() {
                     </button>
                   </div>
 
+                  {order.status === 'Delivered' ? (
+                    <div className="mt-4 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-100 px-4 py-3 text-emerald-900">
+                      <CheckCircle2 className="shrink-0" size={22} />
+                      <div>
+                        <p className="text-sm font-bold">Order Delivered</p>
+                        <p className="mt-0.5 text-xs text-emerald-800">This delivery is complete and live location sharing has ended.</p>
+                      </div>
+                    </div>
+                  ) : order.driverAcceptedAt ? (
+                    <button
+                      type="button"
+                      onClick={handleFinishDelivery}
+                      disabled={isUpdating}
+                      className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      <CheckCircle2 size={19} />
+                      {isUpdating ? 'Finishing Delivery...' : 'Finish Delivery'}
+                    </button>
+                  ) : (
+                    <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                      Accept the order first before finishing the delivery.
+                    </p>
+                  )}
                   <p className="mt-3 text-sm text-gray-600">
                     {TEST_DRIVER_COORDINATES
                       ? `Live sharing is using the ${TEST_DRIVER_COORDINATES.label} test rider location every 15 seconds.`
@@ -353,6 +399,8 @@ export default function DriverOrderPage() {
                   </div>
 
                   <div className="mt-4 space-y-2 border-t border-gray-100 pt-4 text-sm text-gray-600">
+                    <p>Payment method: <span className="font-semibold text-gray-900">{order.paymentMethod}</span></p>
+                    <p>Payment status: <span className="font-semibold text-gray-900">{order.paymentStatus}</span></p>
                     <p>Status: <span className="font-semibold text-gray-900">{order.status}</span></p>
                     <p>Tracking: <span className="font-semibold text-gray-900">{order.trackingStatus}</span></p>
                     <p>Tracking code: <span className="font-semibold text-gray-900">{order.trackingCode || 'Not assigned yet'}</span></p>

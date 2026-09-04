@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { apiCustomerOrders } from '../../../api/client';
+import { apiCancelCustomerOrder, apiCustomerOrders } from '../../../api/client';
 import { formatPrice, useCustomerStore } from '../../context/CustomerStore';
 
 const statusClasses = {
@@ -9,13 +9,23 @@ const statusClasses = {
   'Out for Delivery': 'bg-violet-100 text-violet-800',
   Delivered: 'bg-emerald-100 text-emerald-800',
   Cancelled: 'bg-rose-100 text-rose-700',
+  'Cancellation Requested': 'bg-orange-100 text-orange-800',
   Packed: 'bg-cyan-100 text-cyan-800',
   'In Transit': 'bg-indigo-100 text-indigo-800',
   Paid: 'bg-emerald-100 text-emerald-800',
   Unpaid: 'bg-stone-100 text-stone-700',
   Failed: 'bg-rose-100 text-rose-700',
   Refunded: 'bg-orange-100 text-orange-800',
+  'Refund Pending': 'bg-orange-100 text-orange-800',
 };
+
+const CANCELLATION_REASONS = [
+  'Changed my mind',
+  'Ordered by mistake',
+  'Need to change the items or address',
+  'Delivery is taking too long',
+  'Other',
+];
 
 function badgeClass(value) {
   return statusClasses[value] || 'bg-stone-100 text-stone-700';
@@ -38,6 +48,10 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState([]);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
+  const [orderToCancel, setOrderToCancel] = useState(null);
+  const [cancelReason, setCancelReason] = useState(CANCELLATION_REASONS[0]);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState('');
 
   const orderIds = useMemo(
     () => orderHistory.map((entry) => Number(entry.id)).filter((id) => Number.isInteger(id) && id > 0),
@@ -73,6 +87,24 @@ export default function OrdersPage() {
       mounted = false;
     };
   }, [orderIds]);
+
+  async function handleCancelOrder(event) {
+    event.preventDefault();
+    if (!orderToCancel || !cancelReason.trim()) return;
+
+    setCancelling(true);
+    setCancelError('');
+    try {
+      const updatedOrder = await apiCancelCustomerOrder(orderToCancel.id, cancelReason);
+      setOrders((current) => current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)));
+      setOrderToCancel(null);
+      setCancelReason(CANCELLATION_REASONS[0]);
+    } catch (err) {
+      setCancelError(err.message || 'Unable to cancel this order.');
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   return (
     <section className="max-w-6xl mx-auto px-6 py-12">
@@ -173,11 +205,76 @@ export default function OrdersPage() {
                     ))}
                   </div>
                 </div>
+
+                {order.cancelReason ? (
+                  <div className="mt-4 rounded-2xl bg-orange-50 px-4 py-3 text-sm text-orange-900">
+                    <span className="font-semibold">Cancellation reason:</span> {order.cancelReason}
+                  </div>
+                ) : null}
+
+                {['Pending', 'Preparing'].includes(order.status) ? (
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOrderToCancel(order);
+                        setCancelError('');
+                      }}
+                      className="rounded-full border border-rose-300 px-5 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
+                    >
+                      Cancel order
+                    </button>
+                  </div>
+                ) : null}
               </article>
             ))}
           </div>
         ) : null}
       </div>
+
+      {orderToCancel ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="cancel-order-title">
+          <form onSubmit={handleCancelOrder} className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <h3 id="cancel-order-title" className="text-2xl font-['Playfair_Display'] text-[#0f4d2e]">Cancel {orderToCancel.orderCode}?</h3>
+            <p className="mt-3 text-sm leading-6 text-[#5e6f65]">
+              {orderToCancel.status === 'Pending'
+                ? 'This order will be cancelled immediately and its reserved stock will be returned.'
+                : 'Your request will be sent to the admin for approval because preparation has started.'}
+            </p>
+
+            <label className="mt-5 block">
+              <span className="mb-2 block text-sm font-semibold text-[#294b39]">Reason for cancellation</span>
+              <select
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                className="w-full rounded-xl border border-[#d7dfd3] bg-white px-3 py-3 text-sm text-[#294b39] outline-none focus:border-[#0b7a3c]"
+              >
+                {CANCELLATION_REASONS.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+              </select>
+            </label>
+
+            {cancelError ? <p className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{cancelError}</p> : null}
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={cancelling}
+                onClick={() => setOrderToCancel(null)}
+                className="rounded-full border border-[#d7dfd3] px-5 py-2.5 text-sm font-semibold text-[#355441]"
+              >
+                Keep order
+              </button>
+              <button
+                type="submit"
+                disabled={cancelling}
+                className="rounded-full bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {cancelling ? 'Processing...' : 'Confirm cancellation'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </section>
   );
 }

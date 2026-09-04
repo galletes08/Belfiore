@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import AccountSidebar from "./AccountSidebar";
 import { CalendarDays, Camera, Mail, Phone, Save, ShieldCheck, UserRound } from "lucide-react";
 import { clearCustomerToken } from "../../api/client";
 
@@ -33,41 +33,6 @@ function loadStoredProfile() {
       email: localStorage.getItem("customerEmail") || ""
     };
   }
-}
-
-function AccountSidebar({ onLogout }) {
-  return (
-    <aside className="self-start border-x border-[#e3eadf] bg-white px-5 py-6 lg:sticky lg:top-0 lg:z-40 lg:h-[100dvh] lg:overflow-y-auto">
-      <div className="mb-6 flex items-center gap-3">
-        <div className="grid h-11 w-11 place-items-center rounded-full bg-[#e8f3ea] text-[#0f4d2e]">
-          <UserRound size={18} />
-        </div>
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#6c786f]">Account</p>
-          <h2 className="mt-1 text-lg font-semibold text-[#173d2b]">User Panel</h2>
-        </div>
-      </div>
-
-      <nav className="grid grid-cols-2 gap-2 text-sm lg:grid-cols-1">
-        <Link to="/dashboard" className="rounded-xl border border-[#e1e7dc] px-3 py-2.5 text-left text-[#405145] transition hover:border-[#b7ccb5] hover:text-[#0f4d2e]">
-          Dashboard
-        </Link>
-        <Link to="/orders" className="rounded-xl border border-[#e1e7dc] px-3 py-2.5 text-left text-[#405145] transition hover:border-[#b7ccb5] hover:text-[#0f4d2e]">
-          Orders
-        </Link>
-        <Link to="/profile" className="rounded-xl bg-[#0f4d2e] px-3 py-2.5 text-left font-semibold text-white shadow-sm">
-          Profile
-        </Link>
-        <Link
-          to="/login"
-          onClick={onLogout}
-          className="col-span-2 rounded-xl border border-red-200 px-3 py-2.5 text-left text-red-600 transition hover:bg-red-50 lg:col-span-1"
-        >
-          Logout
-        </Link>
-      </nav>
-    </aside>
-  );
 }
 
 function TextField({ icon, label, type = "text", value, onChange, placeholder }) {
@@ -204,15 +169,7 @@ export default function UserAccountPage() {
         <AccountSidebar onLogout={handleLogout} />
 
         <main className="min-w-0 space-y-6 py-6 lg:px-6">
-          <section className="py-2">
-            <div className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#5e6f65]">Profile</p>
-              <h1 className="mt-3 font-['Playfair_Display'] text-4xl leading-tight text-[#0f4d2e] md:text-5xl">My Profile</h1>
-              <p className="mt-3 text-sm leading-7 text-[#5e6f65] md:text-base">
-                Keep your contact details ready for smooth order updates and delivery coordination.
-              </p>
-            </div>
-          </section>
+          
 
           <section className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_320px]">
             <form
@@ -221,7 +178,7 @@ export default function UserAccountPage() {
             >
               <div className="border-b border-[#eef2ea] pb-5">
                 <p className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#6c786f]">Details</p>
-                <h2 className="mt-1 font-['Playfair_Display'] text-3xl text-[#0f4d2e]">Account Information</h2>
+                <h2 className="mt-1 font-['Playfair_Display'] text-2xl leading-tight text-[#0f4d2e]">Account Information</h2>
               </div>
 
               <div className="mt-6 grid gap-5 md:grid-cols-2">

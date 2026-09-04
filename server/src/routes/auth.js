@@ -195,4 +195,71 @@ router.post('/api/auth/login', async (req, res) => {
   }
 });
 
+router.patch('/api/auth/password', async (req, res) => {
+  try {
+    const authorization = String(req.headers.authorization || '');
+    const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    const jwtSecret = process.env.JWT_SECRET;
+
+    if (!token || !jwtSecret) {
+      return res.status(401).json({ error: 'Authentication is required' });
+    }
+
+    let session;
+    try {
+      session = jwt.verify(token, jwtSecret);
+    } catch {
+      return res.status(401).json({ error: 'Your session is invalid or has expired' });
+    }
+
+    const currentPassword = String(req.body?.currentPassword || '');
+    const newPassword = String(req.body?.newPassword || '');
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new passwords are required' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters long' });
+    }
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ error: 'Choose a new password different from your current password' });
+    }
+
+    const columns = await getUserColumns();
+    const selectableColumns = ['id', 'email', 'password', 'password_hash'].filter((column) => columns.has(column));
+    const lookupColumn = session.userId && columns.has('id') ? 'id' : 'email';
+    const lookupValue = lookupColumn === 'id' ? session.userId : session.email;
+    const userResult = await pool.query(
+      'SELECT ' + selectableColumns.join(', ') + ' FROM users WHERE ' + lookupColumn + ' = $1 LIMIT 1',
+      [lookupValue]
+    );
+    const user = userResult.rows[0];
+
+    if (!user) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    const currentMatches = user.password_hash
+      ? await bcrypt.compare(currentPassword, user.password_hash)
+      : user.password === currentPassword;
+
+    if (!currentMatches) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    const updates = ['password_hash = $1'];
+    if (columns.has('password')) updates.push('password = NULL');
+    if (columns.has('updated_at')) updates.push('updated_at = NOW()');
+
+    await pool.query(
+      'UPDATE users SET ' + updates.join(', ') + ' WHERE ' + lookupColumn + ' = $2',
+      [passwordHash, lookupValue]
+    );
+
+    return res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Unable to update password' });
+  }
+});
 export default router;

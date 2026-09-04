@@ -106,7 +106,8 @@ export default function ProductDetail({ onAddToCart }) {
   const numericPrice = getPriceNumber(product.price);
   const displayImage = getImageUrl(product.imageUrl) || productImages[(product.id - 1) % productImages.length];
   const tagKey = normalizeTag(product.tag, product.category);
-  const maxQuantity = Math.max(1, product.stock);
+  const isAquaponics = tagKey === AQUAPONICS_TAG;
+  const maxQuantity = isAquaponics ? Math.max(1, product.stock) : 1;
   const isOrderView = location.state?.from === "/orders";
   const backTarget = isOrderView ? "/orders" : "/products";
   const backLabel = isOrderView ? "Back to Orders" : "Back to Products";
@@ -158,9 +159,11 @@ export default function ProductDetail({ onAddToCart }) {
 
             <div className={`${isOrderView ? "mt-5 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4" : "mt-5"}`}>
               <p className="text-3xl font-bold text-emerald-700">{formatPhp(numericPrice)}</p>
-              <p className={`mt-2 text-sm font-medium ${product.stock <= 5 ? "text-rose-600" : "text-gray-600"}`}>
-                Stock available: {product.stock}
-              </p>
+              {isAquaponics ? (
+                <p className={"mt-2 text-sm font-medium " + (product.stock <= 5 ? "text-rose-600" : "text-gray-600")}>
+                  Available stock: {product.stock} pcs
+                </p>
+              ) : null}
             </div>
 
             <div className="mt-6 grid gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 sm:grid-cols-2">
@@ -188,23 +191,29 @@ export default function ProductDetail({ onAddToCart }) {
               <>
                 <div className="mt-6">
                   <p className="mb-2 text-sm font-semibold text-gray-700">Quantity</p>
-                  <div className="inline-flex items-center rounded-lg border border-gray-300">
-                    <button
-                      onClick={() => setQuantity((previous) => Math.max(1, previous - 1))}
-                      className="px-3 py-2 text-gray-600 hover:bg-gray-50"
-                      aria-label="Decrease quantity"
-                    >
-                      <Minus size={16} />
-                    </button>
-                    <span className="min-w-10 px-3 text-center text-sm font-semibold text-gray-900">{quantity}</span>
-                    <button
-                      onClick={() => setQuantity((previous) => Math.min(maxQuantity, previous + 1))}
-                      className="px-3 py-2 text-gray-600 hover:bg-gray-50"
-                      aria-label="Increase quantity"
-                    >
-                      <Plus size={16} />
-                    </button>
-                  </div>
+                  {isAquaponics ? (
+                    <div className="inline-flex items-center rounded-lg border border-gray-300">
+                      <button
+                        onClick={() => setQuantity((previous) => Math.max(1, previous - 1))}
+                        className="px-3 py-2 text-gray-600 hover:bg-gray-50"
+                        aria-label="Decrease quantity"
+                      >
+                        <Minus size={16} />
+                      </button>
+                      <span className="min-w-10 px-3 text-center text-sm font-semibold text-gray-900">{quantity}</span>
+                      <button
+                        onClick={() => setQuantity((previous) => Math.min(maxQuantity, previous + 1))}
+                        className="px-3 py-2 text-gray-600 hover:bg-gray-50"
+                        aria-label="Increase quantity"
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="inline-flex rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-600">
+                      1 unique item only
+                    </p>
+                  )}
                 </div>
 
                 <div className="mt-6 flex flex-wrap items-center gap-3">

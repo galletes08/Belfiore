@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Leaf, Lock, Mail, UserRound } from "lucide-react";
-import { apiRegister, clearCustomerToken, setCustomerToken, setCustomerUser } from "../../api/client";
+import { apiRegister, clearCustomerToken } from "../../api/client";
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -43,17 +43,17 @@ export default function Signup() {
         password: formValues.password
       });
 
+      ["customerProfile", "customerPhone", "customerAddresses", "customerOrders"].forEach((key) => {
+        localStorage.removeItem(key);
+      });
       const fullName = response.user?.name || `${formValues.firstName} ${formValues.lastName}`.trim();
       if (fullName) {
         localStorage.setItem("customerName", fullName);
       }
-      localStorage.setItem("customerEmail", response.user?.email || formValues.email);
-      localStorage.setItem("isLoggedIn", "true");
-      if (response.token) {
-        setCustomerToken(response.token);
-      }
-      setCustomerUser(response.user || null);
-      navigate("/dashboard");
+      const registeredEmail = response.user?.email || formValues.email;
+      localStorage.setItem("customerEmail", registeredEmail);
+      localStorage.removeItem("isLoggedIn");
+      navigate("/login", { state: { email: registeredEmail, justRegistered: true }, replace: true });
     } catch (error) {
       setErrorMessage(error.message || "Failed to create account.");
     } finally {

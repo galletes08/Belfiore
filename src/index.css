@@ -83,3 +83,111 @@
     animation: none;
   }
 }
+
+.admin-shell {
+  color-scheme: light;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+.admin-shell[data-admin-theme="dark"] {
+  color-scheme: dark;
+  background: #061a15;
+}
+
+.admin-shell[data-admin-theme="dark"] > main {
+  background: #061a15;
+  color: #e8f7f0;
+}
+
+.admin-shell[data-admin-theme="dark"] > main :where(
+  [class*="bg-white"],
+  [class*="bg-slate-50"],
+  [class*="bg-slate-100"],
+  [class*="bg-gray-50"],
+  [class*="bg-gray-100"],
+  [class*="#ffffff"],
+  [class*="#f8fb"],
+  [class*="#f8fc"],
+  [class*="#fbfd"],
+  [class*="#f5fa"],
+  [class*="#eef5"],
+  [class*="#f6ff"],
+  [class*="#ecf8"],
+  [class*="#e5f4"]
+) {
+  background-color: #0b2a22 !important;
+  background-image: none !important;
+}
+
+.admin-shell[data-admin-theme="dark"] > main :where(
+  [class*="text-slate-900"],
+  [class*="text-slate-800"],
+  [class*="text-gray-900"],
+  [class*="text-gray-800"]
+) {
+  color: #ecfdf5 !important;
+}
+
+.admin-shell[data-admin-theme="dark"] > main :where(
+  [class*="text-slate-700"],
+  [class*="text-slate-600"],
+  [class*="text-slate-500"],
+  [class*="text-gray-700"],
+  [class*="text-gray-600"],
+  [class*="text-gray-500"]
+) {
+  color: #a8c9bc !important;
+}
+
+.admin-shell[data-admin-theme="dark"] > main :where(
+  [class*="border-slate-"],
+  [class*="border-gray-"],
+  [class*="border-emerald-100"],
+  [class*="border-emerald-200"]
+) {
+  border-color: rgba(167, 243, 208, 0.13) !important;
+}
+
+.admin-shell[data-admin-theme="dark"] > main :where(input, select, textarea) {
+  border-color: rgba(167, 243, 208, 0.18) !important;
+  background-color: #0f3329 !important;
+  color: #ecfdf5 !important;
+}
+
+.admin-shell[data-admin-theme="dark"] > main :where(input, textarea)::placeholder {
+  color: #729688;
+}
+
+.admin-shell[data-admin-theme="dark"] > main :where(.shadow-sm, .shadow-md, .shadow-lg, .shadow-xl) {
+  box-shadow: 0 16px 35px rgba(0, 0, 0, 0.2);
+}
+
+.admin-shell[data-admin-density="compact"] > main {
+  padding: 1rem !important;
+}
+
+.admin-shell[data-admin-density="compact"] aside nav a {
+  min-height: 44px;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+}
+
+.admin-shell[data-admin-density="compact"] aside nav section {
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+}
+
+.admin-shell[data-admin-density="compact"] > main :where(th, td) {
+  padding-top: 0.55rem !important;
+  padding-bottom: 0.55rem !important;
+}
+
+.admin-shell[data-admin-motion="reduce"],
+.admin-shell[data-admin-motion="reduce"] *,
+.admin-shell[data-admin-motion="reduce"] *::before,
+.admin-shell[data-admin-motion="reduce"] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}

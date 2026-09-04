@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { Menu, ShoppingCart, User, X } from "lucide-react";
 import CartSidebar from "./CartSidebar";
 import logoImage from "../assets/Logo.png";
 import { getCustomerUser, hasCustomerToken } from "../api/client";
+
+const ANNOUNCEMENT_TEXT = "Free shipping on orders over Php2,000";
 
 const navItems = [
   { to: "/", label: "Home" },
@@ -12,8 +14,41 @@ const navItems = [
   { to: "/contact", label: "Contact" }
 ];
 
+function NavigationLinks({ mobile = false, onNavigate }) {
+  return navItems.map((item) => (
+    <NavLink
+      key={item.to}
+      to={item.to}
+      onClick={onNavigate}
+      className={({ isActive }) =>
+        mobile
+          ? `rounded-xl px-3 py-3 font-['Montserrat'] text-[0.95rem] font-semibold tracking-[0.04em] transition ${
+              isActive ? "bg-[#0f4d2e] text-white" : "text-[#24372d] hover:bg-[#f1faf3] hover:text-[#0f6b45]"
+            }`
+          : `relative rounded-full px-4 py-2.5 font-['Montserrat'] text-[0.95rem] font-semibold tracking-[0.04em] transition lg:px-5 lg:text-base ${
+              isActive ? "text-[#0f6b45]" : "text-[#24372d] hover:bg-[#f1faf3] hover:text-[#0f6b45]"
+            }`
+      }
+    >
+      {({ isActive }) =>
+        mobile ? item.label : (
+          <span className="inline-block whitespace-nowrap">
+            {item.label}
+            <span
+              className={`mx-auto mt-2 block h-0.5 w-8 origin-center rounded-full transition ${
+                isActive ? "scale-100 bg-[#0f6b45]" : "scale-0 bg-transparent"
+              }`}
+            />
+          </span>
+        )
+      }
+    </NavLink>
+  ));
+}
+
 export default function Navbar({
   cartItems = [],
+  isCustomerLoggedIn,
   onIncreaseQty,
   onDecreaseQty,
   onRemoveItem,
@@ -24,13 +59,14 @@ export default function Navbar({
 
   const navigate = useNavigate();
   const customerUser = getCustomerUser();
-  const isLoggedIn =
+  const isLoggedIn = isCustomerLoggedIn ?? (
     typeof window !== "undefined" &&
     window.localStorage.getItem("isLoggedIn") === "true" &&
     hasCustomerToken() &&
-    (customerUser?.role ?? "customer") === "customer";
-  const userRoute = isLoggedIn ? "/dashboard" : "/login";
-  const userLabel = isLoggedIn ? "Dashboard" : "Login";
+    (customerUser?.role ?? "customer") === "customer"
+  );
+  const userRoute = isLoggedIn ? "/profile" : "/login";
+  const userLabel = isLoggedIn ? "Profile" : "Login";
   const cartItemCount = cartItems.reduce((sum, item) => sum + item.qty, 0);
 
   const handleMenuClose = () => setIsMenuOpen(false);
@@ -50,13 +86,24 @@ export default function Navbar({
     navigate("/checkout");
   };
 
+  useEffect(() => {
+    if (!isMenuOpen) return undefined;
+
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setIsMenuOpen(false);
+    };
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [isMenuOpen]);
+
   return (
     <header className="sticky top-0 z-50 border-b border-[#dfe9dc] bg-white/95 font-['Montserrat'] shadow-[0_12px_30px_rgba(15,77,46,0.04)] backdrop-blur">
       <div className="overflow-hidden bg-[#0f4d2e] px-4 py-1.5">
         <div className="announcement-loop" aria-label="Free shipping notice">
-          <p className="announcement-loop-text">Free shipping on orders over Php2,000</p>
+          <p className="announcement-loop-text">{ANNOUNCEMENT_TEXT}</p>
           <p className="announcement-loop-text" aria-hidden="true">
-            Free shipping on orders over Php2,000
+            {ANNOUNCEMENT_TEXT}
           </p>
         </div>
       </div>
@@ -74,57 +121,40 @@ export default function Navbar({
           </Link>
 
           <div className="hidden items-center justify-center gap-2 md:flex">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `relative rounded-full px-4 py-2.5 font-['Montserrat'] text-[0.95rem] font-semibold tracking-[0.04em] transition lg:px-5 lg:text-base ${
-                    isActive ? "text-[#0f6b45]" : "text-[#24372d] hover:bg-[#f1faf3] hover:text-[#0f6b45]"
-                  }`
-                }
-              >
-                {({ isActive }) => (
-                  <span className="inline-block whitespace-nowrap">
-                    {item.label}
-                    <span
-                      className={`mx-auto mt-2 block h-0.5 w-8 origin-center rounded-full transition ${
-                        isActive ? "scale-100 bg-[#0f6b45]" : "scale-0 bg-transparent"
-                      }`}
-                    />
-                  </span>
-                )}
-              </NavLink>
-            ))}
+            <NavigationLinks />
           </div>
 
           <div className="flex items-center justify-end gap-1 sm:gap-2">
             <Link
               to={userRoute}
-              className="grid h-10 w-10 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] md:h-11 md:w-11"
+              className="grid h-10 w-10 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 md:h-11 md:w-11"
               aria-label={userLabel}
               onClick={handleMenuClose}
             >
               <User className="h-5 w-5" strokeWidth={2.2} />
             </Link>
 
-            <button
-              onClick={handleCartClick}
-              className="relative grid h-10 w-10 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] md:h-11 md:w-11"
-              aria-label="Open cart"
-            >
-              <ShoppingCart className="h-5 w-5" strokeWidth={2.2} />
-              {cartItemCount > 0 && (
-                <span className="absolute right-0.5 top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#0f6b45] px-1 text-[10px] font-semibold text-white">
-                  {cartItemCount}
-                </span>
-              )}
-            </button>
+            {isLoggedIn && (
+              <button
+                onClick={handleCartClick}
+                className="relative grid h-10 w-10 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 md:h-11 md:w-11"
+                aria-label="Open cart"
+              >
+                <ShoppingCart className="h-5 w-5" strokeWidth={2.2} />
+                {cartItemCount > 0 && (
+                  <span className="absolute right-0.5 top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#0f6b45] px-1 text-[10px] font-semibold text-white">
+                    {cartItemCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             <button
               onClick={() => setIsMenuOpen((previous) => !previous)}
-              className="grid h-10 w-10 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] md:hidden"
-              aria-label="Toggle menu"
+              className="grid h-10 w-10 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 md:hidden"
+              aria-label={isMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+              aria-expanded={isMenuOpen}
+              aria-controls="mobile-navigation"
             >
               {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
@@ -132,22 +162,9 @@ export default function Navbar({
         </div>
 
         {isMenuOpen && (
-          <div className="mt-3 rounded-2xl border border-[#dfe9dc] bg-white p-3 shadow-[0_18px_45px_rgba(15,77,46,0.08)] md:hidden">
+          <div id="mobile-navigation" className="mt-3 rounded-2xl border border-[#dfe9dc] bg-white p-3 shadow-[0_18px_45px_rgba(15,77,46,0.08)] md:hidden">
             <div className="grid gap-1">
-              {navItems.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  onClick={handleMenuClose}
-                  className={({ isActive }) =>
-                    `rounded-xl px-3 py-3 font-['Montserrat'] text-[0.95rem] font-semibold tracking-[0.04em] transition ${
-                      isActive ? "bg-[#0f4d2e] text-white" : "text-[#24372d] hover:bg-[#f1faf3] hover:text-[#0f6b45]"
-                    }`
-                  }
-                >
-                  {item.label}
-                </NavLink>
-              ))}
+              <NavigationLinks mobile onNavigate={handleMenuClose} />
             </div>
 
             <div className="mt-3 border-t border-[#eef2ea] pt-3">
@@ -163,7 +180,7 @@ export default function Navbar({
           </div>
         )}
 
-        {cartOpen && (
+        {isLoggedIn && cartOpen && (
           <CartSidebar
             cartItems={cartItems}
             onClose={handleCloseCart}

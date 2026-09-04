@@ -306,13 +306,25 @@ export default function CartSidebar({
                           <button
                             type="button"
                             onClick={() => onIncreaseQty?.(item.id)}
-                            aria-label={`Increase quantity of ${item.name}`}
+                            disabled={!item.allowsMultipleQuantity}
+                            aria-label={
+                              item.allowsMultipleQuantity
+                                ? `Increase quantity of ${item.name}`
+                                : `${item.name} is limited to one item`
+                            }
+                            title={
+                              item.allowsMultipleQuantity
+                                ? "Increase quantity"
+                                : "Only lettuce products can have multiple quantities"
+                            }
                             className="
                               inline-flex h-7 w-7 items-center justify-center
                               rounded-full bg-emerald-950 text-white transition
                               hover:bg-emerald-800 focus:outline-none
                               focus:ring-2 focus:ring-emerald-700
                               focus:ring-offset-1
+                              disabled:cursor-not-allowed disabled:bg-slate-200
+                              disabled:text-slate-400
                             "
                           >
                             <Plus size={13} />

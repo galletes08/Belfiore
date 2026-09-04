@@ -8,13 +8,16 @@ import {
   setRiderUser,
 } from '../api/client';
 
+const RIDER_VEHICLE_TYPES = ['Tricycle', 'SUV'];
+const DEFAULT_RIDER_VEHICLE_TYPE = RIDER_VEHICLE_TYPES[0];
+
 const emptyProfile = {
   firstName: '',
   lastName: '',
   email: '',
   phone: '',
   address: '',
-  vehicleType: '',
+  vehicleType: DEFAULT_RIDER_VEHICLE_TYPE,
   plateNumber: '',
   licenseNumber: '',
   emergencyContact: '',
@@ -33,7 +36,9 @@ function normalizeProfile(profile) {
     email: profile?.email || '',
     phone: profile?.phone || '',
     address: profile?.address || '',
-    vehicleType: profile?.vehicleType || '',
+    vehicleType: RIDER_VEHICLE_TYPES.includes(profile?.vehicleType)
+      ? profile.vehicleType
+      : DEFAULT_RIDER_VEHICLE_TYPE,
     plateNumber: profile?.plateNumber || '',
     licenseNumber: profile?.licenseNumber || '',
     emergencyContact: profile?.emergencyContact || '',
@@ -190,32 +195,24 @@ export default function RiderProfilePage() {
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-5 font-['Montserrat'] sm:space-y-7">
-      <section className="overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-sm">
-        <div className="bg-[#173d2b] px-5 py-7 text-white sm:px-8 sm:py-10">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-100/90">Rider Profile</p>
-              <h1 className="mt-3 font-['Playfair_Display'] text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
-                {displayName}
-              </h1>
-              <p className="mt-4 max-w-3xl text-sm leading-7 text-emerald-50/90 sm:text-base">
-                Contact details, vehicle info, and rider photo for delivery coordination.
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-50/80">Status</p>
-                <p className="mt-2 text-2xl font-semibold leading-none">{formatStatus(profile.status)}</p>
-              </div>
-              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-50/80">Availability</p>
-                <p className="mt-2 text-2xl font-semibold leading-none">{profile.isAvailable ? 'Available' : 'Busy'}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <header>
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Rider account</p>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Profile</h1>
+        <p className="mt-2 text-sm text-slate-500">
+          Manage contact details, vehicle information, and the profile photo for {displayName}.
+        </p>
+      </header>
 
+      <section className="grid grid-cols-2 gap-2 sm:gap-4">
+        <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Status</p>
+          <p className="mt-2 text-xl font-bold tracking-tight sm:mt-3 sm:text-2xl text-slate-900">{formatStatus(profile.status)}</p>
+        </article>
+        <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Availability</p>
+          <p className="mt-2 text-xl font-bold tracking-tight sm:mt-3 sm:text-2xl text-emerald-700">{profile.isAvailable ? 'Available' : 'Busy'}</p>
+        </article>
+      </section>
       {loadStatus === 'loading' ? (
         <section className="rounded-3xl border border-white/80 bg-white p-8 text-sm font-medium text-gray-500 shadow-sm">
           Loading rider profile...
@@ -230,13 +227,13 @@ export default function RiderProfilePage() {
 
       {loadStatus === 'success' ? (
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <form onSubmit={handleSubmit} className="rounded-[1.75rem] border border-white/80 bg-white p-5 shadow-sm sm:p-6">
+          <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-6">
             <div className="border-b border-gray-100 pb-5">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">Information</p>
-              <h2 className="mt-2 font-['Playfair_Display'] text-3xl font-semibold text-gray-900">Rider Details</h2>
+              <h2 className="mt-2 font-['Playfair_Display'] text-2xl font-semibold text-gray-900 sm:text-3xl">Rider Details</h2>
             </div>
 
-            <div className="mt-6 grid gap-5 md:grid-cols-2">
+            <div className="mt-5 grid gap-4 md:mt-6 md:grid-cols-2 md:gap-5">
               <Field
                 icon={UserRound}
                 label="First Name"
@@ -288,12 +285,9 @@ export default function RiderProfilePage() {
                     onChange={(event) => updateField('vehicleType', event.target.value)}
                     className="min-w-0 flex-1 bg-transparent text-sm text-gray-800 outline-none"
                   >
-                    <option value="">Select vehicle</option>
-                    <option value="Motorcycle">Motorcycle</option>
-                    <option value="Bicycle">Bicycle</option>
-                    <option value="Car">Car</option>
-                    <option value="Van">Van</option>
-                    <option value="Truck">Truck</option>
+                    {RIDER_VEHICLE_TYPES.map((vehicleType) => (
+                      <option key={vehicleType} value={vehicleType}>{vehicleType}</option>
+                    ))}
                   </select>
                 </span>
               </label>
@@ -334,7 +328,7 @@ export default function RiderProfilePage() {
               <button
                 type="submit"
                 disabled={saving}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#0f4d2e] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#173d2b] disabled:cursor-not-allowed disabled:opacity-70"
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0f4d2e] sm:w-auto px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#173d2b] disabled:cursor-not-allowed disabled:opacity-70"
               >
                 <Save size={16} />
                 {saving ? 'Saving...' : 'Save Profile'}

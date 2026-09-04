@@ -1,9 +1,10 @@
-﻿import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowRight,
   ChevronLeft,
   ChevronRight,
+  Heart,
   Search,
   ShoppingCart,
   SlidersHorizontal,
@@ -15,6 +16,7 @@ import { apiProducts, getImageUrl } from "../../api/client";
 import awardImage from "../../assets/Award.jpg";
 import blogImage from "../../assets/Blog.png";
 import plantsImage from "../../assets/Plants.jpg";
+import { getWishlistIds, saveWishlistIds } from "../../utils/wishlist";
 
 const tagTabs = [
   { key: "all", label: "All" },
@@ -125,15 +127,25 @@ const getDisplayTag = (tag, category) => {
 
 export default function Products({ onAddToCart }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedTag = searchParams.get("tag");
+  const initialTag = tagTabs.some((tab) => tab.key === requestedTag) ? requestedTag : "all";
 
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
-  const [activeTag, setActiveTag] = useState("all");
+  const [activeTag, setActiveTag] = useState(initialTag);
   const [searchValue, setSearchValue] = useState("");
   const [sortBy, setSortBy] = useState("featured");
   const [currentPage, setCurrentPage] = useState(1);
+  const [showWishlistOnly, setShowWishlistOnly] = useState(false);
+  const [wishlistIds, setWishlistIds] = useState(getWishlistIds);
+
+  const wishlistIdSet = useMemo(
+    () => new Set(wishlistIds),
+    [wishlistIds]
+  );
 
   useEffect(() => {
     let ignore = false;
@@ -185,6 +197,17 @@ export default function Products({ onAddToCart }) {
     }));
 
     const baseList = mappedProducts.filter((item) => {
+      if (item.stock <= 0) {
+        return false;
+      }
+
+      if (
+        showWishlistOnly &&
+        !wishlistIdSet.has(String(item.id))
+      ) {
+        return false;
+      }
+
       const matchesTag =
         activeTag === "all" || item.tagKey === activeTag;
 
@@ -244,7 +267,7 @@ export default function Products({ onAddToCart }) {
     }
 
     return sortedList;
-  }, [activeTag, products, searchValue, sortBy]);
+  }, [activeTag, products, searchValue, showWishlistOnly, sortBy, wishlistIdSet]);
 
   const totalPages = Math.max(
     1,
@@ -294,7 +317,7 @@ export default function Products({ onAddToCart }) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeTag, searchValue, sortBy]);
+  }, [activeTag, searchValue, showWishlistOnly, sortBy]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -313,32 +336,47 @@ export default function Products({ onAddToCart }) {
 
   const filtersAreActive =
     activeTag !== "all" ||
+    showWishlistOnly ||
     searchValue.trim() !== "" ||
     sortBy !== "featured";
 
   const clearFilters = () => {
     setActiveTag("all");
+    setShowWishlistOnly(false);
     setSearchValue("");
     setSortBy("featured");
+  };
+
+  const toggleWishlist = (productId) => {
+    const normalizedId = String(productId);
+
+    setWishlistIds((currentIds) => {
+      const nextIds = currentIds.includes(normalizedId)
+        ? currentIds.filter((id) => id !== normalizedId)
+        : [...currentIds, normalizedId];
+
+      saveWishlistIds(nextIds);
+      return nextIds;
+    });
   };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       {/* Header */}
       <header className="border-b border-emerald-200 bg-emerald-50">
-        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8 lg:py-12">
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-7">
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
                 <Sprout size={14} aria-hidden="true" />
                 Plant catalog
               </div>
 
-              <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">
+              <h1 className="mt-3 max-w-3xl text-2xl font-bold leading-tight tracking-tight text-slate-950 sm:text-3xl lg:text-4xl">
                 Find the right plant for your space.
               </h1>
 
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
                 Browse our white, green, red-tagged, and
                 aquaponics selections. Use the filters to
                 quickly find the best match for your space.
@@ -346,7 +384,7 @@ export default function Products({ onAddToCart }) {
             </div>
 
             {/* Statistics */}
-            <dl className="grid grid-cols-3 divide-x divide-emerald-100 rounded-2xl border border-emerald-200 bg-white/80 px-2 py-4 shadow-sm sm:min-w-[390px]">
+            <dl className="grid grid-cols-3 divide-x divide-emerald-100 rounded-2xl border border-emerald-200 bg-white/80 px-2 py-3 shadow-sm sm:min-w-[390px]">
               <div className="px-4">
                 <dt className="text-xs font-medium text-slate-500">
                   Products
@@ -476,6 +514,24 @@ export default function Products({ onAddToCart }) {
                 </button>
               );
             })}
+
+            <button
+              type="button"
+              aria-pressed={showWishlistOnly}
+              onClick={() => setShowWishlistOnly((current) => !current)}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-4 focus:ring-rose-100 ${
+                showWishlistOnly
+                  ? "bg-rose-600 text-white shadow-sm"
+                  : "bg-rose-50 text-rose-700 hover:bg-rose-100"
+              }`}
+            >
+              <Heart
+                size={15}
+                fill={showWishlistOnly ? "currentColor" : "none"}
+                aria-hidden="true"
+              />
+              Wishlist ({wishlistIds.length})
+            </button>
           </div>
         </section>
 
@@ -570,13 +626,20 @@ export default function Products({ onAddToCart }) {
                 product.price
               );
 
+              const isAquaponics =
+                product.tagKey === AQUAPONICS_TAG;
+
               const isOutOfStock =
                 product.stock <= 0;
 
               const isLowStock =
+                isAquaponics &&
                 product.stock > 0 &&
                 product.stock <= 5;
 
+              const isWishlisted = wishlistIdSet.has(
+                String(product.id)
+              );
               return (
                 <article
                   key={product.id}
@@ -616,22 +679,20 @@ export default function Products({ onAddToCart }) {
                       )}
                     </span>
 
-                    {/* Stock badge */}
-                    <span
-                      className={`absolute bottom-3 right-3 rounded-full px-2.5 py-1 text-[11px] font-semibold shadow-sm backdrop-blur ${
-                        isOutOfStock
-                          ? "bg-slate-950/80 text-white"
-                          : isLowStock
-                            ? "bg-amber-50/95 text-amber-700"
-                            : "bg-white/95 text-slate-700"
-                      }`}
-                    >
-                      {isOutOfStock
-                        ? "Out of stock"
-                        : isLowStock
-                          ? `Only ${product.stock} left`
-                          : `${product.stock} in stock`}
-                    </span>
+                    {/* Stock is counted in individual packs/pieces. */}
+                    {(isAquaponics || isOutOfStock) ? (
+                      <span
+                        className={"absolute bottom-3 right-3 rounded-full px-2.5 py-1 text-[11px] font-semibold shadow-sm backdrop-blur " + (
+                          isOutOfStock
+                            ? "bg-slate-950/80 text-white"
+                            : isLowStock
+                              ? "bg-amber-50/95 text-amber-700"
+                              : "bg-white/95 text-slate-700"
+                        )}
+                      >
+                        {isOutOfStock ? "Out of stock" : product.stock + " pcs available"}
+                      </span>
+                    ) : null}
                   </button>
 
                   {/* Product details */}
@@ -651,7 +712,7 @@ export default function Products({ onAddToCart }) {
                     </p>
 
                     {/* Product actions */}
-                    <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                    <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
                       <button
                         type="button"
                         disabled={isOutOfStock}
@@ -668,6 +729,25 @@ export default function Products({ onAddToCart }) {
                         {isOutOfStock
                           ? "Unavailable"
                           : "Add to cart"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => toggleWishlist(product.id)}
+                        className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border transition focus:outline-none focus:ring-4 focus:ring-rose-100 ${
+                          isWishlisted
+                            ? "border-rose-200 bg-rose-50 text-rose-600"
+                            : "border-slate-200 bg-white text-slate-500 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                        }`}
+                        aria-label={`${isWishlisted ? "Remove" : "Add"} ${product.name} ${isWishlisted ? "from" : "to"} wishlist`}
+                        aria-pressed={isWishlisted}
+                        title={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+                      >
+                        <Heart
+                          size={18}
+                          fill={isWishlisted ? "currentColor" : "none"}
+                          aria-hidden="true"
+                        />
                       </button>
 
                       <button

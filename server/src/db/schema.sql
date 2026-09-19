@@ -22,6 +22,19 @@ ALTER TABLE users
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(LOWER(email));
 
+CREATE TABLE IF NOT EXISTS pending_registrations (
+  id BIGSERIAL PRIMARY KEY,
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_registrations_expires_at ON pending_registrations(expires_at);
+
 CREATE TABLE IF NOT EXISTS riders (
   id BIGSERIAL PRIMARY KEY,
   first_name TEXT NOT NULL,

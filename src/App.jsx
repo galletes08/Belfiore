@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter as Router, Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { CheckCircle2, X } from "lucide-react";
 import AdminProtectedRoute from "./admin/AdminProtectedRoute";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footerlink/Footer";
@@ -26,6 +27,7 @@ const ProductDetail = lazy(() => import("./components/Pages/ProductDetail"));
 const CheckoutPage = lazy(() => import("./components/Pages/CheckoutPage"));
 const Login = lazy(() => import("./components/Signup/Login"));
 const Signup = lazy(() => import("./components/Signup/Signup"));
+const VerifyEmail = lazy(() => import("./components/Signup/VerifyEmail"));
 const ForgotPassword = lazy(() => import("./components/Signup/ForgotPassword"));
 const UserDashboard = lazy(() => import("./components/Signup/UserDashboard"));
 const UserAccountPage = lazy(() => import("./components/Signup/User"));
@@ -49,6 +51,7 @@ const parsePrice = (value) => Number(String(value).replace(/[^\d.]/g, ""));
 function App() {
   const [cartItems, setCartItems] = useState(loadCustomerCart);
   const [isCustomerLoggedIn, setIsCustomerLoggedIn] = useState(hasAuthenticatedCustomer);
+  const [welcomeMessage, setWelcomeMessage] = useState("");
 
   useEffect(() => {
     saveCustomerCart(cartItems);
@@ -63,9 +66,14 @@ function App() {
 
     window.addEventListener("belfiore-customer-session-changed", syncCustomerCart);
     window.addEventListener("storage", syncCustomerCart);
+    const showWelcomeMessage = (event) => {
+      setWelcomeMessage(event.detail?.name ? `Welcome back, ${event.detail.name}!` : "Welcome back!");
+    };
+    window.addEventListener("belfiore-customer-login", showWelcomeMessage);
     return () => {
       window.removeEventListener("belfiore-customer-session-changed", syncCustomerCart);
       window.removeEventListener("storage", syncCustomerCart);
+      window.removeEventListener("belfiore-customer-login", showWelcomeMessage);
     };
   }, []);
 
@@ -198,6 +206,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/products" element={<Products onAddToCart={handleAddToCart} />} />
           <Route path="/product/:id" element={<ProductDetail onAddToCart={handleAddToCart} />} />
@@ -252,6 +261,22 @@ function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </Suspense>
+      {welcomeMessage ? (
+        <div className="fixed inset-x-4 top-5 z-[100] mx-auto max-w-md" role="status" aria-live="polite">
+          <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-emerald-950 shadow-xl shadow-emerald-950/10">
+            <CheckCircle2 className="shrink-0 text-emerald-600" size={24} />
+            <p className="flex-1 text-sm font-semibold">{welcomeMessage}</p>
+            <button
+              type="button"
+              onClick={() => setWelcomeMessage("")}
+              className="rounded-lg p-1 text-gray-400 transition hover:bg-emerald-50 hover:text-gray-700"
+              aria-label="Dismiss welcome message"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      ) : null}
     </Router>
   );
 }

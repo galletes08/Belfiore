@@ -43,17 +43,7 @@ export default function Signup() {
         password: formValues.password
       });
 
-      ["customerProfile", "customerPhone", "customerAddresses", "customerOrders"].forEach((key) => {
-        localStorage.removeItem(key);
-      });
-      const fullName = response.user?.name || `${formValues.firstName} ${formValues.lastName}`.trim();
-      if (fullName) {
-        localStorage.setItem("customerName", fullName);
-      }
-      const registeredEmail = response.user?.email || formValues.email;
-      localStorage.setItem("customerEmail", registeredEmail);
-      localStorage.removeItem("isLoggedIn");
-      navigate("/login", { state: { email: registeredEmail, justRegistered: true }, replace: true });
+      navigate("/login", { state: { email: response.email || formValues.email, verificationSent: true }, replace: true });
     } catch (error) {
       setErrorMessage(error.message || "Failed to create account.");
     } finally {
@@ -86,7 +76,7 @@ export default function Signup() {
 
         <main className="p-6 sm:p-8 md:p-10">
           <h2 className="text-3xl font-bold text-gray-900">Sign Up</h2>
-          <p className="mt-2 text-sm text-gray-600">Fill out your details to create your account.</p>
+          <p className="mt-2 text-sm text-gray-600">We’ll email you a verification link before your account is created.</p>
 
           <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
             <div className="grid gap-4 sm:grid-cols-2">

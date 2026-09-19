@@ -105,6 +105,13 @@ export async function apiRegister(payload) {
   return data;
 }
 
+export async function apiVerifyEmail(token) {
+  const res = await fetch(`${API_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Email verification failed');
+  return data;
+}
+
 export async function apiChangePassword(currentPassword, newPassword) {
   const token = getCustomerToken();
   if (!token) throw new Error('Please sign in again before changing your password');

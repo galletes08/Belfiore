@@ -1,4 +1,6 @@
 import { Clock3, Mail, MapPin, MessageCircle, Phone, Send } from "lucide-react";
+import { useState } from "react";
+import { apiSendContactMessage } from "../../api/client";
 
 const contactCards = [
   {
@@ -24,6 +26,30 @@ const contactCards = [
 ];
 
 export default function ContactSection() {
+  const [form, setForm] = useState({ name: "", phone: "", email: "", subject: "", message: "" });
+  const [status, setStatus] = useState({ type: "", text: "" });
+  const [isSending, setIsSending] = useState(false);
+
+  function handleChange(event) {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setStatus({ type: "", text: "" });
+    setIsSending(true);
+    try {
+      const response = await apiSendContactMessage(form);
+      setStatus({ type: "success", text: response.message });
+      setForm({ name: "", phone: "", email: "", subject: "", message: "" });
+    } catch (error) {
+      setStatus({ type: "error", text: error.message });
+    } finally {
+      setIsSending(false);
+    }
+  }
+
   return (
     <div className="bg-[linear-gradient(180deg,#f3f8f3_0%,#ffffff_42%,#f4f7f3_100%)] text-gray-900">
       <section className="border-b border-emerald-100 bg-[radial-gradient(circle_at_top_right,#bbf7d0_0%,#ecfdf5_35%,#f8fafc_75%)]">
@@ -83,12 +109,16 @@ export default function ContactSection() {
               Fill out the form and include your order details for faster support.
             </p>
 
-            <form className="mt-5 grid gap-3">
+            <form className="mt-5 grid gap-3" onSubmit={handleSubmit}>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm">
                   <span className="mb-1 block text-gray-600">Complete Name</span>
                   <input
                     type="text"
+                    name="name"
+                    value={form.name}
+                    onChange={handleChange}
+                    required
                     placeholder="Juan Dela Cruz"
                     className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none ring-emerald-200 focus:ring-2"
                   />
@@ -98,6 +128,9 @@ export default function ContactSection() {
                   <span className="mb-1 block text-gray-600">Phone Number</span>
                   <input
                     type="tel"
+                    name="phone"
+                    value={form.phone}
+                    onChange={handleChange}
                     placeholder="09XX XXX XXXX"
                     className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none ring-emerald-200 focus:ring-2"
                   />
@@ -108,6 +141,10 @@ export default function ContactSection() {
                 <span className="mb-1 block text-gray-600">Email Address</span>
                 <input
                   type="email"
+                  name="email"
+                  value={form.email}
+                  onChange={handleChange}
+                  required
                   placeholder="you@email.com"
                   className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none ring-emerald-200 focus:ring-2"
                 />
@@ -117,6 +154,10 @@ export default function ContactSection() {
                 <span className="mb-1 block text-gray-600">Subject</span>
                 <input
                   type="text"
+                  name="subject"
+                  value={form.subject}
+                  onChange={handleChange}
+                  required
                   placeholder="Order inquiry / Plant care question"
                   className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none ring-emerald-200 focus:ring-2"
                 />
@@ -126,6 +167,10 @@ export default function ContactSection() {
                 <span className="mb-1 block text-gray-600">Message</span>
                 <textarea
                   rows={6}
+                  name="message"
+                  value={form.message}
+                  onChange={handleChange}
+                  required
                   placeholder="Type your message here..."
                   className="w-full resize-none rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none ring-emerald-200 focus:ring-2"
                 />
@@ -133,11 +178,13 @@ export default function ContactSection() {
 
               <button
                 type="submit"
+                disabled={isSending}
                 className="mt-1 inline-flex w-fit items-center gap-2 rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
               >
                 <Send size={16} />
-                Send Message
+                {isSending ? "Sending..." : "Send Message"}
               </button>
+              {status.text ? <p role="status" className={`text-sm ${status.type === "success" ? "text-emerald-700" : "text-red-600"}`}>{status.text}</p> : null}
             </form>
           </article>
         </section>

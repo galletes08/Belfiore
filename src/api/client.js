@@ -112,6 +112,17 @@ export async function apiVerifyEmail(token) {
   return data;
 }
 
+export async function apiSendContactMessage(payload) {
+  const res = await fetch(`${API_URL}/api/contact`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Unable to send your message');
+  return data;
+}
+
 export async function apiChangePassword(currentPassword, newPassword) {
   const token = getCustomerToken();
   if (!token) throw new Error('Please sign in again before changing your password');
@@ -399,6 +410,26 @@ export async function apiRiderOrders() {
   });
   const data = await res.json().catch(() => ([]));
   if (!res.ok) throw new Error(data.error || 'Failed to load rider orders');
+  return data;
+}
+
+export async function apiRiderLocation(payload) {
+  const res = await fetch(`${API_URL}/api/riders/location`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getRiderAuthHeader() },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to share rider location');
+  return data;
+}
+
+export async function apiCustomerRiderLocation(riderId, orderId) {
+  const endpoint = new URL(`${API_URL}/api/riders/${encodeURIComponent(riderId)}/location`);
+  if (orderId != null) endpoint.searchParams.set('orderId', orderId);
+  const res = await fetch(endpoint.toString(), { headers: getCustomerAuthHeader() });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || 'Failed to load rider location');
   return data;
 }
 

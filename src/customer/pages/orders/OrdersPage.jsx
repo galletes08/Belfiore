@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { apiCancelCustomerOrder, apiCustomerOrders } from '../../../api/client';
+import { apiCancelCustomerOrder, apiCustomerOrders, apiCustomerRiderLocation } from '../../../api/client';
+import TrackingMap from '../../../components/TrackingMap';
 import { formatPrice, useCustomerStore } from '../../context/CustomerStore';
 
 const statusClasses = {
@@ -71,8 +72,26 @@ export default function OrdersPage() {
       setStatus('loading');
       try {
         const data = await apiCustomerOrders(orderIds);
+        const liveOrders = await Promise.all((Array.isArray(data) ? data : []).map(async (order) => {
+          const isActiveRiderDelivery = order.deliveryMode === 'rider'
+            && order.riderId
+            && !['Delivered', 'Cancelled', 'Cancellation Requested'].includes(order.status);
+          if (!isActiveRiderDelivery) return order;
+
+          try {
+            const location = await apiCustomerRiderLocation(order.riderId, order.id);
+            return location ? {
+              ...order,
+              driverLatitude: location.latitude,
+              driverLongitude: location.longitude,
+              driverLocationUpdatedAt: location.updatedAt,
+            } : order;
+          } catch {
+            return order;
+          }
+        }));
         if (!mounted) return;
-        setOrders(Array.isArray(data) ? data : []);
+        setOrders(liveOrders);
         setStatus('success');
         setError('');
       } catch (err) {
@@ -83,8 +102,10 @@ export default function OrdersPage() {
     }
 
     loadOrders();
+    const intervalId = window.setInterval(loadOrders, 15000);
     return () => {
       mounted = false;
+      window.clearInterval(intervalId);
     };
   }, [orderIds]);
 
@@ -205,6 +226,26 @@ export default function OrdersPage() {
                     ))}
                   </div>
                 </div>
+
+                {order.deliveryMode === 'rider'
+                  && !['Delivered', 'Cancelled', 'Cancellation Requested'].includes(order.status)
+                  && (order.customerLatitude != null || order.driverLatitude != null) ? (
+                  <div className="mt-5">
+                    <TrackingMap
+                      customerPosition={order.customerLatitude != null && order.customerLongitude != null
+                        ? [order.customerLatitude, order.customerLongitude]
+                        : null}
+                      driverPosition={order.driverLatitude != null && order.driverLongitude != null
+                        ? [order.driverLatitude, order.driverLongitude]
+                        : null}
+                      customerLabel="Delivery destination"
+                      driverLabel={`${order.courierName || 'Rider'} live location`}
+                    />
+                    <p className="mt-2 text-xs text-[#5e6f65]">
+                      Rider location updates automatically while this delivery is active.
+                    </p>
+                  </div>
+                ) : null}
 
                 {order.cancelReason ? (
                   <div className="mt-4 rounded-2xl bg-orange-50 px-4 py-3 text-sm text-orange-900">

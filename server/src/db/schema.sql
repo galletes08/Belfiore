@@ -279,3 +279,4 @@ CREATE INDEX IF NOT EXISTS idx_order_rider_assignments_order_id ON order_rider_a
 CREATE INDEX IF NOT EXISTS idx_order_rider_assignments_rider_id ON order_rider_assignments(rider_id);
 CREATE INDEX IF NOT EXISTS idx_rider_locations_rider_id ON rider_locations(rider_id);
 CREATE INDEX IF NOT EXISTS idx_rider_locations_order_id ON rider_locations(order_id);
+CREATE INDEX IF NOT EXISTS idx_rider_locations_rider_recorded ON rider_locations(rider_id, recorded_at DESC);

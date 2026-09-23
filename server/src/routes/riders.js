@@ -253,6 +253,19 @@ async function ensureRidersTable() {
         ON riders(LOWER(email))
         WHERE email IS NOT NULL
       `)
+    ).then(() =>
+      pool.query(`
+        CREATE TABLE IF NOT EXISTS rider_locations (
+          id BIGSERIAL PRIMARY KEY,
+          rider_id BIGINT NOT NULL REFERENCES riders(id) ON DELETE CASCADE,
+          order_id BIGINT REFERENCES orders(id) ON DELETE SET NULL,
+          latitude DOUBLE PRECISION NOT NULL,
+          longitude DOUBLE PRECISION NOT NULL,
+          recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_rider_locations_rider_recorded
+          ON rider_locations(rider_id, recorded_at DESC)
+      `)
     );
   }
 
@@ -436,6 +449,121 @@ router.get('/api/rider/profile', async (req, res) => {
     res.json(formatRiderRow(result.rows[0]));
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message || 'Failed to load rider profile' });
+  }
+});
+
+router.post('/api/riders/location', async (req, res) => {
+  try {
+    await ensureRidersTable();
+    const { riderId } = await requireRiderId(req);
+    const latitude = Number(req.body?.latitude);
+    const longitude = Number(req.body?.longitude);
+    const orderId = req.body?.orderId == null || req.body.orderId === '' ? null : Number(req.body.orderId);
+
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+        !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      return res.status(400).json({ error: 'Valid latitude and longitude are required' });
+    }
+    if (orderId !== null && (!Number.isInteger(orderId) || orderId <= 0)) {
+      return res.status(400).json({ error: 'Invalid order id' });
+    }
+
+    const activeOrder = await pool.query(
+      `
+      SELECT id
+      FROM orders
+      WHERE rider_id = $1
+        AND ($2::bigint IS NULL OR id = $2)
+        AND delivery_mode = 'rider'
+        AND status NOT IN ('Delivered', 'Cancelled', 'Cancellation Requested')
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [riderId, orderId]
+    );
+
+    if (orderId !== null && !activeOrder.rows.length) {
+      return res.status(404).json({ error: 'Active rider delivery not found' });
+    }
+
+    const savedOrderId = activeOrder.rows[0]?.id || null;
+    const result = await pool.query(
+      `
+      INSERT INTO rider_locations (rider_id, order_id, latitude, longitude, recorded_at)
+      VALUES ($1, $2, $3, $4, NOW())
+      RETURNING rider_id, order_id, latitude, longitude, recorded_at
+      `,
+      [riderId, savedOrderId, latitude, longitude]
+    );
+
+    if (savedOrderId) {
+      await pool.query(
+        `
+        UPDATE orders
+        SET driver_latitude = $2,
+            driver_longitude = $3,
+            driver_location_updated_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+        `,
+        [savedOrderId, latitude, longitude]
+      );
+    }
+
+    const row = result.rows[0];
+    res.json({
+      riderId: Number(row.rider_id),
+      orderId: row.order_id == null ? null : Number(row.order_id),
+      latitude: Number(row.latitude),
+      longitude: Number(row.longitude),
+      updatedAt: row.recorded_at,
+    });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || 'Failed to save rider location' });
+  }
+});
+
+router.get('/api/riders/:riderId/location', async (req, res) => {
+  try {
+    await ensureRidersTable();
+    const riderId = Number(req.params.riderId);
+    if (!Number.isInteger(riderId) || riderId <= 0) {
+      return res.status(400).json({ error: 'Invalid rider id' });
+    }
+
+    const authUser = verifyRequestToken(req);
+    if (authUser.role !== 'customer') {
+      return res.status(403).json({ error: 'Customer access only' });
+    }
+
+    const orderId = req.query.orderId == null || req.query.orderId === '' ? null : Number(req.query.orderId);
+    const result = await pool.query(
+      `
+      SELECT rl.rider_id, rl.order_id, rl.latitude, rl.longitude, rl.recorded_at
+      FROM rider_locations rl
+      JOIN orders o ON o.id = rl.order_id
+      WHERE rl.rider_id = $1
+        AND ($2::bigint IS NULL OR rl.order_id = $2)
+        AND LOWER(COALESCE(o.gmail, '')) = LOWER($3)
+        AND o.delivery_mode = 'rider'
+        AND o.status NOT IN ('Delivered', 'Cancelled', 'Cancellation Requested')
+      ORDER BY rl.recorded_at DESC
+      LIMIT 1
+      `,
+      [riderId, orderId, String(authUser.email || '').trim()]
+    );
+
+    if (!result.rows.length) return res.json(null);
+    const row = result.rows[0];
+    res.json({
+      riderId: Number(row.rider_id),
+      orderId: Number(row.order_id),
+      latitude: Number(row.latitude),
+      longitude: Number(row.longitude),
+      updatedAt: row.recorded_at,
+    });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || 'Failed to load rider location' });
   }
 });
 

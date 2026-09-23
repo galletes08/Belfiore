@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import authRoutes from './routes/auth.js';
 import customersRoutes from './routes/customers.js';
+import contactRoutes from './routes/contact.js';
 import dashboardRoutes from './routes/dashboard.js';
 import locationRoutes from './routes/locations.js';
 import ordersRoutes from './routes/orders.js';
@@ -40,6 +41,7 @@ app.get('/api/db-check', async (_req, res) => {
 });
 
 app.use(authRoutes);
+app.use(contactRoutes);
 app.use(dashboardRoutes);
 app.use(customersRoutes);
 app.use(productsRoutes);

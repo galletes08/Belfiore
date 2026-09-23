@@ -12,6 +12,20 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
+const riderIcon = L.divIcon({
+  className: 'belfiore-rider-marker',
+  html: '<span style="display:grid;place-items:center;width:34px;height:34px;border-radius:999px;background:#0f4d2e;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:20px">🛵</span>',
+  iconSize: [34, 34],
+  iconAnchor: [17, 17],
+});
+
+const customerIcon = L.divIcon({
+  className: 'belfiore-customer-marker',
+  html: '<span style="display:grid;place-items:center;width:32px;height:32px;border-radius:999px;background:#dc2626;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:18px">📍</span>',
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+});
+
 function FitBounds({ points }) {
   const map = useMap();
 
@@ -34,6 +48,8 @@ export default function TrackingMap({
   customerLabel = 'Customer',
   driverLabel = 'Rider',
   className = '',
+  mapHeightClass = 'h-[360px]',
+  showDetails = true,
 }) {
   const [routePoints, setRoutePoints] = useState([]);
   const [routeStatus, setRouteStatus] = useState('idle');
@@ -109,7 +125,7 @@ export default function TrackingMap({
 
   return (
     <div className={`overflow-hidden rounded-2xl border border-gray-200 bg-white ${className}`}>
-      <div className="border-b border-gray-100 px-4 py-3">
+      {showDetails ? <div className="border-b border-gray-100 px-4 py-3">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">Delivery Map</p>
         <p className="mt-1 text-sm font-medium text-gray-800">{statusLabel}</p>
         {routeMeta.distanceKm != null || routeMeta.durationMin != null ? (
@@ -119,9 +135,9 @@ export default function TrackingMap({
             {routeMeta.durationMin != null ? `${Math.max(1, Math.round(routeMeta.durationMin))} min est.` : 'ETA n/a'}
           </p>
         ) : null}
-      </div>
+      </div> : null}
 
-      <MapContainer center={center} zoom={14} scrollWheelZoom className="h-[360px] w-full">
+      <MapContainer center={center} zoom={14} scrollWheelZoom className={`${mapHeightClass} w-full`}>
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -129,13 +145,13 @@ export default function TrackingMap({
         <FitBounds points={validPoints} />
 
         {customerPosition ? (
-          <Marker position={customerPosition}>
+          <Marker position={customerPosition} icon={customerIcon}>
             <Popup>{customerLabel}</Popup>
           </Marker>
         ) : null}
 
         {driverPosition ? (
-          <Marker position={driverPosition}>
+          <Marker position={driverPosition} icon={riderIcon}>
             <Popup>{driverLabel}</Popup>
           </Marker>
         ) : null}
@@ -148,10 +164,10 @@ export default function TrackingMap({
         ) : null}
       </MapContainer>
 
-      <div className="flex flex-wrap gap-2 border-t border-gray-100 px-4 py-3 text-xs text-gray-600">
+      {showDetails ? <div className="flex flex-wrap gap-2 border-t border-gray-100 px-4 py-3 text-xs text-gray-600">
         <span className="rounded-full bg-gray-100 px-3 py-1">Customer pin</span>
         <span className="rounded-full bg-gray-100 px-3 py-1">Rider pin</span>
-      </div>
+      </div> : null}
     </div>
   );
 }

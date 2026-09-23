@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { CheckCircle2, MapPinned, Navigation, RefreshCw, ShieldCheck, Truck } from 'lucide-react';
-import { apiDriverOrder, apiUpdateDriverOrder } from '../api/client';
+import { CheckCircle2, MapPinned, Maximize2, Navigation, RefreshCw, ShieldCheck, Truck, X } from 'lucide-react';
+import { apiDriverOrder, apiRiderLocation, apiUpdateDriverOrder } from '../api/client';
 import TrackingMap from '../components/TrackingMap';
 
 const TEST_DRIVER_COORDINATES = (() => {
@@ -84,6 +84,9 @@ export default function DriverOrderPage() {
   const [notice, setNotice] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isLiveSharing, setIsLiveSharing] = useState(false);
+  const [gpsStatus, setGpsStatus] = useState('Online');
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
+  const isInsideRiderPortal = location.pathname.startsWith('/rider/');
 
   useEffect(() => {
     let isMounted = true;
@@ -114,6 +117,44 @@ export default function DriverOrderPage() {
   useEffect(() => {
     if (!isLiveSharing) return undefined;
 
+    if (isInsideRiderPortal) {
+      if (!navigator.geolocation) {
+        setNotice('This device does not support GPS location sharing.');
+        setIsLiveSharing(false);
+        return undefined;
+      }
+
+      setGpsStatus('Sharing Location');
+      const watchId = navigator.geolocation.watchPosition(
+        async (position) => {
+          try {
+            const { latitude, longitude } = position.coords;
+            const saved = await apiRiderLocation({ orderId: order?.id, latitude, longitude });
+            setOrder((current) => current ? {
+              ...current,
+              driverLatitude: saved.latitude,
+              driverLongitude: saved.longitude,
+              driverLocationUpdatedAt: saved.updatedAt,
+            } : current);
+            setNotice('Live location shared successfully.');
+          } catch (err) {
+            setNotice(err.message || 'Unable to share live location.');
+          }
+        },
+        (err) => {
+          setGpsStatus('Offline');
+          setNotice(err.code === 1 ? 'GPS permission was denied.' : 'GPS location is unavailable.');
+          setIsLiveSharing(false);
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+      );
+
+      return () => {
+        navigator.geolocation.clearWatch(watchId);
+        setGpsStatus('Online');
+      };
+    }
+
     const intervalId = window.setInterval(() => {
       getDriverCoordinates()
         .then(async ({ latitude, longitude, usesTestLocation }) => {
@@ -128,6 +169,7 @@ export default function DriverOrderPage() {
                 ? `Test rider location shared from ${TEST_DRIVER_COORDINATES.label}.`
                 : 'Live location shared successfully.'
             );
+            setGpsStatus('Sharing Location');
           } catch (err) {
             setNotice(err.message || 'Unable to share live location.');
           }
@@ -140,8 +182,9 @@ export default function DriverOrderPage() {
 
     return () => {
       window.clearInterval(intervalId);
+      setGpsStatus('Online');
     };
-  }, [isLiveSharing, token]);
+  }, [isLiveSharing, token, isInsideRiderPortal, order?.id]);
 
   async function handleAcceptOrder() {
     setIsUpdating(true);
@@ -165,16 +208,26 @@ export default function DriverOrderPage() {
     getDriverCoordinates()
       .then(async ({ latitude, longitude, usesTestLocation }) => {
         try {
-          const data = await apiUpdateDriverOrder(token, {
-            driverLatitude: latitude,
-            driverLongitude: longitude,
-          });
-          setOrder(data);
+          const data = isInsideRiderPortal
+            ? await apiRiderLocation({ orderId: order?.id, latitude, longitude })
+            : await apiUpdateDriverOrder(token, { driverLatitude: latitude, driverLongitude: longitude });
+          if (isInsideRiderPortal) {
+            setOrder((current) => current ? {
+              ...current,
+              driverLatitude: data.latitude,
+              driverLongitude: data.longitude,
+              driverLocationUpdatedAt: data.updatedAt,
+            } : current);
+          } else {
+            setOrder(data);
+          }
           setNotice(
             usesTestLocation
               ? 'Rider location updated using the ' + TEST_DRIVER_COORDINATES.label + ' test pin.'
               : 'Current location updated.'
-          );          setIsLiveSharing(true);
+          );
+          setGpsStatus('Sharing Location');
+          setIsLiveSharing(true);
         } catch (err) {
           setNotice(err.message || 'Unable to share your current location.');
         } finally {
@@ -223,7 +276,6 @@ export default function DriverOrderPage() {
     order?.driverLatitude != null && order?.driverLongitude != null
       ? [order.driverLatitude, order.driverLongitude]
       : null;
-  const isInsideRiderPortal = location.pathname.startsWith('/rider/');
   const backLink = isInsideRiderPortal ? '/rider' : '/';
   const backLabel = isInsideRiderPortal ? 'Back to Rider Dashboard' : 'Back to Store';
 
@@ -233,7 +285,7 @@ export default function DriverOrderPage() {
         <section className="rounded-3xl border border-emerald-100 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-700">Driver Portal</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-700">Live Tracking</p>
               <h1 className="mt-2 text-3xl font-bold text-gray-900">{order?.orderCode || 'Delivery Order'}</h1>
               <p className="mt-2 max-w-2xl text-sm text-gray-600">
                 Accept the assigned order, share your live GPS location, and keep the customer updated on the map.
@@ -291,6 +343,9 @@ export default function DriverOrderPage() {
                   <div className="flex items-center gap-2">
                     <ShieldCheck size={16} className="text-emerald-700" />
                     <p className="text-sm font-semibold text-emerald-800">Rider actions</p>
+                    <span className={`ml-auto rounded-full px-3 py-1 text-xs font-semibold ${gpsStatus === 'Sharing Location' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'}`}>
+                      {gpsStatus}
+                    </span>
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-3">
@@ -313,7 +368,7 @@ export default function DriverOrderPage() {
                       disabled={!order.driverAcceptedAt}
                       className="rounded-full border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {isLiveSharing ? 'Stop Live Sharing' : 'Start Live Sharing'}
+                      {isLiveSharing ? 'Stop Sharing Location' : 'Start Sharing Location'}
                     </button>
 
                     <button
@@ -341,7 +396,7 @@ export default function DriverOrderPage() {
                       className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       <CheckCircle2 size={19} />
-                      {isUpdating ? 'Finishing Delivery...' : 'Finish Delivery'}
+                      {isUpdating ? 'Finishing Delivery...' : 'Mark as Delivered'}
                     </button>
                   ) : (
                     <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
@@ -359,9 +414,21 @@ export default function DriverOrderPage() {
 
               <div className="space-y-5">
                 <section className="rounded-3xl border border-white/80 bg-white p-6 shadow-sm">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
                     <MapPinned size={18} className="text-emerald-700" />
                     <h2 className="text-lg font-semibold text-gray-900">Delivery map</h2>
+                    </div>
+                    {isInsideRiderPortal ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsMapExpanded(true)}
+                        className="inline-flex items-center gap-2 rounded-full border border-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                      >
+                        <Maximize2 size={15} />
+                        View Full Map
+                      </button>
+                    ) : null}
                   </div>
 
                   {customerPosition || driverPosition ? (
@@ -409,6 +476,36 @@ export default function DriverOrderPage() {
                 </section>
               </div>
             </section>
+
+            {isMapExpanded && isInsideRiderPortal ? (
+              <div className="fixed inset-0 z-[2000] bg-slate-950 p-0" role="dialog" aria-modal="true" aria-label="Full delivery map">
+                <div className="relative h-full w-full overflow-hidden rounded-3xl bg-white shadow-2xl">
+                  <div className="absolute left-4 right-4 top-4 z-[1000] flex items-center justify-between rounded-2xl bg-white/95 px-4 py-3 shadow-lg backdrop-blur sm:left-6 sm:right-6 sm:top-6">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Live Tracking</p>
+                      <p className="mt-1 text-sm font-bold text-gray-900">{order.orderCode} - {order.customerName}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsMapExpanded(false)}
+                      aria-label="Close full map"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 text-gray-700 transition hover:bg-gray-100"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+                  <TrackingMap
+                    customerPosition={customerPosition}
+                    driverPosition={driverPosition}
+                    customerLabel={`${order.customerName} delivery pin`}
+                    driverLabel={order.courierName ? `${order.courierName} current location` : 'Rider current location'}
+                    className="h-full rounded-none border-0"
+                    mapHeightClass="h-full min-h-0"
+                    showDetails={false}
+                  />
+                </div>
+              </div>
+            ) : null}
 
             <section className="rounded-3xl border border-white/80 bg-white p-6 shadow-sm">
               <div className="flex items-center gap-2">

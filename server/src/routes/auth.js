@@ -28,6 +28,10 @@ function getMailer() {
   return nodemailer.createTransport({
     host,
     port,
+    family: 4,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
     secure: String(process.env.SMTP_SECURE).toLowerCase() === 'true' || port === 465,
     auth: { user, pass },
   });

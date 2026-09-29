@@ -3,7 +3,9 @@ import path from 'node:path';
 
 const storageDriver = String(process.env.STORAGE_DRIVER || 'local').trim().toLowerCase();
 const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
-const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '')
+  .trim()
+  .replace(/^['"]|['"]$/g, '');
 const bucket = String(process.env.SUPABASE_STORAGE_BUCKET || 'belfiore-uploads').trim();
 
 export const usesSupabaseStorage = storageDriver === 'supabase';
@@ -36,7 +38,7 @@ export async function storeUploadedImage(file, folder) {
   // New Supabase secret keys (sb_secret_...) are API keys, not JWTs.
   // Sending them as Bearer tokens causes Supabase Storage to return
   // "Invalid Compact JWS". Legacy service_role JWTs still need Bearer auth.
-  if (!serviceRoleKey.startsWith('sb_')) {
+  if (serviceRoleKey.startsWith('eyJ')) {
     headers.Authorization = `Bearer ${serviceRoleKey}`;
   }
 

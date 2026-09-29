@@ -1,4 +1,3 @@
-/* global process */
 import './config/env.js';
 import cors from 'cors';
 import express from 'express';
@@ -22,7 +21,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsDir = path.resolve(__dirname, '../uploads');
 
-app.use(cors());
+const allowedOrigins = String(process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+app.use(cors({
+  origin: allowedOrigins.length ? allowedOrigins : true,
+  credentials: false,
+}));
 app.post('/api/paymongo/webhook', express.raw({ type: 'application/json' }), handlePayMongoWebhook);
 app.use(express.json());
 app.use('/uploads', express.static(uploadsDir));
@@ -33,10 +39,19 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/db-check', async (_req, res) => {
   try {
-    const result = await pool.query('SELECT current_database() AS db, NOW() AS now');
-    res.json({ ok: true, ...result.rows[0] });
+    await pool.query('SELECT 1');
+    res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.get('/api/health/db', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ ok: true, database: 'connected' });
+  } catch {
+    res.status(503).json({ ok: false, database: 'unavailable' });
   }
 });
 

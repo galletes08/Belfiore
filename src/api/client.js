@@ -1,6 +1,7 @@
 import { getSupabaseConfig, isSupabaseConfigured } from "../lib/supabase";
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const USE_SUPABASE_PRODUCTS = String(import.meta.env.VITE_USE_SUPABASE_PRODUCTS || '').toLowerCase() === 'true';
 const STORAGE_KEYS = {
   adminToken: 'adminToken',
   adminUser: 'adminUser',
@@ -140,13 +141,15 @@ export async function apiChangePassword(currentPassword, newPassword) {
   return data;
 }
 export async function apiProducts() {
-  try {
-    const supabaseProducts = await fetchSupabaseProducts();
-    if (supabaseProducts) {
-      return supabaseProducts;
+  if (USE_SUPABASE_PRODUCTS) {
+    try {
+      const supabaseProducts = await fetchSupabaseProducts();
+      if (supabaseProducts) {
+        return supabaseProducts;
+      }
+    } catch (error) {
+      console.warn('Supabase products lookup failed, falling back to API:', error);
     }
-  } catch (error) {
-    console.warn('Supabase products lookup failed, falling back to API:', error);
   }
 
   const res = await fetch(`${API_URL}/api/products`, {

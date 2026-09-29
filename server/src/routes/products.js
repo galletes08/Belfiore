@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 import { pool } from '../config/db.js';
+import { storeUploadedImage, usesSupabaseStorage } from '../utils/storage.js';
 
 const router = Router();
 const ALOE_CATEGORY = 'Aloe Hybrids';
@@ -15,7 +16,7 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-const storage = multer.diskStorage({
+const diskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadsDir),
   filename: (_req, file, cb) => {
     const safeExt = path.extname(file.originalname || '').toLowerCase();
@@ -24,7 +25,7 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({
-  storage,
+  storage: usesSupabaseStorage ? multer.memoryStorage() : diskStorage,
   limits: { fileSize: 5 * 1024 * 1024, files: 50 },
   fileFilter: (_req, file, cb) => {
     if (file.mimetype?.startsWith('image/')) return cb(null, true);
@@ -33,6 +34,7 @@ const upload = multer({
 });
 
 function removeUploadedFiles(files = []) {
+  if (usesSupabaseStorage) return;
   for (const file of files) {
     if (!file?.path) continue;
     try {
@@ -155,7 +157,7 @@ router.post('/api/products/bulk', upload.array('images', 50), async (req, res) =
     const products = [];
 
     for (const file of files) {
-      const imageUrl = `/uploads/${file.filename}`;
+      const imageUrl = await storeUploadedImage(file, 'products');
       const result = await client.query(
         `
         WITH inserted AS (
@@ -205,7 +207,9 @@ router.post('/api/products', upload.single('image'), async (req, res) => {
     const submittedStock = Number(req.body?.stock);
     const stock = category.toLowerCase() === ALOE_CATEGORY.toLowerCase() ? 1 : submittedStock;
     const description = String(req.body?.description || '').trim();
-    const imageUrl = req.file ? `/uploads/${req.file.filename}` : String(req.body?.imageUrl || '').trim();
+    const imageUrl = req.file
+      ? await storeUploadedImage(req.file, 'products')
+      : String(req.body?.imageUrl || '').trim();
 
     if (!category) return res.status(400).json({ error: 'Category is required' });
     if (!name) return res.status(400).json({ error: 'Name is required' });
@@ -295,7 +299,7 @@ router.patch('/api/products/:id', upload.single('image'), async (req, res) => {
     }
     if (req.file) {
       fields.push(`image_url = $${idx++}`);
-      values.push(`/uploads/${req.file.filename}`);
+      values.push(await storeUploadedImage(req.file, 'products'));
     }
 
     if (categoryValue !== undefined || tagValue !== undefined || stockValue !== undefined) {

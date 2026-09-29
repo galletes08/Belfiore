@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 import { pool } from '../config/db.js';
 import { verifyRequestToken } from '../utils/auth.js';
+import { storeUploadedImage, usesSupabaseStorage } from '../utils/storage.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -25,7 +26,7 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-const storage = multer.diskStorage({
+const diskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadsDir),
   filename: (_req, file, cb) => {
     const safeExt = path.extname(file.originalname || '').toLowerCase() || '.jpg';
@@ -34,7 +35,7 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({
-  storage,
+  storage: usesSupabaseStorage ? multer.memoryStorage() : diskStorage,
   limits: { fileSize: 2 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -336,7 +337,7 @@ router.post('/api/admin/riders', upload.single('profileImage'), async (req, res)
     const password = String(req.body?.password || '').trim();
     const status = String(req.body?.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active';
     const isAvailable = req.body?.isAvailable == null ? true : String(req.body.isAvailable).toLowerCase() === 'true';
-    const profileImageUrl = req.file ? `/uploads/riders/${req.file.filename}` : null;
+    const profileImageUrl = req.file ? await storeUploadedImage(req.file, 'riders') : null;
 
     if (!firstName || !lastName || !phone) {
       return res.status(400).json({ error: 'First name, last name, and phone are required' });
@@ -384,7 +385,7 @@ router.patch('/api/admin/riders/:id', upload.single('profileImage'), async (req,
     const password = String(req.body?.password || '').trim();
     const status = String(req.body?.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active';
     const isAvailable = String(req.body?.isAvailable).toLowerCase() === 'true';
-    const profileImageUrl = req.file ? `/uploads/riders/${req.file.filename}` : null;
+    const profileImageUrl = req.file ? await storeUploadedImage(req.file, 'riders') : null;
 
     if (!firstName || !lastName || !phone) {
       return res.status(400).json({ error: 'First name, last name, and phone are required' });
@@ -583,7 +584,7 @@ router.patch('/api/rider/profile', upload.single('profileImage'), async (req, re
     const licenseNumber = String(req.body?.licenseNumber || '').trim();
     const emergencyContact = String(req.body?.emergencyContact || '').trim();
     const bio = String(req.body?.bio || '').trim();
-    const profileImageUrl = req.file ? `/uploads/riders/${req.file.filename}` : null;
+    const profileImageUrl = req.file ? await storeUploadedImage(req.file, 'riders') : null;
 
     if (!firstName || !lastName || !email || !phone) {
       return res.status(400).json({ error: 'First name, last name, email, and phone are required' });

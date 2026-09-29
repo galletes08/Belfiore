@@ -1,4 +1,3 @@
-/* global process */
 import nodemailer from 'nodemailer';
 import { Router } from 'express';
 

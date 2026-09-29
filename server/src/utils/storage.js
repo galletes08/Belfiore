@@ -27,14 +27,22 @@ export async function storeUploadedImage(file, folder) {
   }
 
   const objectPath = `${folder}/${Date.now()}-${crypto.randomUUID()}${safeExtension(file.originalname, file.mimetype)}`;
+  const headers = {
+    apikey: serviceRoleKey,
+    'Content-Type': file.mimetype || 'application/octet-stream',
+    'x-upsert': 'true',
+  };
+
+  // New Supabase secret keys (sb_secret_...) are API keys, not JWTs.
+  // Sending them as Bearer tokens causes Supabase Storage to return
+  // "Invalid Compact JWS". Legacy service_role JWTs still need Bearer auth.
+  if (!serviceRoleKey.startsWith('sb_')) {
+    headers.Authorization = `Bearer ${serviceRoleKey}`;
+  }
+
   const response = await fetch(`${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}/${objectPath}`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${serviceRoleKey}`,
-      apikey: serviceRoleKey,
-      'Content-Type': file.mimetype || 'application/octet-stream',
-      'x-upsert': 'true',
-    },
+    headers,
     body: file.buffer,
   });
 

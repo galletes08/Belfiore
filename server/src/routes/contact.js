@@ -1,29 +1,7 @@
-import nodemailer from 'nodemailer';
 import { Router } from 'express';
+import { sendEmail } from '../utils/email.js';
 
 const router = Router();
-
-function getMailer() {
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT || 587);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASSWORD;
-
-  if (!host || !user || !pass) {
-    throw new Error('Email service is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASSWORD in server/.env');
-  }
-
-  return nodemailer.createTransport({
-    host,
-    port,
-    family: 4,
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-    secure: String(process.env.SMTP_SECURE).toLowerCase() === 'true' || port === 465,
-    auth: { user, pass },
-  });
-}
 
 function escapeHtml(value) {
   return String(value)
@@ -53,8 +31,7 @@ router.post('/api/contact', async (req, res) => {
 
   try {
     const recipient = process.env.CONTACT_EMAIL || process.env.SMTP_USER;
-    await getMailer().sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    await sendEmail({
       to: recipient,
       replyTo: email,
       subject: `[Website Contact] ${subject}`,

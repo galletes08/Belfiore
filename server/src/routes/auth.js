@@ -1,9 +1,9 @@
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
-import nodemailer from 'nodemailer';
 import { Router } from 'express';
 import { pool } from '../config/db.js';
+import { sendEmail } from '../utils/email.js';
 
 const router = Router();
 
@@ -15,26 +15,6 @@ function hashVerificationToken(token) {
 
 function looksLikeBcryptHash(value) {
   return typeof value === 'string' && /^\$2[aby]?\$\d{2}\$/.test(value);
-}
-
-function getMailer() {
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT || 587);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASSWORD;
-  if (!host || !user || !pass) {
-    throw new Error('Email service is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASSWORD in server/.env');
-  }
-  return nodemailer.createTransport({
-    host,
-    port,
-    family: 4,
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-    secure: String(process.env.SMTP_SECURE).toLowerCase() === 'true' || port === 465,
-    auth: { user, pass },
-  });
 }
 
 async function ensurePendingRegistrationsTable() {
@@ -55,8 +35,7 @@ async function ensurePendingRegistrationsTable() {
 
 async function sendVerificationEmail({ email, firstName, token }) {
   const verificationUrl = `${FRONTEND_URL}/verify-email?token=${encodeURIComponent(token)}`;
-  await getMailer().sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+  await sendEmail({
     to: email,
     subject: 'Verify your Belfiore account',
     text: `Hi ${firstName},\n\nVerify your Belfiore account by opening this link:\n${verificationUrl}\n\nThis link expires in 30 minutes. If you did not request this, you can ignore this email.`,

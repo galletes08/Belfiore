@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowUpRight, PackageCheck, ReceiptText, ShoppingBag, TrendingUp } from 'lucide-react';
-import { apiDashboard } from '../api/client';
+import { apiAdminOrders, apiDashboard } from '../api/client';
 
 const statusStyles = {
   shipped: 'bg-blue-50 text-blue-700 ring-blue-200',
@@ -25,19 +25,21 @@ function formatCurrency(value) {
 }
 
 export default function AdminDashboard() {
-  const [salesData, setSalesData] = useState([]);
   const [lowStock, setLowStock] = useState([]);
   const [recentOrders, setRecentOrders] = useState([]);
   const [totals, setTotals] = useState({ monthlySales: 0, monthlyOrders: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [orders, setOrders] = useState([]);
+  const [salesPeriod, setSalesPeriod] = useState('year');
+  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
+  const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1));
 
   useEffect(() => {
     let mounted = true;
     apiDashboard()
       .then((data) => {
         if (!mounted) return;
-        setSalesData(Array.isArray(data.salesData) ? data.salesData : []);
         setLowStock(Array.isArray(data.lowStock) ? data.lowStock : []);
         setRecentOrders(Array.isArray(data.recentOrders) ? data.recentOrders : []);
         setTotals({ monthlySales: Number(data.totals?.monthlySales) || 0, monthlyOrders: Number(data.totals?.monthlyOrders) || 0 });
@@ -48,13 +50,67 @@ export default function AdminDashboard() {
     return () => { mounted = false; };
   }, []);
 
-  const maxSales = useMemo(() => Math.max(...salesData.map((item) => Number(item.value) || 0), 1), [salesData]);
-  const chartPoints = useMemo(() => salesData.map((item, index) => {
-    const x = 12 + (index / Math.max(salesData.length - 1, 1)) * 376;
-    const y = 102 - ((Number(item.value) || 0) / maxSales) * 78;
-    return { ...item, x, y };
-  }), [salesData, maxSales]);
-  const linePath = chartPoints.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
+  useEffect(() => {
+    apiAdminOrders()
+      .then((data) => setOrders(Array.isArray(data) ? data.filter(Boolean) : []))
+      .catch(() => setOrders([]));
+  }, []);
+
+  const availableYears = useMemo(() => {
+    const years = new Set(orders.filter((order) => order?.status === 'Delivered').map((order) => {
+      const date = new Date(order.createdAt || order.created_at);
+      return Number.isNaN(date.getTime()) ? null : String(date.getFullYear());
+    }).filter(Boolean));
+    years.add(String(new Date().getFullYear()));
+    return [...years].sort((first, second) => Number(second) - Number(first));
+  }, [orders]);
+
+  const periodSales = useMemo(() => {
+    const totals = new Map();
+    orders.filter((order) => order?.status === 'Delivered').forEach((order) => {
+      const date = new Date(order.createdAt || order.created_at);
+      if (Number.isNaN(date.getTime()) || String(date.getFullYear()) !== selectedYear) return;
+      if (salesPeriod === 'month' && String(date.getMonth() + 1) !== selectedMonth) return;
+      const key = salesPeriod === 'year'
+        ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+        : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      const label = salesPeriod === 'year' ? date.toLocaleDateString([], { month: 'short' }) : date.toLocaleDateString([], { day: 'numeric' });
+      const entry = totals.get(key) || { label, value: 0 };
+      entry.value += Number(order.totalAmount || order.total_amount) || 0;
+      totals.set(key, entry);
+    });
+    return [...totals.entries()].sort(([first], [second]) => first.localeCompare(second)).map(([, entry]) => entry);
+  }, [orders, salesPeriod, selectedMonth, selectedYear]);
+
+  const bestSellerSeries = useMemo(() => {
+    const grouped = new Map();
+    orders.filter((order) => order?.status === 'Delivered').forEach((order) => {
+      const date = new Date(order.createdAt || order.created_at);
+      if (Number.isNaN(date.getTime()) || String(date.getFullYear()) !== selectedYear) return;
+      if (salesPeriod === 'month' && String(date.getMonth() + 1) !== selectedMonth) return;
+      const key = salesPeriod === 'year'
+        ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+        : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      const entry = grouped.get(key) || { label: salesPeriod === 'year' ? date.toLocaleDateString([], { month: 'short' }) : date.toLocaleDateString([], { day: 'numeric' }), products: new Map() };
+      (Array.isArray(order.items) ? order.items : []).forEach((item) => {
+        if (!item) return;
+        const name = String(item.productName || item.product_name || 'Unknown product');
+        entry.products.set(name, (entry.products.get(name) || 0) + (Number(item.qty) || 0));
+      });
+      grouped.set(key, entry);
+    });
+    return [...grouped.entries()].sort(([first], [second]) => first.localeCompare(second)).map(([, entry]) => {
+      const best = [...entry.products.entries()].sort(([, first], [, second]) => second - first)[0];
+      return { label: entry.label, product: best?.[0] || 'No sales', value: best?.[1] || 0 };
+    });
+  }, [orders, salesPeriod, selectedMonth, selectedYear]);
+
+  const salesMax = Math.max(...periodSales.map((item) => item.value), 1);
+  const salesPoints = periodSales.map((item, index) => ({ ...item, x: 12 + (index / Math.max(periodSales.length - 1, 1)) * 376, y: 102 - (item.value / salesMax) * 78 }));
+  const bestMax = Math.max(...bestSellerSeries.map((item) => item.value), 1);
+  const bestPoints = bestSellerSeries.map((item, index) => ({ ...item, x: 12 + (index / Math.max(bestSellerSeries.length - 1, 1)) * 376, y: 102 - (item.value / bestMax) * 78 }));
+  const salesPath = salesPoints.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
+  const bestPath = bestPoints.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
   const averageOrder = totals.monthlyOrders ? totals.monthlySales / totals.monthlyOrders : 0;
   const lowStockUnits = lowStock.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
 
@@ -85,22 +141,39 @@ export default function AdminDashboard() {
       </section>
 
       <div className="grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">Sales performance</h2><p className="mt-1 text-sm text-slate-500">Revenue trend across the last six months</p></div><span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">Last 6 months</span></div>
-
-          <div className="mt-6 h-64 w-full">
-            {loading ? <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading sales data...</div> : chartPoints.length === 0 ? <div className="flex h-full items-center justify-center text-sm text-slate-400">No sales data available.</div> : (
-              <svg viewBox="0 0 400 150" className="h-full w-full overflow-visible" preserveAspectRatio="none" role="img" aria-label="Sales for the last six months">
-                <defs><linearGradient id="dashboardSalesGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#1f5a43" stopOpacity="0.25" /><stop offset="100%" stopColor="#1f5a43" stopOpacity="0.02" /></linearGradient></defs>
-                {[24, 50, 76, 102].map((y) => <line key={y} x1="12" x2="388" y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="3 4" />)}
-                <path d={`${linePath} L ${chartPoints.at(-1)?.x || 388} 110 L ${chartPoints[0]?.x || 12} 110 Z`} fill="url(#dashboardSalesGradient)" />
-                <path d={linePath} fill="none" stroke="#1f5a43" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-                {chartPoints.map((point, index) => <g key={`${point.month}-${index}`}><circle cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#1f5a43" strokeWidth="2.5" vectorEffect="non-scaling-stroke" /><text x={point.x} y="135" textAnchor="middle" fill="#64748b" fontSize="9">{point.month}</text></g>)}
-              </svg>
-            )}
+        <div className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+            <p className="text-sm font-bold text-slate-900">Sales reports</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)} className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700">
+                {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
+              </select>
+              {salesPeriod === 'month' ? <select value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700">{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={String(index + 1)}>{new Date(2000, index, 1).toLocaleDateString([], { month: 'long' })}</option>)}</select> : null}
+              <div className="flex rounded-lg bg-slate-100 p-1">{['month', 'year'].map((period) => <button key={period} type="button" onClick={() => setSalesPeriod(period)} className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize ${salesPeriod === period ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500'}`}>{period}</button>)}</div>
+            </div>
           </div>
-          <div className="mt-1 flex items-center justify-between border-t border-slate-100 pt-4"><p className="text-xs text-slate-500">Highest month in this period</p><p className="text-sm font-bold text-emerald-700">{formatCurrency(maxSales === 1 && salesData.every((item) => !Number(item.value)) ? 0 : maxSales)}</p></div>
-        </section>
+
+          {[
+            { title: 'Sales performance', subtitle: 'Revenue by selected period', points: salesPoints, path: salesPath, max: salesMax, format: formatCurrency, gradient: 'dashboardRevenueGradient' },
+            { title: 'Best-selling product', subtitle: 'Top product units by selected period', points: bestPoints, path: bestPath, max: bestMax, format: (value) => `${value} sold`, gradient: 'dashboardBestSellerGradient' },
+          ].map((chart) => (
+            <section key={chart.title} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div><h2 className="text-lg font-bold text-slate-900">{chart.title}</h2><p className="mt-1 text-sm text-slate-500">{chart.subtitle}</p></div>
+              <div className="mt-6 h-64 w-full">
+                {loading ? <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading sales data...</div> : chart.points.length === 0 ? <div className="flex h-full items-center justify-center text-sm text-slate-400">No delivered sales data available.</div> : (
+                  <svg viewBox="0 0 400 150" className="h-full w-full overflow-visible" preserveAspectRatio="none" role="img" aria-label={chart.title}>
+                    <defs><linearGradient id={chart.gradient} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#1f5a43" stopOpacity="0.25" /><stop offset="100%" stopColor="#1f5a43" stopOpacity="0.02" /></linearGradient></defs>
+                    {[24, 50, 76, 102].map((y) => <line key={y} x1="12" x2="388" y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="3 4" />)}
+                    <path d={`${chart.path} L ${chart.points.at(-1)?.x || 388} 110 L ${chart.points[0]?.x || 12} 110 Z`} fill={`url(#${chart.gradient})`} />
+                    <path d={chart.path} fill="none" stroke="#1f5a43" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                    {chart.points.map((point, index) => <g key={`${point.label}-${point.product || index}`}><circle cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#1f5a43" strokeWidth="2.5" vectorEffect="non-scaling-stroke" /><text x={point.x} y="135" textAnchor="middle" fill="#64748b" fontSize="9">{point.label}</text></g>)}
+                  </svg>
+                )}
+              </div>
+              <div className="mt-1 flex items-center justify-between border-t border-slate-100 pt-4"><p className="text-xs text-slate-500">Highest value in this period</p><p className="text-sm font-bold text-emerald-700">{chart.format(chart.max === 1 && chart.points.every((item) => !Number(item.value)) ? 0 : chart.max)}</p></div>
+            </section>
+          ))}
+        </div>
 
         <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700"><AlertTriangle size={20} /></span><div><h2 className="text-lg font-bold text-slate-900">Stock alerts</h2><p className="mt-1 text-sm text-slate-500">Tags at or below five units</p></div></div>

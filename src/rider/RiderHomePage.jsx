@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Package, UserRound, Truck, MapPinned } from 'lucide-react';
+import { ExternalLink, MapPin, Package } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { apiRiderOrders, getImageUrl } from '../api/client';
 
@@ -114,10 +114,10 @@ export default function RiderHomePage() {
         : 'No orders are assigned to this rider account yet.';
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 font-['Montserrat']">
+    <div className="mx-auto max-w-7xl space-y-5 font-['Montserrat']">
       <header>
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Assigned deliveries</p>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl text-slate-900">Rider Dashboard</h1>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Rider Dashboard</h1>
       </header>
 
       <section className="grid grid-cols-3 gap-2 sm:gap-4">
@@ -183,20 +183,20 @@ export default function RiderHomePage() {
             const imageCount = order.items.length;
 
             return (
-              <article key={order.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white sm:rounded-3xl shadow-sm transition hover:shadow-md">
-                <div className="border-b border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] p-4 sm:px-5">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <article key={order.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md">
+                <div className="border-b border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-500">{order.orderCode}</p>
-                      <h2 className="mt-2 truncate font-['Playfair_Display'] text-xl font-semibold leading-tight text-gray-900">{order.customerName}</h2>
-                      <p className="mt-2 text-sm text-gray-500">{formatDate(order.createdAt)}</p>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-gray-500">{order.orderCode}</p>
+                      <h2 className="mt-1 truncate text-base font-bold leading-tight text-gray-900">{order.customerName}</h2>
+                      <p className="mt-1 text-xs text-gray-500">{order.mobileNumber || order.gmail || '-'}</p>
                     </div>
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <span className={`inline-flex rounded-full px-3.5 py-1.5 text-xs font-semibold ${statusBadgeClass(order.status)}`}>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold ${statusBadgeClass(order.status)}`}>
                         {order.status}
                       </span>
                       {order.trackingStatus && order.trackingStatus !== order.status ? (
-                        <span className={"inline-flex rounded-full px-3 py-1 text-xs font-semibold " + trackingBadgeClass(order.trackingStatus)}>
+                        <span className={"inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold " + trackingBadgeClass(order.trackingStatus)}>
                           {order.trackingStatus}
                         </span>
                       ) : null}
@@ -204,104 +204,48 @@ export default function RiderHomePage() {
                   </div>
                 </div>
 
-                <div className="grid gap-3 p-4 sm:gap-4 md:grid-cols-2">
-                  <div className="space-y-4">
-                    <div className="rounded-2xl bg-gray-50 p-4">
-                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">
-                        <UserRound size={14} />
-                        Customer
-                      </p>
-                      <p className="mt-3 text-sm font-semibold text-gray-900">{order.customerName}</p>
-                      <p className="mt-1 text-sm leading-6 text-gray-600">{order.mobileNumber || order.gmail || '-'}</p>
-                    </div>
-
-                    <div className="rounded-2xl bg-gray-50 p-4">
-                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">
-                        <Package size={14} />
-                        Items
-                      </p>
-                      <div className="mt-4 space-y-3">
-                        {order.items.slice(0, 2).map((item) => {
-                          const imageSrc = getImageUrl(item.imageUrl);
-
-                          return (
-                            <div key={item.id} className="flex items-center gap-3 rounded-2xl bg-white px-3 py-3">
-                              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-[#eef2ea]">
-                                {imageSrc ? (
-                                  <img src={imageSrc} alt={item.productName} className="h-full w-full object-cover" />
-                                ) : null}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-semibold text-gray-900">{item.productName}</p>
-                                <p className="mt-1 text-xs text-gray-500">Qty {item.qty}</p>
-                              </div>
-                              <p className="shrink-0 text-sm font-semibold text-gray-900">{formatPhp(item.lineTotal)}</p>
-                            </div>
-                          );
-                        })}
-                        {imageCount > 2 ? (
-                          <p className="px-1 text-xs font-medium text-gray-500">+{imageCount - 2} more item(s)</p>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
-                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">
-                        <Truck size={14} />
-                        Delivery
-                      </p>
-                      <div className="mt-3 space-y-2.5 text-sm leading-6 text-gray-700">
-                        <p>
-                          <span className="font-semibold text-gray-900">Mode:</span>{' '}
-                          {order.deliveryMode === 'logistics' ? 'Logistics only' : 'Rider delivery'}
-                        </p>
-                        <p>
-                          <span className="font-semibold text-gray-900">Courier:</span>{' '}
-                          {order.courierName || 'Not assigned yet'}
-                        </p>
-                        <p>
-                          <span className="font-semibold text-gray-900">Total:</span> {formatPhp(order.totalAmount)}
-                        </p>
-                        <p className="text-xs font-medium text-gray-500">{order.driverAccessToken ? 'Delivery page ready' : 'Delivery page not ready yet'}</p>
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl bg-gray-50 p-4">
-                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">
-                        <MapPinned size={14} />
-                        Quick details
-                      </p>
-                      <div className="mt-3 space-y-2.5 text-sm leading-6 text-gray-700">
-                        <p>
-                          <span className="font-semibold text-gray-900">Address:</span> <span className="break-words">{order.location || 'No delivery location yet'}</span>
-                        </p>
-                        <p>
-                          <span className="font-semibold text-gray-900">Accepted:</span> {formatDate(order.driverAcceptedAt)}
-                        </p>
-                        <p>
-                          <span className="font-semibold text-gray-900">Live GPS:</span> {formatDate(order.driverLocationUpdatedAt)}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      {deliveryLink ? (
-                        <Link
-                          to={`/rider/delivery/${order.driverAccessToken}`}
-                          className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#0f4d2e] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#163f2f]"
-                        >
-                          Open Delivery Page
-                          <ExternalLink size={16} />
-                        </Link>
-                      ) : (
-                        <div className="flex-1 rounded-2xl border border-dashed border-gray-300 bg-white px-4 py-3.5 text-sm font-medium text-gray-500">
-                          Delivery page not ready yet.
+                <div className="p-3 sm:p-4">
+                  <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-white px-2.5 py-2.5">
+                    {order.items.slice(0, 1).map((item) => {
+                      const imageSrc = getImageUrl(item.imageUrl);
+                      return (
+                        <div key={item.id} className="flex min-w-0 flex-1 items-center gap-3">
+                          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-[#eef2ea]">
+                            {imageSrc ? <img src={imageSrc} alt={item.productName} className="h-full w-full object-cover" /> : null}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-gray-900">{item.productName}</p>
+                            <p className="mt-0.5 text-xs text-gray-500">Qty {item.qty}</p>
+                          </div>
                         </div>
-                      )}
-                    </div>
+                      );
+                    })}
+                    <p className="shrink-0 text-xs font-bold text-gray-900">{formatPhp(order.totalAmount)}</p>
                   </div>
+
+                  <div className="mt-3 flex items-start gap-2 border-t border-slate-100 pt-3 text-xs text-slate-600">
+                    <MapPin size={15} className="mt-0.5 shrink-0 text-emerald-700" />
+                    <p className="line-clamp-2 break-words">{order.location || 'No delivery location yet'}</p>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-slate-500">
+                    <span>Accepted {formatDate(order.driverAcceptedAt)}</span>
+                    <span>{imageCount > 1 ? `+${imageCount - 1} more item(s)` : 'Rider delivery'}</span>
+                  </div>
+
+                  {deliveryLink ? (
+                    <Link
+                      to={`/rider/delivery/${order.driverAccessToken}`}
+                      className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-[#0f4d2e] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#163f2f]"
+                    >
+                      View Details
+                      <ExternalLink size={15} />
+                    </Link>
+                  ) : (
+                    <div className="mt-3 rounded-xl border border-dashed border-gray-300 bg-white px-4 py-3 text-center text-xs font-medium text-gray-500">
+                      Delivery page not ready yet.
+                    </div>
+                  )}
                 </div>
               </article>
             );

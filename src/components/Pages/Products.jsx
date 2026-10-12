@@ -125,6 +125,20 @@ const getDisplayTag = (tag, category) => {
   return tag || category || "Plant";
 };
 
+const getCustomerProductName = (item) => {
+  const category = String(item?.category || '').trim();
+  return category.toLowerCase() === 'aloe hybrids'
+    ? 'Aloe Hybrids'
+    : String(item?.name || 'Untitled product').trim();
+};
+
+const getCustomerProductDescription = (item) => {
+  const category = String(item?.category || '').trim();
+  const description = String(item?.description || '').trim().replace(/^\((.*)\)$/, '$1').trim();
+  if (category.toLowerCase() === 'aloe hybrids') return description ? `Aloe Hybrids (${description})` : 'Aloe Hybrids';
+  return description;
+};
+
 export default function Products({ onAddToCart }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -185,10 +199,8 @@ export default function Products({ onAddToCart }) {
 
     const mappedProducts = products.map((item, index) => ({
       ...item,
-      name: item.name || "Untitled product",
-      note:
-        item.description ||
-        `${item.category || "Plant"} item`,
+      name: getCustomerProductName(item),
+      note: getCustomerProductDescription(item),
       stock: getStockNumber(item.stock),
       tagKey: normalizeTag(item.tag, item.category),
       image:
@@ -702,9 +714,9 @@ export default function Products({ onAddToCart }) {
                         {product.name}
                       </h3>
 
-                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">
-                        {product.note}
-                      </p>
+                      {product.note ? (
+                        <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">{product.note}</p>
+                      ) : null}
                     </div>
 
                     <p className="mt-5 text-xl font-bold tracking-tight text-emerald-700">

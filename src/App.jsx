@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter as Router, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { CheckCircle2, X } from "lucide-react";
 import AdminProtectedRoute from "./admin/AdminProtectedRoute";
@@ -47,6 +47,33 @@ const DriverOrderPage = lazy(() => import("./driver/DriverOrderPage"));
 const RiderHomePage = lazy(() => import("./rider/RiderHomePage"));
 const RiderLayout = lazy(() => import("./rider/RiderLayout"));
 const RiderProfilePage = lazy(() => import("./rider/RiderProfilePage"));
+
+class ReportsErrorBoundary extends Component {
+  state = { error: null };
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="grid min-h-[60vh] place-items-center bg-[#f8faf6] px-6 py-12">
+          <div className="w-full max-w-xl rounded-3xl border border-rose-200 bg-white p-6 shadow-sm">
+            <h1 className="text-xl font-bold text-rose-800">Reports could not be displayed</h1>
+            <p className="mt-2 text-sm text-slate-600">Refresh the page after restarting the frontend and API server.</p>
+            <pre className="mt-4 overflow-auto rounded-xl bg-slate-950 p-4 text-xs text-rose-200">{this.state.error.message || String(this.state.error)}</pre>
+            <button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-xl bg-[#0f4d2e] px-4 py-2 text-sm font-semibold text-white">
+              Reload Reports
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 const parsePrice = (value) => Number(String(value).replace(/[^\d.]/g, ""));
 function App() {
@@ -256,7 +283,7 @@ function App() {
           <Route path="riders" element={<AdminRiders />} />
           <Route path="inventory" element={<AdminInventory />} />
           <Route path="customers" element={<AdminCustomers />} />
-          <Route path="reports" element={<AdminReports />} />
+          <Route path="reports" element={<ReportsErrorBoundary><AdminReports /></ReportsErrorBoundary>} />
           <Route path="logs" element={<AdminLogs />} />
         </Route>
 

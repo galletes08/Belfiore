@@ -48,6 +48,18 @@ const getDisplayTag = (tag, category) => {
   return tag || category || "Plant";
 };
 
+const getCustomerProductName = (item) => {
+  const category = String(item?.category || '').trim();
+  return category.toLowerCase() === 'aloe hybrids' ? 'Aloe Hybrids' : String(item?.name || 'Untitled product').trim();
+};
+
+const getCustomerProductDescription = (item) => {
+  const category = String(item?.category || '').trim();
+  const description = String(item?.description || '').trim().replace(/^\((.*)\)$/, '$1').trim();
+  if (category.toLowerCase() === 'aloe hybrids') return description ? `Aloe Hybrids (${description})` : 'Aloe Hybrids';
+  return description;
+};
+
 export default function ProductDetail({ onAddToCart }) {
   const { id } = useParams();
   const location = useLocation();
@@ -109,6 +121,8 @@ export default function ProductDetail({ onAddToCart }) {
   const isAquaponics = tagKey === AQUAPONICS_TAG;
   const maxQuantity = isAquaponics ? Math.max(1, product.stock) : 1;
   const isOrderView = location.state?.from === "/orders";
+  const customerProductName = getCustomerProductName(product);
+  const customerProductDescription = getCustomerProductDescription(product);
   const backTarget = isOrderView ? "/orders" : "/products";
   const backLabel = isOrderView ? "Back to Orders" : "Back to Products";
 
@@ -133,7 +147,7 @@ export default function ProductDetail({ onAddToCart }) {
           {isOrderView ? (
             <div className="mb-6 rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ecfdf5_0%,#f8fafc_65%)] p-6 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Order Details</p>
-              <h1 className="mt-2 text-2xl font-bold text-gray-900 md:text-3xl">{product.name}</h1>
+              <h1 className="mt-2 text-2xl font-bold text-gray-900 md:text-3xl">{customerProductName}</h1>
               <p className="mt-2 max-w-2xl text-sm text-gray-600">
                 Product information for the item in your order. Review the image, category, and stock details here.
               </p>
@@ -154,8 +168,8 @@ export default function ProductDetail({ onAddToCart }) {
               {getDisplayTag(product.tag, product.category).toUpperCase()}
             </span>
 
-            <h1 className="mt-3 text-3xl font-bold text-gray-900">{product.name}</h1>
-            <p className="mt-2 text-sm text-gray-600">{product.description || `${product.category || "Plant"} item`}</p>
+            <h1 className="mt-3 text-3xl font-bold text-gray-900">{customerProductName}</h1>
+            {customerProductDescription ? <p className="mt-2 text-sm text-gray-600">{customerProductDescription}</p> : null}
 
             <div className={`${isOrderView ? "mt-5 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4" : "mt-5"}`}>
               <p className="text-3xl font-bold text-emerald-700">{formatPhp(numericPrice)}</p>
@@ -184,7 +198,7 @@ export default function ProductDetail({ onAddToCart }) {
               <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50/70 p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Description</p>
                 <p className="mt-3 text-sm leading-6 text-gray-700">
-                  {product.description || "No additional product description was provided for this item."}
+                  {customerProductDescription || "No additional product description was provided for this item."}
                 </p>
               </div>
             ) : (

@@ -1,5 +1,17 @@
 import { getImageUrl } from '../../api/client';
 
+function getCustomerProductName(product) {
+  const category = String(product?.category || '').trim();
+  return category.toLowerCase() === 'aloe hybrids' ? 'Aloe Hybrids' : product?.name || 'Untitled product';
+}
+
+function getCustomerProductDescription(product) {
+  const category = String(product?.category || '').trim();
+  const description = String(product?.description || '').trim().replace(/^\((.*)\)$/, '$1').trim();
+  if (category.toLowerCase() === 'aloe hybrids') return description ? `Aloe Hybrids (${description})` : 'Aloe Hybrids';
+  return description;
+}
+
 export default function ShopSection({ products, status, error, onAddToCart, formatPrice }) {
   const featuredProducts = products.slice(0, 6);
 
@@ -68,10 +80,10 @@ export default function ShopSection({ products, status, error, onAddToCart, form
                     ) : null}
                   </div>
                   <div className="mt-5">
-                    <h3 className="text-lg font-['Playfair_Display'] text-[#0f4d2e]">{product.name}</h3>
-                    <p className="mt-1 max-h-10 overflow-hidden text-sm text-[#5e6f65]">
-                      {product.description || 'Lush, low maintenance, and ready for a bright corner.'}
-                    </p>
+                    <h3 className="text-lg font-['Playfair_Display'] text-[#0f4d2e]">{getCustomerProductName(product)}</h3>
+                    {getCustomerProductDescription(product) ? (
+                      <p className="mt-1 max-h-10 overflow-hidden text-sm text-[#5e6f65]">{getCustomerProductDescription(product)}</p>
+                    ) : null}
                     <div className="mt-4 flex items-center justify-between">
                       <span className="text-base font-semibold text-[#0f4d2e]">{formatPrice(product.price)}</span>
                       <span className="text-xs uppercase tracking-[0.25em] text-[#7a8a7f]">{product.stock} in stock</span>

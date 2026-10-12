@@ -77,6 +77,9 @@ export default function AdminReports() {
   const [orders, setOrders] = useState([]);
   const [riders, setRiders] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [salesPeriod, setSalesPeriod] = useState('month');
+  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
+  const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1));
 
   useEffect(() => {
     let mounted = true;
@@ -104,9 +107,9 @@ export default function AdminReports() {
           recentOrders: Array.isArray(dashboardData?.recentOrders) ? dashboardData.recentOrders : [],
           totals: dashboardData?.totals || {},
         });
-        setOrders(Array.isArray(ordersData) ? ordersData : []);
-        setRiders(Array.isArray(ridersData) ? ridersData : []);
-        setCustomers(Array.isArray(customersData) ? customersData.map(normalizeCustomer) : []);
+        setOrders(Array.isArray(ordersData) ? ordersData.filter(Boolean) : []);
+        setRiders(Array.isArray(ridersData) ? ridersData.filter(Boolean) : []);
+        setCustomers(Array.isArray(customersData) ? customersData.filter(Boolean).map(normalizeCustomer) : []);
 
         const failures = [
           dashboardResult,
@@ -144,14 +147,14 @@ export default function AdminReports() {
     };
 
     for (const order of orders) {
-      if (counts[order.status] != null) counts[order.status] += 1;
+      if (counts[order?.status] != null) counts[order.status] += 1;
     }
 
     return counts;
   }, [orders]);
 
-  const activeRiders = riders.filter((rider) => rider.isAvailable).length;
-  const inactiveRiders = riders.filter((rider) => !rider.isAvailable).length;
+  const activeRiders = riders.filter((rider) => Boolean(rider?.isAvailable)).length;
+  const inactiveRiders = riders.filter((rider) => !rider?.isAvailable).length;
   const customerGrowth = customers.filter((customer) => {
     const created = new Date(customer.createdAt);
     if (Number.isNaN(created.getTime())) return false;
@@ -159,10 +162,97 @@ export default function AdminReports() {
     return ageDays <= 30;
   }).length;
 
-  const topSalesMonth = dashboard.salesData.reduce(
-    (best, item) => (Number(item.value) > Number(best?.value || 0) ? item : best),
-    null
-  );
+  const bestSellingSeries = useMemo(() => {
+    const grouped = new Map();
+    const safeOrders = Array.isArray(orders) ? orders : [];
+
+    safeOrders
+      .filter((order) => order?.status === 'Delivered')
+      .forEach((order) => {
+        const date = new Date(order.createdAt || order.created_at);
+        if (Number.isNaN(date.getTime())) return;
+        if (String(date.getFullYear()) !== selectedYear) return;
+        if (salesPeriod === 'month' && String(date.getMonth() + 1) !== selectedMonth) return;
+        const periodKey = salesPeriod === 'year'
+          ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+          : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        const periodLabel = salesPeriod === 'year'
+          ? date.toLocaleDateString([], { month: 'short' })
+          : date.toLocaleDateString([], { day: 'numeric' });
+        const products = grouped.get(periodKey)?.products || new Map();
+
+        (Array.isArray(order.items) ? order.items : []).forEach((item) => {
+          if (!item) return;
+          const name = String(item.productName || item.product_name || 'Unknown product');
+          products.set(name, (products.get(name) || 0) + (Number(item.qty) || 0));
+        });
+        grouped.set(periodKey, { label: periodLabel, products });
+      });
+
+    return [...grouped.entries()]
+      .sort(([first], [second]) => first.localeCompare(second))
+      .map(([, entry]) => {
+        const best = [...entry.products.entries()].sort(([, firstQty], [, secondQty]) => secondQty - firstQty)[0];
+        return { label: entry.label, product: best?.[0] || 'No product sales', quantity: best?.[1] || 0 };
+      })
+      .slice(-12);
+  }, [orders, salesPeriod, selectedMonth, selectedYear]);
+
+  const chartMax = Math.max(...bestSellingSeries.map((entry) => entry.quantity), 1);
+  const chartPoints = bestSellingSeries.map((entry, index) => {
+    const x = 12 + (index / Math.max(bestSellingSeries.length - 1, 1)) * 376;
+    const y = 102 - (entry.quantity / chartMax) * 78;
+    return { ...entry, x, y };
+  });
+  const chartLine = chartPoints.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
+
+  const salesSeries = useMemo(() => {
+    const totals = new Map();
+    orders.filter((order) => order?.status === 'Delivered').forEach((order) => {
+      const date = new Date(order.createdAt || order.created_at);
+      if (Number.isNaN(date.getTime()) || String(date.getFullYear()) !== selectedYear) return;
+      if (salesPeriod === 'month' && String(date.getMonth() + 1) !== selectedMonth) return;
+      const key = salesPeriod === 'year'
+        ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+        : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      const label = salesPeriod === 'year' ? date.toLocaleDateString([], { month: 'short' }) : date.toLocaleDateString([], { day: 'numeric' });
+      const entry = totals.get(key) || { label, value: 0 };
+      entry.value += Number(order.totalAmount || order.total_amount) || 0;
+      totals.set(key, entry);
+    });
+    return [...totals.entries()].sort(([first], [second]) => first.localeCompare(second)).map(([, entry]) => entry);
+  }, [orders, salesPeriod, selectedMonth, selectedYear]);
+  const salesMax = Math.max(...salesSeries.map((entry) => entry.value), 1);
+  const salesPoints = salesSeries.map((entry, index) => ({ ...entry, x: 12 + (index / Math.max(salesSeries.length - 1, 1)) * 376, y: 102 - (entry.value / salesMax) * 78 }));
+  const salesLine = salesPoints.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
+
+  const productSalesTotals = useMemo(() => {
+    const totals = new Map();
+    orders
+      .filter((order) => order?.status === 'Delivered')
+      .forEach((order) => {
+        const date = new Date(order.createdAt || order.created_at);
+        if (Number.isNaN(date.getTime()) || String(date.getFullYear()) !== selectedYear) return;
+        if (salesPeriod === 'month' && String(date.getMonth() + 1) !== selectedMonth) return;
+        (Array.isArray(order.items) ? order.items : []).forEach((item) => {
+          if (!item) return;
+          const name = String(item.productName || item.product_name || 'Unknown product');
+          totals.set(name, (totals.get(name) || 0) + (Number(item.qty) || 0));
+        });
+      });
+    return [...totals.entries()]
+      .map(([product, quantity]) => ({ product, quantity }))
+      .sort((first, second) => second.quantity - first.quantity || first.product.localeCompare(second.product));
+  }, [orders, salesPeriod, selectedMonth, selectedYear]);
+
+  const availableYears = useMemo(() => {
+    const years = new Set(orders.filter((order) => order?.status === 'Delivered').map((order) => {
+      const date = new Date(order.createdAt || order.created_at);
+      return Number.isNaN(date.getTime()) ? null : String(date.getFullYear());
+    }).filter(Boolean));
+    years.add(String(new Date().getFullYear()));
+    return [...years].sort((first, second) => Number(second) - Number(first));
+  }, [orders]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(220,252,231,0.9),_transparent_28%),linear-gradient(180deg,#f5faf7_0%,#eef5f1_100%)] px-4 py-6 sm:px-6 lg:px-8">
@@ -209,39 +299,101 @@ export default function AdminReports() {
         <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="overflow-hidden rounded-3xl border border-white/80 bg-white/90 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
             <div className="border-b border-gray-100 px-6 py-5 sm:px-8">
-              <h2 className="text-xl font-bold text-gray-900">Sales Trend</h2>
-              <p className="mt-1 text-sm text-gray-500">Monthly revenue trend from the dashboard data.</p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Best-Selling Product</h2>
+                  <p className="mt-1 text-sm text-gray-500">Top product by units sold from delivered orders.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)} className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-700 outline-none focus:border-emerald-600">
+                    {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
+                  </select>
+                  {salesPeriod === 'month' ? (
+                    <select value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-700 outline-none focus:border-emerald-600">
+                      {Array.from({ length: 12 }, (_, index) => (
+                        <option key={index + 1} value={String(index + 1)}>{new Date(2000, index, 1).toLocaleDateString([], { month: 'long' })}</option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <div className="flex rounded-xl bg-gray-100 p-1">
+                  {['month', 'year'].map((period) => (
+                    <button
+                      key={period}
+                      type="button"
+                      onClick={() => setSalesPeriod(period)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition ${salesPeriod === period ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+                    >
+                      {period}
+                    </button>
+                  ))}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {loading ? (
               <div className="p-12 text-center text-gray-500">Loading reports...</div>
             ) : (
               <div className="px-6 py-6 sm:px-8">
-                <div className="mb-3 flex items-center justify-between text-xs text-gray-500">
-                  <span>Trend</span>
-                  <span>{topSalesMonth ? `${topSalesMonth.month} best month` : 'No sales yet'}</span>
-                </div>
-                <div className="overflow-hidden rounded-2xl border border-gray-100 bg-gradient-to-b from-white to-[#f8fbf8] p-4">
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {dashboard.salesData.map((item) => {
-                      const value = Number(item.value) || 0;
-                      const maxValue = Math.max(...dashboard.salesData.map((entry) => Number(entry.value) || 0), 1);
-                      const barWidth = `${Math.max(12, (value / maxValue) * 100)}%`;
-
-                      return (
-                        <div key={item.month} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-semibold text-gray-700">{item.month}</p>
-                            <p className="text-sm font-semibold text-emerald-700">{formatCurrency(value)}</p>
-                          </div>
-                          <div className="mt-3 h-3 overflow-hidden rounded-full bg-gray-100">
-                            <div className="h-full rounded-full bg-[linear-gradient(90deg,#0f4d2e_0%,#16a34a_100%)]" style={{ width: barWidth }} />
-                          </div>
-                        </div>
-                      );
-                    })}
+                {bestSellingSeries.length === 0 && salesSeries.length === 0 ? (
+                  <div className="flex h-64 items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-500">
+                    No delivered product sales yet.
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="border-b border-gray-100 pb-6">
+                      <h3 className="mb-3 text-sm font-bold text-gray-900">Sales Performance</h3>
+                      {salesSeries.length === 0 ? <div className="flex h-40 items-center justify-center rounded-xl bg-gray-50 text-sm text-gray-500">No sales for this period.</div> : (
+                        <svg viewBox="0 0 400 150" className="h-56 w-full overflow-visible" preserveAspectRatio="none" role="img" aria-label="Sales performance">
+                          <defs><linearGradient id="reportsRevenueGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#1f5a43" stopOpacity="0.25" /><stop offset="100%" stopColor="#1f5a43" stopOpacity="0.02" /></linearGradient></defs>
+                          {[24, 50, 76, 102].map((y) => <line key={y} x1="12" x2="388" y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="3 4" />)}
+                          <path d={`${salesLine} L ${salesPoints.at(-1)?.x || 388} 110 L ${salesPoints[0]?.x || 12} 110 Z`} fill="url(#reportsRevenueGradient)" />
+                          <path d={salesLine} fill="none" stroke="#1f5a43" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                          {salesPoints.map((point, index) => <g key={`${point.label}-${index}`}><circle cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#1f5a43" strokeWidth="2.5" vectorEffect="non-scaling-stroke" /><text x={point.x} y="135" textAnchor="middle" fill="#64748b" fontSize="9">{point.label}</text></g>)}
+                        </svg>
+                      )}
+                      <div className="mt-1 flex items-center justify-between border-t border-gray-100 pt-3"><span className="text-xs text-gray-500">Highest sales in this period</span><span className="text-sm font-bold text-emerald-700">{formatCurrency(salesMax === 1 && salesSeries.every((entry) => !Number(entry.value)) ? 0 : salesMax)}</span></div>
+                    </div>
+                    <h3 className="mb-3 pt-1 text-sm font-bold text-gray-900">Best-Selling Product</h3>
+                    <div className="h-64 w-full">
+                      <svg viewBox="0 0 400 150" className="h-full w-full overflow-visible" preserveAspectRatio="none" role="img" aria-label="Best-selling product units by period">
+                        <defs><linearGradient id="reportsSalesGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#1f5a43" stopOpacity="0.25" /><stop offset="100%" stopColor="#1f5a43" stopOpacity="0.02" /></linearGradient></defs>
+                        {[24, 50, 76, 102].map((y) => <line key={y} x1="12" x2="388" y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="3 4" />)}
+                        <path d={`${chartLine} L ${chartPoints.at(-1)?.x || 388} 110 L ${chartPoints[0]?.x || 12} 110 Z`} fill="url(#reportsSalesGradient)" />
+                        <path d={chartLine} fill="none" stroke="#1f5a43" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                        {chartPoints.map((point) => (
+                          <g key={`${point.label}-${point.product}`}>
+                            <circle cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#1f5a43" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
+                            <text x={point.x} y="135" textAnchor="middle" fill="#64748b" fontSize="9">{point.label}</text>
+                          </g>
+                        ))}
+                      </svg>
+                    </div>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                      {bestSellingSeries.slice(-4).map((entry) => (
+                        <div key={`${entry.label}-${entry.product}`} className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2 text-xs">
+                          <span className="truncate pr-3 text-gray-600">{entry.label}: <span className="font-semibold text-gray-900">{entry.product}</span></span>
+                          <span className="shrink-0 font-semibold text-emerald-700">{entry.quantity} sold</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-5 border-t border-gray-100 pt-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-gray-900">Product Sales</h3>
+                        <span className="text-xs text-gray-500">All delivered orders</span>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {productSalesTotals.map((entry) => (
+                          <div key={entry.product} className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-sm">
+                            <span className="truncate pr-3 font-medium text-gray-700">{entry.product}</span>
+                            <span className="shrink-0 font-bold text-emerald-700">{entry.quantity} sold</span>
+                          </div>
+                        ))}
+                        {productSalesTotals.length === 0 ? <p className="text-sm text-gray-500">No delivered product sales yet.</p> : null}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -306,12 +458,12 @@ export default function AdminReports() {
                     </tr>
                   </thead>
                   <tbody>
-                    {dashboard.recentOrders.map((order) => (
+                    {dashboard.recentOrders.filter(Boolean).map((order) => (
                       <tr key={order.id} className="border-b border-gray-100 hover:bg-emerald-50/40">
                         <td className="px-5 py-3 font-medium text-gray-900">#{order.id}</td>
-                        <td className="px-5 py-3 text-gray-700">{order.customer}</td>
+                        <td className="px-5 py-3 text-gray-700">{order.customer || '-'}</td>
                         <td className="px-5 py-3 text-gray-600">{formatDateTime(order.date)}</td>
-                        <td className="px-5 py-3 text-gray-700">{order.status}</td>
+                        <td className="px-5 py-3 text-gray-700">{order.status || '-'}</td>
                         <td className="px-5 py-3 text-gray-700">{formatCurrency(order.total)}</td>
                       </tr>
                     ))}
@@ -321,28 +473,6 @@ export default function AdminReports() {
             )}
           </div>
 
-          <div className="overflow-hidden rounded-3xl border border-white/80 bg-white/90 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
-            <div className="border-b border-gray-100 px-6 py-5 sm:px-8">
-              <h2 className="text-xl font-bold text-gray-900">Customer Snapshot</h2>
-            </div>
-            <div className="grid gap-3 px-6 py-6 sm:px-8">
-              <div className="rounded-2xl bg-gray-50 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Newest Account</p>
-                <p className="mt-2 text-sm font-semibold text-gray-900">{customers[0]?.fullName || 'No customer accounts yet'}</p>
-                <p className="mt-1 text-sm text-gray-500">{customers[0] ? formatDateTime(customers[0].createdAt) : 'Waiting for signups'}</p>
-              </div>
-              <div className="rounded-2xl bg-gray-50 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Signup Window</p>
-                <p className="mt-2 text-sm font-semibold text-gray-900">{customerGrowth} new customer(s) in the last 30 days</p>
-                <p className="mt-1 text-sm text-gray-500">Based on customer account creation dates</p>
-              </div>
-              <div className="rounded-2xl bg-gray-50 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Active Riders</p>
-                <p className="mt-2 text-sm font-semibold text-gray-900">{activeRiders} available out of {riders.length}</p>
-                <p className="mt-1 text-sm text-gray-500">Useful for dispatch planning</p>
-              </div>
-            </div>
-          </div>
         </section>
       </div>
     </div>

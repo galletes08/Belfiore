@@ -1,4 +1,9 @@
 @import "leaflet/dist/leaflet.css";
+
+/* Keep Leaflet's internal panes below the site navigation. */
+.leaflet-container {
+  z-index: 0;
+}
 @import "tailwindcss";
 
 .tracking-map-marker-shell {

@@ -10,7 +10,9 @@ function getSmtpMailer() {
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT || 587);
   const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASSWORD;
+  // Google displays App Passwords with spaces. Remove them so either the
+  // displayed form ("abcd efgh ijkl mnop") or the compact form works.
+  const pass = String(process.env.SMTP_PASSWORD || '').replace(/\s/g, '');
   if (!host || !user || !pass) {
     throw new Error('Email service is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASSWORD in server/.env');
   }
@@ -49,5 +51,14 @@ export async function sendEmail({ to, subject, text, html }) {
     return data;
   }
 
-  return getSmtpMailer().sendMail({ from, to, subject, text, html });
+  try {
+    return await getSmtpMailer().sendMail({ from, to, subject, text, html });
+  } catch (error) {
+    if (error?.responseCode === 535 || error?.code === 'EAUTH') {
+      throw new Error(
+        'Gmail rejected the SMTP credentials. Set SMTP_USER to the Gmail account that created the App Password, then replace SMTP_PASSWORD with a new Google App Password (not the normal Gmail password).'
+      );
+    }
+    throw error;
+  }
 }

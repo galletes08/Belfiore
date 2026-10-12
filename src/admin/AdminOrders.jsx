@@ -507,6 +507,12 @@ export default function AdminOrders() {
                         {selectedOrder.deliveryMode === 'logistics' ? 'Not used for logistics orders' : selectedOrder.driverLatitude != null && selectedOrder.driverLongitude != null ? `${selectedOrder.driverLatitude.toFixed(5)}, ${selectedOrder.driverLongitude.toFixed(5)}` : 'No live location yet'}
                       </p>
                     </div>
+                    {selectedOrder.deliveryProofUrl ? (
+                      <div className="rounded-2xl bg-white/80 px-4 py-3 md:col-span-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Proof of Delivery</p>
+                        <img src={getImageUrl(selectedOrder.deliveryProofUrl)} alt="Proof of delivery" className="mt-2 max-h-64 rounded-xl object-cover" />
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 

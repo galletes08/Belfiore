@@ -66,6 +66,7 @@ async function ensureUsersTable() {
       ADD COLUMN IF NOT EXISTS password_hash TEXT,
       ADD COLUMN IF NOT EXISTS password TEXT,
       ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'customer',
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   `);
@@ -214,7 +215,7 @@ router.post('/api/auth/login', async (req, res) => {
       return res.status(500).json({ error: "Users table must include an 'email' column" });
     }
 
-    const selectableColumns = ['id', 'first_name', 'last_name', 'email', 'password', 'password_hash', 'role'].filter((col) =>
+    const selectableColumns = ['id', 'first_name', 'last_name', 'email', 'password', 'password_hash', 'role', 'status'].filter((col) =>
       columns.has(col)
     );
     if (!selectableColumns.length) {
@@ -227,6 +228,10 @@ router.post('/api/auth/login', async (req, res) => {
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    if (user.status === 'inactive') {
+      return res.status(403).json({ error: 'This account has been disabled. Please contact the administrator.' });
     }
 
     if (user.role === 'customer') {

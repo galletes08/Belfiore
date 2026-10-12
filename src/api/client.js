@@ -224,6 +224,26 @@ export async function apiAdminOrders() {
   return data;
 }
 
+export async function apiAdminLogs(limit = 250) {
+  const res = await fetch(`${API_URL}/api/admin/logs?limit=${encodeURIComponent(limit)}`, {
+    headers: getAuthHeader(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load system logs');
+  return data;
+}
+
+export async function apiDeleteSoldProduct(orderId, itemId) {
+  const res = await fetch(`${API_URL}/api/admin/orders/${orderId}/items/${itemId}`, {
+    method: 'DELETE',
+    headers: getAuthHeader(),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to remove sold product');
+  }
+}
+
 export async function apiAdminRiders() {
   const res = await fetch(`${API_URL}/api/admin/riders`, {
     headers: getAuthHeader(),
@@ -239,6 +259,17 @@ export async function apiAdminCustomers() {
   });
   const data = await res.json().catch(() => ([]));
   if (!res.ok) throw new Error(data.error || 'Failed to load customers');
+  return data;
+}
+
+export async function apiUpdateCustomerStatus(id, status) {
+  const res = await fetch(`${API_URL}/api/admin/customers/${id}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify({ status }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update customer status');
   return data;
 }
 
@@ -397,10 +428,11 @@ export async function apiDriverOrder(token) {
 }
 
 export async function apiUpdateDriverOrder(token, payload) {
+  const isFormData = payload instanceof FormData;
   const res = await fetch(`${API_URL}/api/driver/orders/${token}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+    body: isFormData ? payload : JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to update driver order');

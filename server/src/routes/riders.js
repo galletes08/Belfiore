@@ -93,6 +93,7 @@ async function ensureUserForRider({ firstName, lastName, email, password }) {
           ADD COLUMN IF NOT EXISTS password_hash TEXT,
           ADD COLUMN IF NOT EXISTS password TEXT,
           ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'customer',
+          ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
           ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       `)
@@ -152,8 +153,8 @@ async function ensureUserForRider({ firstName, lastName, email, password }) {
   const passwordHash = await bcrypt.hash(riderPassword, 10);
   const insertedUser = await pool.query(
     `
-    INSERT INTO users (first_name, last_name, email, password_hash, role, updated_at)
-    VALUES ($1, $2, $3, $4, 'rider', NOW())
+    INSERT INTO users (first_name, last_name, email, password_hash, role, status, updated_at)
+    VALUES ($1, $2, $3, $4, 'rider', 'active', NOW())
     RETURNING id
     `,
     [riderFirstName, riderLastName, riderEmail, passwordHash]
@@ -288,6 +289,13 @@ async function requireRiderId(req) {
     throw error;
   }
 
+  const statusResult = await pool.query('SELECT status FROM riders WHERE id = $1 LIMIT 1', [riderId]);
+  if (statusResult.rows[0]?.status === 'inactive') {
+    const error = new Error('This rider account has been disabled');
+    error.status = 403;
+    throw error;
+  }
+
   return { authUser, riderId };
 }
 
@@ -360,6 +368,11 @@ router.post('/api/admin/riders', upload.single('profileImage'), async (req, res)
       [firstName, lastName, email, phone, linkedUserId, status, isAvailable, profileImageUrl]
     );
 
+    await pool.query(
+      `UPDATE users SET status = $2, updated_at = NOW() WHERE id = $1 AND role = 'rider'`,
+      [linkedUserId, status]
+    );
+
     res.status(201).json(formatRiderRow(result.rows[0]));
   } catch (error) {
     if (String(error.message || '').toLowerCase().includes('duplicate')) {
@@ -413,6 +426,11 @@ router.patch('/api/admin/riders/:id', upload.single('profileImage'), async (req,
       RETURNING id, first_name, last_name, email, phone, profile_image_url, status, is_available, created_at, updated_at
       `,
       [riderId, firstName, lastName, email, phone, linkedUserId, status, isAvailable, profileImageUrl]
+    );
+
+    await pool.query(
+      `UPDATE users SET status = $2, updated_at = NOW() WHERE id = (SELECT user_id FROM riders WHERE id = $1) AND role = 'rider'`,
+      [riderId, status]
     );
 
     if (!result.rows.length) {

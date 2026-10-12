@@ -1,13 +1,31 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
+import fs from 'node:fs';
+import multer from 'multer';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { pool } from '../config/db.js';
 import { ensureRidersTable } from './riders.js';
 import { verifyRequestToken } from '../utils/auth.js';
 import { createPayMongoCheckoutSession, isPayMongoConfigured, retrievePayMongoCheckoutSession } from '../utils/paymongo.js';
 import { isTrack123Configured, queryTrack123TrackingDetails, syncTrack123Tracking } from '../utils/track123.js';
 import { getShippingQuote } from '../utils/shipping.js';
+import { storeUploadedImage, usesSupabaseStorage } from '../utils/storage.js';
 
 const router = Router();
+const deliveryProofsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../uploads');
+if (!fs.existsSync(deliveryProofsDir)) fs.mkdirSync(deliveryProofsDir, { recursive: true });
+const deliveryProofUpload = multer({
+  storage: usesSupabaseStorage ? multer.memoryStorage() : multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, deliveryProofsDir),
+    filename: (_req, file, cb) => cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${file.originalname.match(/\.[a-z0-9]+$/i)?.[0] || '.jpg'}`),
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) return cb(null, true);
+    return cb(new Error('Only JPG, PNG, or WEBP proof photos are allowed'));
+  },
+});
 let ensureOrdersAdminColumnsPromise;
 
 const ORDER_STATUSES = ['Pending', 'Preparing', 'Cancellation Requested', 'Out for Delivery', 'Delivered', 'Cancelled'];
@@ -39,6 +57,7 @@ const BASE_ORDER_SELECT = `
     o.driver_latitude,
     o.driver_longitude,
     o.driver_location_updated_at,
+    o.delivery_proof_url,
     o.tracking_code,
     o.tracking_courier_code,
     o.tracking_status,
@@ -161,6 +180,7 @@ function formatOrderRow(row, options = {}) {
     driverLatitude: row.driver_latitude == null ? null : Number(row.driver_latitude),
     driverLongitude: row.driver_longitude == null ? null : Number(row.driver_longitude),
     driverLocationUpdatedAt: row.driver_location_updated_at || null,
+    deliveryProofUrl: row.delivery_proof_url || '',
     trackingCode: row.tracking_code || '',
     trackingCourierCode: row.tracking_courier_code || '',
     trackingStatus:
@@ -220,6 +240,7 @@ async function ensureOrderAdminColumns() {
         ADD COLUMN IF NOT EXISTS driver_latitude DOUBLE PRECISION,
         ADD COLUMN IF NOT EXISTS driver_longitude DOUBLE PRECISION,
         ADD COLUMN IF NOT EXISTS driver_location_updated_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS delivery_proof_url TEXT,
         ADD COLUMN IF NOT EXISTS rider_id BIGINT REFERENCES riders(id) ON DELETE SET NULL,
         ADD COLUMN IF NOT EXISTS tracking_code TEXT,
         ADD COLUMN IF NOT EXISTS tracking_courier_code TEXT,
@@ -771,6 +792,56 @@ router.get('/api/admin/orders', async (req, res) => {
   }
 });
 
+router.delete('/api/admin/orders/:orderId/items/:itemId', async (req, res) => {
+  let client;
+  try {
+    const authUser = verifyRequestToken(req);
+    if (authUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access only' });
+    }
+
+    const orderId = Number(req.params.orderId);
+    const itemId = Number(req.params.itemId);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ error: 'Invalid order id' });
+    }
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+      return res.status(400).json({ error: 'Invalid order item id' });
+    }
+
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const itemResult = await client.query(
+      `
+      SELECT oi.id, oi.product_id
+      FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id
+      WHERE o.id = $1 AND oi.id = $2 AND o.status = 'Delivered'
+      FOR UPDATE OF o, oi
+      `,
+      [orderId, itemId]
+    );
+    if (!itemResult.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Delivered order item not found' });
+    }
+
+    const productId = itemResult.rows[0].product_id;
+    await client.query('DELETE FROM order_items WHERE id = $1 AND order_id = $2', [itemId, orderId]);
+    if (productId != null) {
+      await client.query('DELETE FROM products WHERE id = $1', [productId]);
+    }
+
+    await client.query('COMMIT');
+    return res.status(204).send();
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    return res.status(error.status || 500).json({ error: error.message || 'Failed to remove sold product' });
+  } finally {
+    if (client) client.release();
+  }
+});
+
 router.post('/api/admin/orders/:id/confirm', async (req, res) => {
   try {
     const authUser = verifyRequestToken(req);
@@ -1159,7 +1230,7 @@ router.get('/api/driver/orders/:token', async (req, res) => {
   }
 });
 
-router.patch('/api/driver/orders/:token', async (req, res) => {
+router.patch('/api/driver/orders/:token', deliveryProofUpload.single('proof'), async (req, res) => {
   try {
     await ensureOrderAdminColumns();
     await ensureRidersTable();
@@ -1183,6 +1254,11 @@ router.patch('/api/driver/orders/:token', async (req, res) => {
     if (!acceptOrder && !markDelivered && driverLatitude == null && driverLongitude == null) {
       return res.status(400).json({ error: 'No driver update was provided' });
     }
+    if (markDelivered && !req.file) {
+      return res.status(400).json({ error: 'Take a proof-of-delivery photo before marking this order as delivered' });
+    }
+
+    const proofUrl = markDelivered ? await storeUploadedImage(req.file, 'delivery-proofs') : null;
 
     const result = await pool.query(
       `
@@ -1198,6 +1274,7 @@ router.patch('/api/driver/orders/:token', async (req, res) => {
           WHEN $3 IS NOT NULL AND $4 IS NOT NULL THEN NOW()
           ELSE driver_location_updated_at
         END,
+        delivery_proof_url = COALESCE($6, delivery_proof_url),
         status = CASE
           WHEN $5::boolean THEN 'Delivered'
           WHEN $2::boolean AND status NOT IN ('Delivered', 'Cancelled') THEN 'Out for Delivery'
@@ -1225,7 +1302,7 @@ router.patch('/api/driver/orders/:token', async (req, res) => {
         AND status NOT IN ('Cancelled', 'Cancellation Requested')
       RETURNING id
       `,
-      [token, acceptOrder, driverLatitude, driverLongitude, markDelivered]
+      [token, acceptOrder, driverLatitude, driverLongitude, markDelivered, proofUrl]
     );
 
     if (!result.rows.length) {

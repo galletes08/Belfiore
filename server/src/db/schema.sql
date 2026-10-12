@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT,
   password TEXT,
   role TEXT NOT NULL DEFAULT 'customer',
+  status TEXT NOT NULL DEFAULT 'active',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -17,6 +18,7 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS password_hash TEXT,
   ADD COLUMN IF NOT EXISTS password TEXT,
   ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'customer',
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
@@ -146,6 +148,7 @@ CREATE TABLE IF NOT EXISTS orders (
   driver_latitude DOUBLE PRECISION,
   driver_longitude DOUBLE PRECISION,
   driver_location_updated_at TIMESTAMPTZ,
+  delivery_proof_url TEXT,
   tracking_code TEXT,
   tracking_status TEXT NOT NULL DEFAULT 'Pending',
   paymongo_checkout_session_id TEXT,
@@ -185,6 +188,7 @@ ALTER TABLE orders
   ADD COLUMN IF NOT EXISTS driver_latitude DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS driver_longitude DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS driver_location_updated_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS delivery_proof_url TEXT,
   ADD COLUMN IF NOT EXISTS tracking_code TEXT,
   ADD COLUMN IF NOT EXISTS tracking_courier_code TEXT,
   ADD COLUMN IF NOT EXISTS tracking_status TEXT NOT NULL DEFAULT 'Pending',

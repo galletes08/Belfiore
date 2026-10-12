@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { CheckCircle2, MapPinned, Maximize2, Navigation, RefreshCw, ShieldCheck, Truck, X } from 'lucide-react';
-import { apiDriverOrder, apiRiderLocation, apiUpdateDriverOrder } from '../api/client';
+import { apiDriverOrder, apiRiderLocation, apiUpdateDriverOrder, getImageUrl } from '../api/client';
 import TrackingMap from '../components/TrackingMap';
 
 const TEST_DRIVER_COORDINATES = (() => {
@@ -86,7 +86,20 @@ export default function DriverOrderPage() {
   const [isLiveSharing, setIsLiveSharing] = useState(false);
   const [gpsStatus, setGpsStatus] = useState('Online');
   const [isMapExpanded, setIsMapExpanded] = useState(false);
+  const [proofPhoto, setProofPhoto] = useState(null);
+  const [proofPreviewUrl, setProofPreviewUrl] = useState('');
+  const proofInputRef = useRef(null);
   const isInsideRiderPortal = location.pathname.startsWith('/rider/');
+
+  useEffect(() => {
+    if (!proofPhoto) {
+      setProofPreviewUrl('');
+      return undefined;
+    }
+    const previewUrl = URL.createObjectURL(proofPhoto);
+    setProofPreviewUrl(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [proofPhoto]);
 
   useEffect(() => {
     let isMounted = true;
@@ -241,6 +254,11 @@ export default function DriverOrderPage() {
   }
 
   async function handleFinishDelivery() {
+    if (!proofPhoto) {
+      setNotice('Take a proof-of-delivery photo before marking the order as delivered.');
+      proofInputRef.current?.click();
+      return;
+    }
     const isPersonalCod = order?.paymentMethod === 'COD' && order?.deliveryMode === 'rider';
     const confirmed = window.confirm(
       isPersonalCod
@@ -254,7 +272,10 @@ export default function DriverOrderPage() {
     setNotice('');
 
     try {
-      const data = await apiUpdateDriverOrder(token, { markDelivered: true });
+      const payload = new FormData();
+      payload.append('markDelivered', 'true');
+      payload.append('proof', proofPhoto);
+      const data = await apiUpdateDriverOrder(token, payload);
       setOrder(data);
       setIsLiveSharing(false);
       setNotice(
@@ -349,26 +370,27 @@ export default function DriverOrderPage() {
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={order.driverAcceptedAt ? handleShareCurrentLocation : handleAcceptOrder}
-                      disabled={isUpdating || ['Delivered', 'Cancelled', 'Cancellation Requested'].includes(order.status)}
-                      className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-70"
-                    >
-                      {isUpdating
-                        ? 'Updating...'
-                        : order.driverAcceptedAt
-                          ? 'Share Current Location'
-                          : 'Accept Order'}
-                    </button>
+                    {!order.driverAcceptedAt ? (
+                      <button
+                        type="button"
+                        onClick={handleAcceptOrder}
+                        disabled={isUpdating || ['Delivered', 'Cancelled', 'Cancellation Requested'].includes(order.status)}
+                        className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        {isUpdating ? 'Updating...' : 'Accept Order'}
+                      </button>
+                    ) : null}
 
                     <button
                       type="button"
-                      onClick={() => setIsLiveSharing((current) => !current)}
+                      onClick={() => {
+                        if (isLiveSharing) setIsLiveSharing(false);
+                        else handleShareCurrentLocation();
+                      }}
                       disabled={!order.driverAcceptedAt}
                       className="rounded-full border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {isLiveSharing ? 'Stop Sharing Location' : 'Start Sharing Location'}
+                      {isLiveSharing ? 'Stop Sharing Location' : 'Share Current Location'}
                     </button>
 
                     <button
@@ -386,18 +408,28 @@ export default function DriverOrderPage() {
                       <div>
                         <p className="text-sm font-bold">Order Delivered</p>
                         <p className="mt-0.5 text-xs text-emerald-800">This delivery is complete and live location sharing has ended.</p>
+                        {order.deliveryProofUrl ? <img src={getImageUrl(order.deliveryProofUrl)} alt="Proof of delivery" className="mt-3 max-h-48 rounded-xl object-cover" /> : null}
                       </div>
                     </div>
                   ) : order.driverAcceptedAt ? (
-                    <button
-                      type="button"
-                      onClick={handleFinishDelivery}
-                      disabled={isUpdating}
-                      className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-70"
-                    >
-                      <CheckCircle2 size={19} />
-                      {isUpdating ? 'Finishing Delivery...' : 'Mark as Delivered'}
-                    </button>
+                    <div className="mt-4 space-y-3">
+                      <label className="block rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-gray-700">
+                        <span className="font-semibold text-gray-900">Proof of delivery photo</span>
+                        <span className="mt-1 block text-xs text-gray-500">Take a photo of the delivered order before completing this delivery.</span>
+                        <input ref={proofInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(event) => setProofPhoto(event.target.files?.[0] || null)} className="mt-3 block w-full text-xs" />
+                        {proofPhoto ? <span className="mt-2 block text-xs font-medium text-emerald-700">Photo selected: {proofPhoto.name}</span> : null}
+                        {proofPreviewUrl ? <img src={proofPreviewUrl} alt="Selected proof of delivery preview" className="mt-3 max-h-48 rounded-xl object-cover" /> : null}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleFinishDelivery}
+                        disabled={isUpdating}
+                        className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        <CheckCircle2 size={19} />
+                        {isUpdating ? 'Finishing Delivery...' : 'Mark as Delivered'}
+                      </button>
+                    </div>
                   ) : (
                     <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
                       Accept the order first before finishing the delivery.

@@ -41,6 +41,7 @@ const AdminLayout = lazy(() => import("./admin/AdminLayout"));
 const AdminLogin = lazy(() => import("./admin/AdminLogin"));
 const AdminOrders = lazy(() => import("./admin/AdminOrders"));
 const AdminReports = lazy(() => import("./admin/AdminReports"));
+const AdminLogs = lazy(() => import("./admin/AdminLogs"));
 const AdminRiders = lazy(() => import("./admin/AdminRiders"));
 const DriverOrderPage = lazy(() => import("./driver/DriverOrderPage"));
 const RiderHomePage = lazy(() => import("./rider/RiderHomePage"));
@@ -256,6 +257,7 @@ function App() {
           <Route path="inventory" element={<AdminInventory />} />
           <Route path="customers" element={<AdminCustomers />} />
           <Route path="reports" element={<AdminReports />} />
+          <Route path="logs" element={<AdminLogs />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

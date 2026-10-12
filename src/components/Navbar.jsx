@@ -98,7 +98,7 @@ export default function Navbar({
   }, [isMenuOpen]);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-[#dfe9dc] bg-white/95 font-['Montserrat'] shadow-[0_12px_30px_rgba(15,77,46,0.04)] backdrop-blur">
+    <header className="sticky top-0 z-[1000] border-b border-[#dfe9dc] bg-white/95 font-['Montserrat'] shadow-[0_12px_30px_rgba(15,77,46,0.04)] backdrop-blur">
       <div className="overflow-hidden bg-[#0f4d2e] px-4 py-1.5">
         <div className="announcement-loop" aria-label="Free shipping notice">
           <p className="announcement-loop-text">{ANNOUNCEMENT_TEXT}</p>

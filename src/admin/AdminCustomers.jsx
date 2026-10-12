@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { apiAdminCustomers } from '../api/client';
+import { apiAdminCustomers, apiUpdateCustomerStatus } from '../api/client';
 
 function formatDateTime(value) {
   if (!value) return '-';
@@ -28,6 +28,7 @@ function normalizeCustomer(customer) {
     fullName,
     email: String(customer?.email || '').trim(),
     role: String(customer?.role || 'customer').trim() || 'customer',
+    status: String(customer?.status || 'active').trim().toLowerCase() || 'active',
     createdAt: customer?.createdAt || customer?.created_at || null,
     updatedAt: customer?.updatedAt || customer?.updated_at || null,
   };
@@ -38,6 +39,7 @@ export default function AdminCustomers() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
+  const [updatingId, setUpdatingId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -84,6 +86,22 @@ export default function AdminCustomers() {
   }).length;
 
   const latestCustomer = customers[0] || null;
+
+  async function toggleCustomerStatus(customer) {
+    const nextStatus = customer.status === 'inactive' ? 'active' : 'inactive';
+    const action = nextStatus === 'inactive' ? 'disable' : 'enable';
+    if (!window.confirm(`Are you sure you want to ${action} ${customer.fullName}'s account?`)) return;
+    setUpdatingId(customer.id);
+    setError('');
+    try {
+      const updated = await apiUpdateCustomerStatus(customer.id, nextStatus);
+      setCustomers((current) => current.map((item) => item.id === updated.id ? normalizeCustomer(updated) : item));
+    } catch (err) {
+      setError(err.message || 'Failed to update customer status');
+    } finally {
+      setUpdatingId(null);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(220,252,231,0.9),_transparent_28%),linear-gradient(180deg,#f5faf7_0%,#eef5f1_100%)] px-4 py-6 sm:px-6 lg:px-8">
@@ -145,6 +163,7 @@ export default function AdminCustomers() {
                     <th className="px-5 py-4 text-sm font-semibold text-gray-600">Customer</th>
                     <th className="px-5 py-4 text-sm font-semibold text-gray-600">Email</th>
                     <th className="px-5 py-4 text-sm font-semibold text-gray-600">Role</th>
+                    <th className="px-5 py-4 text-sm font-semibold text-gray-600">Status</th>
                     <th className="px-5 py-4 text-sm font-semibold text-gray-600">Created</th>
                     <th className="px-5 py-4 text-sm font-semibold text-gray-600">Updated</th>
                   </tr>
@@ -161,6 +180,16 @@ export default function AdminCustomers() {
                         <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
                           {customer.role || 'customer'}
                         </span>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${customer.status === 'inactive' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'}`}>
+                            {customer.status === 'inactive' ? 'Disabled' : 'Active'}
+                          </span>
+                          <button type="button" onClick={() => toggleCustomerStatus(customer)} disabled={updatingId === customer.id} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${customer.status === 'inactive' ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50' : 'border-red-200 text-red-700 hover:bg-red-50'}`}>
+                            {updatingId === customer.id ? 'Saving...' : customer.status === 'inactive' ? 'Enable' : 'Disable'}
+                          </button>
+                        </div>
                       </td>
                       <td className="px-5 py-4 text-gray-600">{formatDateTime(customer.createdAt)}</td>
                       <td className="px-5 py-4 text-gray-600">{formatDateTime(customer.updatedAt)}</td>

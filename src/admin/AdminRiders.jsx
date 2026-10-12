@@ -115,6 +115,27 @@ export default function AdminRiders() {
     }
   }
 
+  async function toggleRiderStatus(rider) {
+    const nextStatus = rider.status === 'inactive' ? 'active' : 'inactive';
+    const action = nextStatus === 'inactive' ? 'disable' : 'enable';
+    if (!window.confirm(`Are you sure you want to ${action} ${rider.fullName}'s account?`)) return;
+    setError('');
+    try {
+      const payload = new FormData();
+      payload.append('firstName', rider.firstName || '');
+      payload.append('lastName', rider.lastName || '');
+      payload.append('email', rider.email || '');
+      payload.append('phone', rider.phone || '');
+      payload.append('status', nextStatus);
+      payload.append('isAvailable', nextStatus === 'active' ? String(rider.isAvailable) : 'false');
+      const updated = await apiUpdateRider(rider.id, payload);
+      setRiders((current) => current.map((item) => item.id === updated.id ? updated : item));
+      if (selectedRider?.id === updated.id) openEditForm(updated);
+    } catch (err) {
+      setError(err.message || 'Failed to update rider status');
+    }
+  }
+
   const fieldClass = 'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100';
 
   return (
@@ -154,7 +175,7 @@ export default function AdminRiders() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div><h3 className="font-semibold text-slate-900">{rider.fullName}</h3><p className="mt-1 flex items-center gap-1.5 truncate text-xs text-slate-500"><Mail size={13} />{rider.email || 'No email'}</p></div>
-                      <button type="button" onClick={() => openEditForm(rider)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 transition hover:border-emerald-600">Edit profile</button>
+                      <div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={() => openEditForm(rider)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 transition hover:border-emerald-600">Edit profile</button><button type="button" onClick={() => toggleRiderStatus(rider)} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${rider.status === 'inactive' ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50' : 'border-red-200 text-red-700 hover:bg-red-50'}`}>{rider.status === 'inactive' ? 'Enable' : 'Disable'}</button></div>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                       <span className="flex items-center gap-1.5 text-slate-600"><Phone size={13} />{rider.phone || 'No phone'}</span>

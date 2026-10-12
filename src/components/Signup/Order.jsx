@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { CircleCheckBig, Clock3, MapPinned, Package, ReceiptText, Search, Truck } from 'lucide-react';
+import { CircleCheckBig, Clock3, MapPinned, Package, ReceiptText, Search, Truck, X } from 'lucide-react';
 import { apiCancelCustomerOrder, apiCustomerOrders, apiLogisticsUpdates, apiVerifyOnlinePayment, clearCustomerToken, getImageUrl } from '../../api/client';
 import TrackingMap from '../TrackingMap';
 import { getStoredOrderIds } from '../../utils/customerOrders';
@@ -228,6 +228,7 @@ export default function Order() {
   const [cancelReason, setCancelReason] = useState(cancellationReasons[0]);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState('');
+  const [proofImageUrl, setProofImageUrl] = useState('');
 
   const orderIds = useMemo(() => getStoredOrderIds(), []);
   const orderedOrders = useMemo(() => [...orders].sort(compareNewestOrders), [orders]);
@@ -583,9 +584,9 @@ export default function Order() {
                         </div>
                         <div className="space-y-3">
                           {orderItems.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-[#f7f5f0] px-3 py-3">
+                            <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-[#f7f5f0] px-3 py-3 ">
                               <div className="flex min-w-0 items-center gap-3">
-                                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[#eef2ea]">
+                                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[#eef2ea] z-50">
                                   {resolveItemImage(item) ? (
                                     <img src={resolveItemImage(item)} alt={item.productName} className="h-full w-full object-cover" />
                                   ) : null}
@@ -670,6 +671,17 @@ export default function Order() {
                           <LogisticsUpdatesPanel order={order} logisticsData={logisticsData} />
                         </div>
                       ) : null}
+
+                      {order.deliveryProofUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => setProofImageUrl(getImageUrl(order.deliveryProofUrl))}
+                          className="mt-4 w-full rounded-xl border border-[#0b7a3c] bg-white px-4 py-3 text-sm font-semibold text-[#0b7a3c] transition hover:bg-[#e8f3ea]"
+                        >
+                          View Proof of Delivery
+                        </button>
+                      ) : null}
+
                     </div>
                   </div>
                 </article>
@@ -722,6 +734,22 @@ export default function Order() {
               </button>
             </div>
           </form>
+        </div>
+      ) : null}
+
+      {proofImageUrl ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Proof of delivery">
+          <div className="relative max-h-[90vh] max-w-3xl rounded-2xl bg-white p-3 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setProofImageUrl('')}
+              aria-label="Close proof of delivery"
+              className="absolute right-4 top-4 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-gray-700 shadow hover:bg-white"
+            >
+              <X size={18} />
+            </button>
+            <img src={proofImageUrl} alt="Proof of delivery" className="max-h-[84vh] max-w-full rounded-xl object-contain" />
+          </div>
         </div>
       ) : null}
     </div>

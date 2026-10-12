@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { apiCancelCustomerOrder, apiCustomerOrders, apiCustomerRiderLocation } from '../../../api/client';
+import { apiCancelCustomerOrder, apiCustomerOrders, apiCustomerRiderLocation, getImageUrl } from '../../../api/client';
 import TrackingMap from '../../../components/TrackingMap';
 import { formatPrice, useCustomerStore } from '../../context/CustomerStore';
 
@@ -226,6 +226,13 @@ export default function OrdersPage() {
                     ))}
                   </div>
                 </div>
+
+                {order.deliveryProofUrl ? (
+                  <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
+                    <p className="text-sm font-semibold text-[#0f4d2e]">Proof of delivery</p>
+                    <img src={getImageUrl(order.deliveryProofUrl)} alt="Proof of delivery" className="mt-3 max-h-72 rounded-xl object-cover" />
+                  </div>
+                ) : null}
 
                 {order.deliveryMode === 'rider'
                   && !['Delivered', 'Cancelled', 'Cancellation Requested'].includes(order.status)

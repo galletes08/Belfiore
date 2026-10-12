@@ -5,6 +5,7 @@ import {
   Bike,
   Boxes,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   Menu,
   Monitor,
@@ -43,6 +44,7 @@ const startPageOptions = [
   { value: "/admin/customers", label: "Customers" },
   { value: "/admin/riders", label: "Riders" },
   { value: "/admin/reports", label: "Reports" },
+  { value: "/admin/logs", label: "System logs" },
 ];
 
 const navigationGroups = [
@@ -65,6 +67,7 @@ const navigationGroups = [
     label: "Analytics",
     items: [
       { to: "/admin/reports", label: "Reports", description: "Sales, inventory & deliveries", icon: BarChart3 },
+      { to: "/admin/logs", label: "System logs", description: "Monitor every transaction", icon: ListChecks },
     ],
   },
 ];

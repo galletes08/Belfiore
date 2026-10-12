@@ -3,6 +3,8 @@ import {
   apiCreateProduct,
   apiCreateProductsBulk,
   apiDeleteProduct,
+  apiDeleteSoldProduct,
+  apiAdminOrders,
   apiProducts,
   apiUpdateProduct,
   getImageUrl,
@@ -22,6 +24,7 @@ const TAG_LABELS = {
   red: 'Red',
 };
 const PRODUCTS_PER_PAGE = 20;
+const SOLD_FILTER = 'sold';
 
 const initialForm = {
   category: ALOE_CATEGORY,
@@ -49,15 +52,26 @@ function normalizeFormTag(tag) {
   return TAG_OPTIONS.find((option) => option.toLowerCase() === normalizedTag) || 'Green';
 }
 
+function getInventoryProductName(product) {
+  const category = String(product?.category || '').trim();
+
+  return category.toLowerCase() === ALOE_CATEGORY.toLowerCase()
+    ? category || ALOE_CATEGORY
+    : product?.name || '-';
+}
+
 export default function AdminInventory() {
   const [products, setProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(initialForm);
   const [existingImageUrl, setExistingImageUrl] = useState('');
   const [saving, setSaving] = useState(false);
+  const [deletingSoldItemId, setDeletingSoldItemId] = useState(null);
   const [selectedTagFilter, setSelectedTagFilter] = useState('all');
+  const [selectedSoldProduct, setSelectedSoldProduct] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [error, setError] = useState('');
   const fileInputRef = useRef(null);
@@ -67,8 +81,9 @@ export default function AdminInventory() {
   const loadProducts = async () => {
     setLoading(true);
     try {
-      const data = await apiProducts();
+      const [data, orderData] = await Promise.all([apiProducts(), apiAdminOrders()]);
       setProducts(Array.isArray(data) ? data : []);
+      setOrders(Array.isArray(orderData) ? orderData : []);
     } catch (err) {
       setError(err.message || 'Failed to load products');
     } finally {
@@ -240,20 +255,80 @@ export default function AdminInventory() {
     }
   };
 
+  const handleDeleteSoldProduct = async (item) => {
+    const productName = getInventoryProductName({ category: item.category, name: item.productName });
+    const productMessage = item.productId == null
+      ? `Remove this sold entry for "${productName}"?`
+      : `Remove "${productName}" from inventory and remove this sold entry from ${item.orderCode || `Order #${item.orderId}`}? The recorded order total will stay unchanged.`;
+    if (!window.confirm(productMessage)) return;
+
+    setError('');
+    setDeletingSoldItemId(item.id);
+    try {
+      await apiDeleteSoldProduct(item.orderId, item.id);
+      await loadProducts();
+    } catch (err) {
+      setError(err.message || 'Failed to remove sold product');
+    } finally {
+      setDeletingSoldItemId(null);
+    }
+  };
+
   const filteredProducts = useMemo(
     () =>
       products.filter((product) => {
+        if (Number(product.stock) <= 0) return false;
         if (selectedTagFilter === 'all') return true;
         return normalizeTagFilter(product.tag, product.category) === selectedTagFilter;
       }),
     [products, selectedTagFilter]
   );
 
-  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / PRODUCTS_PER_PAGE));
+  const soldProducts = useMemo(() => {
+    const productById = new Map(products.map((product) => [Number(product.id), product]));
+
+    return orders
+      .filter((order) => order.status === 'Delivered')
+      .flatMap((order) => (Array.isArray(order.items) ? order.items : []).map((item) => {
+        const product = productById.get(Number(item.productId));
+        return {
+          ...item,
+          orderId: order.id,
+          orderCode: order.orderCode,
+          soldAt: order.statusUpdatedAt || order.updatedAt || order.createdAt,
+          category: product?.category || '',
+          tag: product?.tag || '',
+          imageUrl: item.imageUrl || product?.imageUrl || '',
+          price: Number(item.unitPrice || product?.price || 0),
+        };
+      }))
+      .filter((item) => selectedSoldProduct === 'all' || String(item.productId) === selectedSoldProduct);
+  }, [orders, products, selectedSoldProduct]);
+
+  const soldProductOptions = useMemo(() => {
+    const productById = new Map(products.map((product) => [Number(product.id), product]));
+    const options = new Map();
+
+    for (const order of orders) {
+      if (order.status !== 'Delivered') continue;
+      for (const item of Array.isArray(order.items) ? order.items : []) {
+        const product = productById.get(Number(item.productId));
+        const key = String(item.productId ?? item.productName);
+        if (!options.has(key)) {
+          options.set(key, getInventoryProductName(product || { name: item.productName }));
+        }
+      }
+    }
+
+    return Array.from(options, ([value, label]) => ({ value, label }));
+  }, [orders, products]);
+
+  const visibleRows = selectedTagFilter === SOLD_FILTER ? soldProducts : filteredProducts;
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PRODUCTS_PER_PAGE));
   const paginatedProducts = useMemo(() => {
     const startIndex = (currentPage - 1) * PRODUCTS_PER_PAGE;
-    return filteredProducts.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
-  }, [currentPage, filteredProducts]);
+    return visibleRows.slice(startIndex, startIndex + PRODUCTS_PER_PAGE);
+  }, [currentPage, visibleRows]);
   const pageNumbers = Array.from({ length: totalPages }, (_, index) => index + 1);
 
   useEffect(() => {
@@ -262,6 +337,7 @@ export default function AdminInventory() {
 
   const selectTagFilter = (filter) => {
     setSelectedTagFilter(filter);
+    if (filter !== SOLD_FILTER) setSelectedSoldProduct('all');
     setCurrentPage(1);
   };
 
@@ -271,7 +347,7 @@ export default function AdminInventory() {
       return acc;
     }, {});
 
-    for (const product of products) {
+    for (const product of products.filter((item) => Number(item.stock) > 0)) {
       const key = normalizeTagFilter(product.tag, product.category) || 'all';
       const stock = Number(product.stock) || 0;
 
@@ -287,6 +363,7 @@ export default function AdminInventory() {
   }, [products]);
 
   const visibleStock = filteredProducts.reduce((sum, product) => sum + (Number(product.stock) || 0), 0);
+  const isSoldView = selectedTagFilter === SOLD_FILTER;
   const isBulkAloeAdd = !editingId && form.category === ALOE_CATEGORY;
   const selectedImageCount = form.imageFiles.length;
   const bulkSubmitLabel = selectedImageCount
@@ -313,11 +390,27 @@ export default function AdminInventory() {
             >
               {TAG_ORDER.map((filter) => (
                 <option key={filter} value={filter}>
-                  {TAG_LABELS[filter] || filter}
+                  {filter === 'all' ? 'All Available Products' : TAG_LABELS[filter] || filter}
                 </option>
               ))}
+              <option value={SOLD_FILTER}>Sold Products</option>
             </select>
           </label>
+          {isSoldView ? (
+            <label className="text-sm font-medium text-slate-600">
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Specific Product</span>
+              <select
+                value={selectedSoldProduct}
+                onChange={(e) => { setSelectedSoldProduct(e.target.value); setCurrentPage(1); }}
+                className="min-w-52 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+              >
+                <option value="all">All Sold Products</option>
+                {soldProductOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <button
             type="button"
             onClick={openAdd}
@@ -332,7 +425,7 @@ export default function AdminInventory() {
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Products</p>
           <p className="mt-3 text-2xl font-bold tracking-tight text-slate-900">{inventoryStats.all.count}</p>
-          <p className="mt-2 text-xs text-slate-500">Total products in inventory</p>
+          <p className="mt-2 text-xs text-slate-500">Available products only</p>
         </article>
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Stock</p>
@@ -341,8 +434,8 @@ export default function AdminInventory() {
         </article>
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Selected View</p>
-          <p className="mt-3 text-2xl font-bold tracking-tight text-slate-900">{filteredProducts.length}</p>
-          <p className="mt-2 text-xs text-slate-500">{TAG_LABELS[selectedTagFilter] || 'Current filter'}</p>
+          <p className="mt-3 text-2xl font-bold tracking-tight text-slate-900">{visibleRows.length}</p>
+          <p className="mt-2 text-xs text-slate-500">{isSoldView ? 'Sold product entries' : TAG_LABELS[selectedTagFilter] || 'Current filter'}</p>
         </article>
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Visible Stock</p>
@@ -368,11 +461,18 @@ export default function AdminInventory() {
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 )}
               >
-                {TAG_LABELS[filter] || filter}
+                {filter === 'all' ? 'All Available' : TAG_LABELS[filter] || filter}
                 <span className="ml-1 opacity-80">{metrics.count} / {metrics.stock}</span>
               </button>
             );
           })}
+          <button
+            type="button"
+            onClick={() => selectTagFilter(SOLD_FILTER)}
+            className={`rounded-xl px-3 py-2 text-sm transition ${isSoldView ? 'bg-[#1f5a43] text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+          >
+            Sold Products <span className="ml-1 opacity-80">{soldProducts.length}</span>
+          </button>
         </div>
       </section>
         {error && !modalOpen ? (
@@ -384,13 +484,13 @@ export default function AdminInventory() {
         <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           {loading ? (
             <div className="p-12 text-center text-gray-500">Loading products...</div>
-          ) : products.length === 0 ? (
+          ) : !isSoldView && products.length === 0 ? (
             <div className="p-12 text-center text-gray-500">
               No products yet. Click &quot;Add Product&quot; to create one.
             </div>
-          ) : filteredProducts.length === 0 ? (
+          ) : visibleRows.length === 0 ? (
             <div className="p-12 text-center text-gray-500">
-              No products match the selected tag / type.
+              {isSoldView ? 'No sold products found.' : 'No available products match the selected tag / type.'}
             </div>
           ) : (
             <>
@@ -400,15 +500,40 @@ export default function AdminInventory() {
                   <tr className="border-b border-gray-200 bg-gray-50/80">
                     <th className="py-4 px-5 text-sm font-semibold text-gray-600">Image</th>
                     <th className="py-4 px-5 text-sm font-semibold text-gray-600">Product Name</th>
-                    <th className="py-4 px-5 text-sm font-semibold text-gray-600">Tag / Type</th>
-                    <th className="py-4 px-5 text-sm font-semibold text-gray-600">Price</th>
-                    <th className="py-4 px-5 text-sm font-semibold text-gray-600">Stock</th>
-                    <th className="max-w-[200px] py-4 px-5 text-sm font-semibold text-gray-600">Description</th>
+                    <th className="py-4 px-5 text-sm font-semibold text-gray-600">{isSoldView ? 'Quantity Sold' : 'Tag / Type'}</th>
+                    <th className="py-4 px-5 text-sm font-semibold text-gray-600">{isSoldView ? 'Sold On' : 'Price'}</th>
+                    {!isSoldView ? <th className="py-4 px-5 text-sm font-semibold text-gray-600">Stock</th> : null}
+                    <th className="max-w-[200px] py-4 px-5 text-sm font-semibold text-gray-600">{isSoldView ? 'Order' : 'Description'}</th>
                     <th className="py-4 px-5 text-right text-sm font-semibold text-gray-600">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {paginatedProducts.map((p) => {
+                    if (isSoldView) {
+                      return (
+                        <tr key={`${p.orderId}-${p.id}`} className="border-b border-gray-100 transition-colors hover:bg-emerald-50/40">
+                          <td className="py-3 px-5">
+                            {p.imageUrl ? <img src={getImageUrl(p.imageUrl)} alt="" className="h-12 w-12 rounded-xl border border-gray-200 object-cover" /> : <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 text-xl text-gray-400">P</span>}
+                          </td>
+                          <td className="py-3 px-5 font-medium text-gray-900">{getInventoryProductName({ category: p.category, name: p.productName })}</td>
+                          <td className="py-3 px-5 text-gray-700">{p.qty}</td>
+                          <td className="py-3 px-5 whitespace-nowrap text-gray-700">{p.soldAt ? new Date(p.soldAt).toLocaleDateString() : '-'}</td>
+                          <td className="py-3 px-5 text-gray-700">{p.orderCode || `Order #${p.orderId}`}</td>
+                          <td className="py-3 px-5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSoldProduct(p)}
+                              disabled={deletingSoldItemId === p.id}
+                              className="text-sm font-medium text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                              aria-label={`Remove ${getInventoryProductName({ category: p.category, name: p.productName })} from sold products`}
+                            >
+                              {deletingSoldItemId === p.id ? 'Removing...' : 'Remove'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    }
+
                     const rowTagKey = normalizeTagFilter(p.tag, p.category) || 'all';
                     const rowTagLabel = TAG_LABELS[rowTagKey] || String(p.tag || '-');
 
@@ -430,7 +555,7 @@ export default function AdminInventory() {
                             </span>
                           )}
                         </td>
-                        <td className="py-3 px-5 font-medium text-gray-900">{p.name}</td>
+                        <td className="py-3 px-5 font-medium text-gray-900">{getInventoryProductName(p)}</td>
                         <td className="py-3 px-5">
                           <span className="inline-flex rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
                             {rowTagLabel}
@@ -474,8 +599,8 @@ export default function AdminInventory() {
               >
                 <p className="text-sm text-gray-500">
                   Showing {(currentPage - 1) * PRODUCTS_PER_PAGE + 1}–
-                  {Math.min(currentPage * PRODUCTS_PER_PAGE, filteredProducts.length)} of{' '}
-                  {filteredProducts.length}
+                  {Math.min(currentPage * PRODUCTS_PER_PAGE, visibleRows.length)} of{' '}
+                  {visibleRows.length}
                 </p>
 
                 <div className="flex flex-wrap items-center gap-2">

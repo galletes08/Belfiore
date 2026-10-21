@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiCancelCustomerOrder, apiCustomerOrders, apiCustomerRiderLocation, getImageUrl } from '../../../api/client';
 import TrackingMap from '../../../components/TrackingMap';
+import { displayProductName } from '../../../utils/inventory';
 import { formatPrice, useCustomerStore } from '../../context/CustomerStore';
 
 const statusClasses = {
@@ -221,7 +222,7 @@ export default function OrdersPage() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     {order.items.map((item) => (
                       <span key={item.id} className="rounded-full bg-[#eef2ea] px-3 py-1 text-xs text-[#355441]">
-                        {item.productName} x {item.qty}
+                        {displayProductName(item)} x {item.qty}
                       </span>
                     ))}
                   </div>

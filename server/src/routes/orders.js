@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto';
+import {SUPPLY,supplyChoice} from '../utils/supplies.js';
+import { randomUUID,createHash } from 'node:crypto';
 import { Router } from 'express';
 import fs from 'node:fs';
 import multer from 'multer';
@@ -8,9 +9,15 @@ import { pool } from '../config/db.js';
 import { ensureRidersTable } from './riders.js';
 import { verifyRequestToken } from '../utils/auth.js';
 import { createPayMongoCheckoutSession, isPayMongoConfigured, retrievePayMongoCheckoutSession } from '../utils/paymongo.js';
-import { isTrack123Configured, queryTrack123TrackingDetails, syncTrack123Tracking } from '../utils/track123.js';
+import { isTrack123Configured } from '../utils/track123.js';
+import { syncCourierOrder } from '../utils/courierTracking.js';
 import { getShippingQuote } from '../utils/shipping.js';
 import { storeUploadedImage, usesSupabaseStorage } from '../utils/storage.js';
+import { reserveOrderInventory, releaseOrderInventory, confirmInventoryPayment, expireReservations } from '../utils/inventory.js';
+import { BATCH_SELECT,refreshHarvest,batchOrderEligible } from '../utils/harvest.js';
+import { validateManualDelivery } from '../utils/manualDelivery.js';
+
+import {resolveCheckoutAddress,addressSnapshot} from '../utils/checkout.js';
 
 const router = Router();
 const deliveryProofsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../uploads');
@@ -40,6 +47,8 @@ const BASE_ORDER_SELECT = `
     o.customer_name,
     o.gmail,
     o.mobile_num,
+    o.contact_email,
+    o.delivery_address,
     o.location,
     o.customer_latitude,
     o.customer_longitude,
@@ -82,6 +91,8 @@ const BASE_ORDER_SELECT = `
     o.cancelled_at,
     o.cancelled_by,
     o.inventory_restored_at,
+    o.inventory_state,
+    o.inventory_reconciliation_reason,
     COALESCE(SUM(oi.qty), 0)::int AS item_count,
     COALESCE(
       json_agg(
@@ -89,6 +100,10 @@ const BASE_ORDER_SELECT = `
           'id', oi.id,
           'productId', oi.product_id,
           'productName', oi.product_name,
+          'productCode', COALESCE(oi.product_code, p.product_code),
+          'inventoryType', COALESCE(oi.inventory_type, p.inventory_type),
+          'variantId',oi.variant_id,'variantName',oi.variant_name,'variantSku',oi.variant_sku,'sellingUnit',oi.selling_unit,'piecesPerUnit',oi.pieces_per_unit,'weightKg',oi.weight_kg,
+          'batchId',oi.batch_id,'batchCode',oi.batch_code,'productTag',oi.product_tag,
           'imageUrl', COALESCE(NULLIF(oi.image_url, ''), p.image_url),
           'qty', oi.qty,
           'unitPrice', oi.unit_price,
@@ -164,10 +179,13 @@ function formatOrderRow(row, options = {}) {
     customerName: row.customer_name,
     gmail: row.gmail || '',
     mobileNumber: row.mobile_num || '',
+    contactEmail:row.contact_email||row.gmail||'',
+    deliveryAddress:row.delivery_address||null,
     location: row.location || '',
     customerLatitude: row.customer_latitude == null ? null : Number(row.customer_latitude),
     customerLongitude: row.customer_longitude == null ? null : Number(row.customer_longitude),
     deliveryMode: row.delivery_mode || 'rider',
+    automaticTracking: row.delivery_mode==='logistics' && isTrack123Configured(),
     paymentMethod: row.payment_method,
     paymentStatus: row.payment_status,
     codStatus: deriveCodStatus(row),
@@ -210,11 +228,18 @@ function formatOrderRow(row, options = {}) {
     cancelledAt: row.cancelled_at || null,
     cancelledBy: row.cancelled_by || '',
     inventoryRestoredAt: row.inventory_restored_at || null,
+    inventoryState: row.inventory_state,
+    inventoryReconciliationReason: row.inventory_reconciliation_reason || '',
     items: Array.isArray(row.items)
       ? row.items.map((item) => ({
         id: Number(item.id),
         productId: item.productId == null ? null : Number(item.productId),
         productName: item.productName,
+        productCode: item.productCode || '',
+        productTag: item.productTag || '',
+        inventoryType: item.inventoryType || '',
+        variantId:item.variantId,variantName:item.variantName,variantSku:item.variantSku,sellingUnit:item.sellingUnit,piecesPerUnit:item.piecesPerUnit,weightKg:item.weightKg,
+        batchId:item.batchId?Number(item.batchId):null,batchCode:item.batchCode||'',
         imageUrl: item.imageUrl || '',
         qty: Number(item.qty || 0),
         unitPrice: Number(item.unitPrice || 0),
@@ -298,7 +323,7 @@ async function fetchOrderById(orderId, options = {}) {
 
 async function cancelOrderAndRestoreInventory(client, orderId, { reason, cancelledBy }) {
   const orderResult = await client.query(
-    'SELECT id, status, cancel_reason, inventory_restored_at FROM orders WHERE id = $1 FOR UPDATE',
+    'SELECT * FROM orders WHERE id = $1 FOR UPDATE',
     [orderId]
   );
   if (!orderResult.rows.length) return null;
@@ -320,20 +345,7 @@ async function cancelOrderAndRestoreInventory(client, orderId, { reason, cancell
   }
 
   if (!order.inventory_restored_at) {
-    await client.query(
-      `
-      UPDATE products p
-      SET stock = p.stock + item_totals.qty
-      FROM (
-        SELECT product_id, SUM(qty)::int AS qty
-        FROM order_items
-        WHERE order_id = $1 AND product_id IS NOT NULL
-        GROUP BY product_id
-      ) item_totals
-      WHERE p.id = item_totals.product_id
-      `,
-      [orderId]
-    );
+    await releaseOrderInventory(client, order, reason, cancelledBy);
   }
 
   await client.query(
@@ -372,8 +384,16 @@ async function cancelOrderAndRestoreInventory(client, orderId, { reason, cancell
   });
 }
 
-router.post('/api/orders', async (req, res) => {
+router.post('/api/orders', (req,res,next)=>{
+  try {
+    if(verifyRequestToken(req).role!=='customer')return res.status(403).json({error:'Customer access only'});
+    next();
+  }catch(error){res.status(error.status||401).json({error:'Customer authentication required'});}
+}, async (req, res) => {
+  await refreshHarvest(pool);
+  await expireReservations(pool);
   const client = await pool.connect();
+  let checkoutKey=null,checkoutHash=null,structuredAddress=null;
   try {
     await ensureOrderAdminColumns();
     await ensureRidersTable();
@@ -381,6 +401,18 @@ router.post('/api/orders', async (req, res) => {
     const authUser = req.headers.authorization ? verifyRequestToken(req) : null;
     if (authUser && authUser.role !== 'customer') {
       return res.status(403).json({ error: 'Customer access only' });
+    }
+    if(req.body?.checkoutRequestId){
+      if(!authUser?.userId)return res.status(401).json({error:'Sign in before placing this order'});
+      checkoutKey=String(req.body.checkoutRequestId);if(!/^[a-zA-Z0-9-]{16,100}$/.test(checkoutKey))return res.status(400).json({error:'Invalid checkout request ID'});
+      checkoutHash=createHash('sha256').update(JSON.stringify(req.body)).digest('hex');
+      await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['checkout:'+authUser.userId+':'+checkoutKey]);
+      const previous=(await client.query('SELECT * FROM checkout_requests WHERE customer_id=$1 AND request_key=$2',[authUser.userId,checkoutKey])).rows[0];
+      if(previous){if(previous.payload_hash!==checkoutHash)return res.status(409).json({error:'Checkout request changed. Review your order before submitting again.'});return res.status(201).json(previous.response);}
+    }
+    if(req.body?.deliveryAddress||req.body?.savedAddressId){
+      const a=await resolveCheckoutAddress(client,authUser?.userId,req.body);structuredAddress=a;
+      req.body={...req.body,country:a.country,province:a.province,city:a.city,barangay:a.barangay,postalCode:a.postalCode,location:addressSnapshot(a),customerLatitude:a.latitude,customerLongitude:a.longitude};
     }
     const fullName = String(req.body?.fullName || '').trim();
     const gmail = String(authUser?.email || req.body?.gmail || '').trim();
@@ -423,20 +455,26 @@ router.post('/api/orders', async (req, res) => {
       .map((item) => ({
         productId: Number(item?.id),
         qty: Number(item?.qty),
+        batchId:item?.batchId?Number(item.batchId):null,variantId:item?.variantId?Number(item.variantId):null,
+        expectedUnitPrice:item?.expectedUnitPrice,
       }))
       .filter((item) => Number.isInteger(item.productId) && item.productId > 0 && Number.isInteger(item.qty) && item.qty > 0);
 
-    if (!requestedItems.length) return res.status(400).json({ error: 'Invalid order items payload' });
+    if (!requestedItems.length || requestedItems.length !== items.length) return res.status(400).json({ error: 'Invalid order items payload' });
 
     const qtyById = new Map();
+    const requestedByKey=new Map();
     for (const item of requestedItems) {
-      qtyById.set(item.productId, (qtyById.get(item.productId) || 0) + item.qty);
+      const key=item.productId+':'+(item.batchId||'')+':'+(item.variantId||'');
+      if(requestedByKey.has(key)&&Number(requestedByKey.get(key).expectedUnitPrice)!==Number(item.expectedUnitPrice)&&item.batchId) return res.status(409).json({error:'Conflicting prices for the same batch; review checkout.'});
+      qtyById.set(key,(qtyById.get(key)||0)+item.qty);
+      requestedByKey.set(key,item);
     }
 
-    const productIds = [...qtyById.keys()];
+    const productIds = [...new Set(requestedItems.map(item=>item.productId))];
     const productsResult = await client.query(
       `
-      SELECT id, name, price, stock, image_url
+      SELECT id, name, tag, category, price, stock, image_url, inventory_type, product_code, archived_at, legacy_quantity_review, sold_at
       FROM products
       WHERE id = ANY($1::bigint[])
       `,
@@ -451,14 +489,33 @@ router.post('/api/orders', async (req, res) => {
     const orderItems = [];
     let subtotalAmount = 0;
 
-    for (const [productId, qty] of qtyById.entries()) {
+    for (const [key, qty] of qtyById.entries()) {
+      const requested=requestedByKey.get(key);
+      const productId=requested.productId;
       const product = productsById.get(productId);
       const stock = Number(product.stock);
-      const unitPrice = Number(product.price);
+      let unitPrice = Number(product.price);
+      let batch=null,variant=null;
+      if(product.inventory_type===SUPPLY){
+        if(requested.batchId)return res.status(400).json({error:'Supplies do not use harvest batches'});
+        variant=await supplyChoice(client,productId,requested.variantId,qty);unitPrice=variant.price;
+        if(requested.expectedUnitPrice==null||Number(requested.expectedUnitPrice)!==unitPrice)return res.status(409).json({error:'Supply price changed. Review the selected variant price.'});
+      } else if(requested.variantId)return res.status(400).json({error:'This product does not use supply variants'});
+      else if(product.inventory_type==='edible') {
+        if(!Number.isSafeInteger(requested.batchId)||requested.batchId<=0) return res.status(409).json({error:'Select a harvest batch and its price before checkout.'});
+        batch=(await client.query(`${BATCH_SELECT} WHERE b.id=$1 AND b.product_id=$2`,[requested.batchId,productId])).rows[0];
+        if(!batch||batch.available_stock<qty) return res.status(409).json({error:'Selected batch is unavailable, held, or has insufficient packs. Refresh checkout.'});
+        unitPrice=Number(batch.price);
+        if(requested.expectedUnitPrice===undefined||Number(requested.expectedUnitPrice)!==unitPrice) return res.status(409).json({error:'Batch price changed. Review the current batch price before paying.'});
+      } else if(requested.batchId) return res.status(400).json({error:'Succulents do not use harvest batches'});
+      if(structuredAddress&&requested.expectedUnitPrice!=null&&Number(requested.expectedUnitPrice)!==unitPrice)return res.status(409).json({error:'Product price changed. Review your cart before placing the order.'});
+      if (product.archived_at || product.legacy_quantity_review || (product.inventory_type === 'succulent' && (qty !== 1 || product.sold_at))) {
+        return res.status(409).json({ error: `${product.name} is unavailable or must be ordered individually` });
+      }
       if (!Number.isFinite(unitPrice) || unitPrice < 0) {
         return res.status(400).json({ error: `Invalid product price for product ${productId}` });
       }
-      if (!Number.isInteger(stock) || stock < qty) {
+      if (!variant && (!Number.isInteger(stock) || stock < qty)) {
         return res.status(400).json({ error: `${product.name} has insufficient stock` });
       }
       const lineTotal = unitPrice * qty;
@@ -466,6 +523,11 @@ router.post('/api/orders', async (req, res) => {
       orderItems.push({
         productId,
         productName: product.name,
+        productCode: product.product_code,
+        productTag: product.inventory_type===SUPPLY?product.category:product.tag,
+        inventoryType: product.inventory_type,
+        variantId:variant?.id||null,variantName:variant?.name||null,variantSku:variant?.sku||null,sellingUnit:variant?.selling_unit||null,piecesPerUnit:variant?.pieces_per_unit||null,weightKg:variant?.weight_kg||null,stockPoolId:variant?.pool_id||null,stockFactor:variant?.stock_factor||null,
+        batchId:batch?Number(batch.id):null,batchCode:batch?.batch_code||'',
         imageUrl: product.image_url || null,
         qty,
         unitPrice,
@@ -492,7 +554,7 @@ router.post('/api/orders', async (req, res) => {
       });
     }
 
-    await client.query('BEGIN');
+    if(!checkoutKey)await client.query('BEGIN');
 
     const orderResult = await client.query(
       `
@@ -525,29 +587,24 @@ router.post('/api/orders', async (req, res) => {
     );
 
     const order = orderResult.rows[0];
+    if(structuredAddress){
+      const contactEmail=String(req.body.gmail||gmail).trim();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail))throw Object.assign(new Error('Valid contact email is required'),{status:400});
+      await client.query('UPDATE orders SET delivery_address=$2::jsonb,contact_email=$3 WHERE id=$1',[order.id,JSON.stringify(structuredAddress),contactEmail]);
+    }
 
     for (const item of orderItems) {
       await client.query(
         `
-        INSERT INTO order_items (order_id, product_id, product_name, image_url, qty, unit_price, line_total)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO order_items (order_id, product_id, product_name, image_url, qty, unit_price, line_total, product_code, inventory_type,batch_id,batch_code,product_tag)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,$10,$11,$12)
         `,
-        [order.id, item.productId, item.productName, item.imageUrl, item.qty, item.unitPrice, item.lineTotal]
+        [order.id, item.productId, item.productName, item.imageUrl, item.qty, item.unitPrice, item.lineTotal, item.productCode, item.inventoryType,item.batchId,item.batchCode,item.productTag]
       );
+      if(item.variantId)await client.query(`UPDATE order_items SET variant_id=$3,variant_name=$4,variant_sku=$5,selling_unit=$6,pieces_per_unit=$7,weight_kg=$8,stock_pool_id=$9,stock_factor=$10 WHERE order_id=$1 AND product_id=$2 AND variant_id IS NULL`,[order.id,item.productId,item.variantId,item.variantName,item.variantSku,item.sellingUnit,item.piecesPerUnit,item.weightKg,item.stockPoolId,item.stockFactor]);
 
-      const stockUpdate = await client.query(
-        `
-        UPDATE products
-        SET stock = stock - $1
-        WHERE id = $2 AND stock >= $1
-        RETURNING id
-        `,
-        [item.qty, item.productId]
-      );
-      if (!stockUpdate.rows.length) {
-        throw new Error(`Stock changed for product ${item.productName}. Please retry checkout.`);
-      }
     }
+
+    await reserveOrderInventory(client, order.id, orderItems, paymentMethod === 'ONLINE', `Customer ${gmail}`);
 
     let checkoutSession = null;
 
@@ -571,16 +628,15 @@ router.post('/api/orders', async (req, res) => {
         UPDATE orders
         SET
           paymongo_checkout_session_id = $2,
+          paymongo_payment_intent_id = $3,
           updated_at = NOW()
         WHERE id = $1
         `,
-        [order.id, checkoutSession.id]
+        [order.id, checkoutSession.id, checkoutSession.paymentIntentId]
       );
     }
 
-    await client.query('COMMIT');
-
-    res.status(201).json({
+    const response={
       id: Number(order.id),
       orderCode: `ORD-${String(order.id).padStart(3, '0')}`,
       deliveryMode: order.delivery_mode || deliveryMode,
@@ -595,11 +651,15 @@ router.post('/api/orders', async (req, res) => {
       shippingFee: order.shipping_fee == null ? null : Number(order.shipping_fee),
       shippingStatus: order.shipping_status,
       createdAt: order.created_at,
-    });
+    };
+    if(checkoutKey)await client.query('INSERT INTO checkout_requests(customer_id,request_key,payload_hash,order_id,response) VALUES($1,$2,$3,$4,$5::jsonb)',[authUser.userId,checkoutKey,checkoutHash,order.id,JSON.stringify(response)]);
+    await client.query('COMMIT');
+    res.status(201).json(response);
   } catch (error) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: error.message || 'Failed to place order' });
+    res.status(error.status || 500).json({ error: error.message || 'Failed to place order' });
   } finally {
+    await client.query('ROLLBACK').catch(()=>{});
     client.release();
   }
 });
@@ -734,9 +794,6 @@ router.post('/api/orders/:id/payment/verify', async (req, res) => {
     if (order.payment_method !== 'ONLINE') {
       return res.status(400).json({ error: 'This order does not use online payment' });
     }
-    if (order.status === 'Cancelled') {
-      return res.status(409).json({ error: 'This order was cancelled. Contact support if a payment was still charged.' });
-    }
     if (order.payment_status === 'Paid') {
       return res.json({ verified: true, paymentStatus: 'Paid' });
     }
@@ -754,19 +811,18 @@ router.post('/api/orders/:id/payment/verify', async (req, res) => {
       return res.json({ verified: false, paymentStatus: order.payment_status || 'Pending' });
     }
 
-    const rawPaidAt = paidPayment.attributes?.paid_at;
-    const paidAt =
-      typeof rawPaidAt === 'number'
-        ? new Date(rawPaidAt * 1000).toISOString()
-        : rawPaidAt || new Date().toISOString();
-    const paymentIntentId = String(paidPayment.attributes?.payment_intent_id || '').trim() || null;
-
-    await pool.query(
-      "UPDATE orders SET payment_status = 'Paid', paymongo_payment_id = COALESCE($2, paymongo_payment_id), paymongo_payment_intent_id = COALESCE($3, paymongo_payment_intent_id), paymongo_paid_at = COALESCE($4::timestamptz, paymongo_paid_at), updated_at = NOW() WHERE id = $1 AND payment_method = 'ONLINE' AND status <> 'Cancelled' AND paymongo_checkout_session_id = $5",
-      [orderId, paidPayment.id || null, paymentIntentId, paidAt, order.paymongo_checkout_session_id]
-    );
-
-    res.json({ verified: true, paymentStatus: 'Paid' });
+    const client = await pool.connect();
+    let paymentStatus;
+    try {
+      await client.query('BEGIN');
+      const locked = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId]);
+      paymentStatus = await confirmInventoryPayment(client, locked.rows[0], paidPayment);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally { client.release(); }
+    res.json({ verified: paymentStatus === 'Paid', paymentStatus });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message || 'Failed to verify online payment' });
   }
@@ -826,14 +882,9 @@ router.delete('/api/admin/orders/:orderId/items/:itemId', async (req, res) => {
       return res.status(404).json({ error: 'Delivered order item not found' });
     }
 
-    const productId = itemResult.rows[0].product_id;
-    await client.query('DELETE FROM order_items WHERE id = $1 AND order_id = $2', [itemId, orderId]);
-    if (productId != null) {
-      await client.query('DELETE FROM products WHERE id = $1', [productId]);
-    }
-
-    await client.query('COMMIT');
-    return res.status(204).send();
+    // Completed order lines are accounting records; removal is no longer supported.
+    await client.query('ROLLBACK');
+    return res.status(409).json({ error: 'Completed order history cannot be removed. Archive the product through Inventory instead.' });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     return res.status(error.status || 500).json({ error: error.message || 'Failed to remove sold product' });
@@ -865,7 +916,8 @@ router.post('/api/admin/orders/:id/confirm', async (req, res) => {
         admin_confirmed_at = COALESCE(admin_confirmed_at, NOW()),
         status_updated_at = NOW(),
         updated_at = NOW()
-      WHERE id = $1 AND status = 'Pending'
+      WHERE id = $1 AND status = 'Pending' AND (payment_method <> 'ONLINE' OR payment_status = 'Paid')
+        AND harvest_order_sellable(id)
       RETURNING id
       `,
       [orderId]
@@ -880,7 +932,7 @@ router.post('/api/admin/orders/:id/confirm', async (req, res) => {
         return res.status(404).json({ error: 'Order not found' });
       }
       return res.status(409).json({
-        error: `Only Pending orders can be confirmed. Current status: ${existingResult.rows[0].status}`,
+        error: `Only Pending orders with confirmed online payment can be prepared. Current status: ${existingResult.rows[0].status}`,
       });
     }
 
@@ -958,7 +1010,21 @@ router.post('/api/admin/orders/:id/confirm-cod-remittance', async (req, res) => 
   }
 });
 
+router.get('/api/admin/orders/:id/delivery-history',async(req,res)=>{
+  try{
+    const user=verifyRequestToken(req);
+    if(user.role!=='admin')return res.status(403).json({error:'Admin access only'});
+    const id=Number(req.params.id),page=Number(req.query.page||1);
+    if(!Number.isSafeInteger(id)||id<1||!Number.isSafeInteger(page)||page<1||page>1000000)return res.status(400).json({error:'Invalid order or history page'});
+    if(!(await pool.query('SELECT id FROM orders WHERE id=$1',[id])).rows.length)return res.status(404).json({error:'Order unavailable'});
+    const entries=await pool.query('SELECT * FROM order_delivery_history WHERE order_id=$1 ORDER BY created_at DESC,id DESC LIMIT 25 OFFSET $2',[id,(page-1)*25]);
+    const count=await pool.query('SELECT COUNT(*)::int AS total FROM order_delivery_history WHERE order_id=$1',[id]);
+    res.json({entries:entries.rows,total:count.rows[0].total,page,pageSize:25});
+  }catch(error){res.status(error.status||500).json({error:error.message||'Unable to load delivery history'});}
+});
+
 router.patch('/api/admin/orders/:id', async (req, res) => {
+  let deliveryClient;
   try {
     const authUser = verifyRequestToken(req);
     if (authUser.role !== 'admin') {
@@ -982,7 +1048,7 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
     const courierName = String(req.body?.courierName || '').trim();
     const driverPhone = String(req.body?.driverPhone || '').trim();
     const trackingCode = String(req.body?.trackingCode || '').trim();
-    const trackingCourierCode = String(req.body?.trackingCourierCode || '').trim();
+    const trackingCourierCode = req.body?.trackingCourierCode == null ? null : String(req.body.trackingCourierCode).trim();
 
     if (!status) {
       return res.status(400).json({ error: 'Valid order status is required' });
@@ -1070,18 +1136,20 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
     }
 
     const existing = existingResult.rows[0];
+    if (['Delivered','Cancelled'].includes(existing.status) && status !== existing.status) {
+      return res.status(409).json({error:'This order is already completed or cancelled. Refresh its details; normal editing cannot reopen it.'});
+    }
+    if(['Preparing','Out for Delivery','Delivered'].includes(status)&&!await batchOrderEligible(pool,orderId)) return res.status(409).json({error:'An allocated harvest batch is on hold or unsellable. Reconcile this order; do not substitute a different batch or price.'});
+    if (existing.payment_method === 'ONLINE') {
+      if (paymentStatus && paymentStatus !== existing.payment_status) {
+        return res.status(409).json({ error: 'Online payment status is controlled by verified PayMongo confirmation' });
+      }
+      if (existing.payment_status !== 'Paid' && (['Preparing', 'Out for Delivery', 'Delivered'].includes(status) || riderId || trackingCode)) {
+        return res.status(409).json({ error: 'Verify online payment before fulfillment' });
+      }
+    }
     if (existing.status === 'Cancelled') {
       return res.status(409).json({ error: 'Cancelled orders cannot be reopened' });
-    }
-    if (
-      deliveryMode === 'logistics' &&
-      trackingCode &&
-      existing.status === 'Pending' &&
-      !existing.admin_confirmed_at
-    ) {
-      return res.status(409).json({
-        error: 'Confirm the order before adding its shipping tracking number',
-      });
     }
     if (
       existing.payment_method === 'COD' &&
@@ -1110,22 +1178,24 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
       : null;
 
     let finalStatus = status;
-    let finalTrackingStatus = trackingStatus || deriveTrackingStatus(status);
-    if (deliveryMode === 'logistics' && trackingCode) {
-      if (['Pending', 'Preparing'].includes(finalStatus)) {
-        finalStatus = 'Out for Delivery';
-      }
-      if (['Pending', 'Preparing'].includes(finalTrackingStatus)) {
-        finalTrackingStatus = 'In Transit';
-      }
+    let finalTrackingStatus = trackingStatus || (deliveryMode==='logistics' ? existing.tracking_status : null) || deriveTrackingStatus(status);
+    if (deliveryMode === 'logistics') {
+      const issue=validateManualDelivery(finalStatus,finalTrackingStatus,existing.tracking_status);
+      if(issue)return res.status(409).json({error:issue});
     }
+    const deliveryNotes=String(req.body?.deliveryNotes||'').trim();
+    if(deliveryNotes.length>1000)return res.status(400).json({error:'Delivery notes must be at most 1000 characters'});
+    deliveryClient=await pool.connect();
+    await deliveryClient.query('BEGIN');
+    await deliveryClient.query("SELECT set_config('delivery.actor',$1,true),set_config('delivery.notes',$2,true)",[`Admin #${authUser.userId}`,deliveryNotes]);
 
-    await pool.query(
+    const updateResult = await deliveryClient.query(
       `
       UPDATE orders
       SET
         status = $2,
         payment_status = CASE
+          WHEN payment_method = 'ONLINE' THEN payment_status
           WHEN payment_method = 'COD'
             AND $4 = 'logistics'
             AND cod_status <> 'Remitted'
@@ -1167,7 +1237,7 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
           ELSE driver_location_updated_at
         END,
         tracking_code = $10,
-        tracking_courier_code = $11,
+        tracking_courier_code = COALESCE($11,tracking_courier_code),
         tracking_status = $12,
         admin_confirmed_at = CASE
           WHEN $2 IN ('Preparing', 'Out for Delivery') AND admin_confirmed_at IS NULL THEN NOW()
@@ -1175,7 +1245,11 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
         END,
         status_updated_at = NOW(),
         updated_at = NOW()
-      WHERE id = $1
+      WHERE id = $1 AND status <> 'Cancelled' AND status=$14 AND tracking_status IS NOT DISTINCT FROM $13
+        AND (status <> 'Delivered' OR ($2 = 'Delivered' AND $12 = 'Delivered'))
+        AND (payment_method <> 'ONLINE' OR payment_status = 'Paid' OR $2 IN ('Pending', 'Cancellation Requested'))
+        AND ($2 NOT IN ('Preparing','Out for Delivery','Delivered') OR harvest_order_sellable(id))
+      RETURNING id
       `,
       [
         orderId,
@@ -1190,14 +1264,20 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
         trackingCode,
         trackingCourierCode,
         finalTrackingStatus,
+        existing.tracking_status,
+        existing.status,
       ]
     );
 
+    if (!updateResult.rows.length) {await deliveryClient.query('ROLLBACK');return res.status(409).json({ error: 'Order state changed; refresh before updating fulfillment' });}
+    await deliveryClient.query('COMMIT');
+    if(deliveryMode==='logistics'&&trackingCode)syncCourierOrder(orderId).catch(()=>console.error('Courier tracking retry pending for order',orderId));
     const updatedOrder = await fetchOrderById(orderId, { includeDriverAccessToken: true });
     res.json(updatedOrder);
   } catch (error) {
-    res.status(500).json({ error: error.message || 'Failed to update order' });
-  }
+    if(deliveryClient)await deliveryClient.query('ROLLBACK').catch(()=>{});
+    res.status(error.code==='P0001'?409:error.status||500).json({ error: error.message || 'Failed to update order' });
+  } finally {deliveryClient?.release();}
 });
 
 router.get('/api/driver/orders/:token', async (req, res) => {
@@ -1323,181 +1403,32 @@ router.patch('/api/driver/orders/:token', deliveryProofUpload.single('proof'), a
   }
 });
 
-router.post('/api/admin/orders/:id/track123/sync', async (req, res) => {
+router.post('/api/admin/orders/:id/track123/sync',async(req,res)=>{
   try {
-    await ensureOrderAdminColumns();
-    await ensureRidersTable();
-
-    if (!isTrack123Configured()) {
-      return res.status(503).json({ error: 'Track123 is not configured yet. Set TRACK123_API_KEY in server/.env.' });
-    }
-
-    const orderId = Number(req.params.id);
-    if (!Number.isInteger(orderId) || orderId <= 0) {
-      return res.status(400).json({ error: 'Invalid order id' });
-    }
-
-    const result = await pool.query(
-      `
-      SELECT id, tracking_code, tracking_courier_code
-      FROM orders
-      WHERE id = $1
-      LIMIT 1
-      `,
-      [orderId]
-    );
-
-    if (!result.rows.length) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-
-    const order = result.rows[0];
-    const trackingCode = String(order.tracking_code || '').trim();
-    const trackingCourierCode = String(order.tracking_courier_code || '').trim();
-
-    if (!trackingCode) {
-      return res.status(400).json({ error: 'Save a tracking code on the order before syncing Track123.' });
-    }
-
-    const tracking = await syncTrack123Tracking({
-      trackingNumber: trackingCode,
-      courierCode: trackingCourierCode,
-    });
-
-    await pool.query(
-      `
-      UPDATE orders
-      SET
-        tracking_code = $2,
-        tracking_courier_code = NULLIF($3, ''),
-        tracking_status = CASE
-          WHEN tracking_status IN ('Delivered', 'Cancelled') THEN tracking_status
-          WHEN $4 = 'Pending' AND tracking_status <> 'Pending' THEN tracking_status
-          ELSE $4
-        END,
-        payment_status = CASE
-          WHEN payment_method = 'COD'
-            AND delivery_mode = 'logistics'
-            AND cod_status <> 'Remitted'
-          THEN 'Unpaid'
-          ELSE payment_status
-        END,
-        cod_status = CASE
-          WHEN payment_method = 'COD'
-            AND delivery_mode = 'logistics'
-            AND $4 = 'Delivered'
-            AND cod_status <> 'Remitted'
-          THEN 'Remittance Pending'
-          ELSE cod_status
-        END,
-        track123_tracking_id = NULLIF($5, ''),
-        track123_last_checkpoint_at = $6::timestamptz,
-        track123_last_synced_at = NOW(),
-        updated_at = NOW()
-      WHERE id = $1
-      `,
-      [
-        orderId,
-        tracking.trackingNumber || trackingCode,
-        tracking.courierCode || trackingCourierCode,
-        tracking.trackingStatus,
-        tracking.trackingId,
-        tracking.checkpointTime,
-      ]
-    );
-
-    const updatedOrder = await fetchOrderById(orderId, { includeDriverAccessToken: true });
-    res.json(updatedOrder);
-  } catch (error) {
-    res.status(500).json({ error: error.message || 'Failed to sync Track123 tracking' });
-  }
+    const user=verifyRequestToken(req);if(user.role!=='admin')return res.status(403).json({error:'Admin access only'});
+    if(!isTrack123Configured())return res.status(503).json({error:'Automatic courier tracking is not configured yet.'});
+    const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'Invalid order ID'});
+    await syncCourierOrder(id);const order=await fetchOrderById(id,{includeDriverAccessToken:true});
+    if(!order)return res.status(404).json({error:'Order unavailable'});res.json(order);
+  }catch(error){res.status(error.status||502).json({error:'Carrier tracking is temporarily unavailable. Please retry later.'});}
 });
 
-router.get('/api/orders/:id/logistics-updates', async (req, res) => {
+router.get('/api/orders/:id/logistics-updates',async(req,res)=>{
   try {
-    await ensureOrderAdminColumns();
-
-    if (!isTrack123Configured()) {
-      return res.status(503).json({ error: 'Track123 is not configured yet. Set TRACK123_API_KEY in server/.env.' });
-    }
-
-    const orderId = Number(req.params.id);
-    if (!Number.isInteger(orderId) || orderId <= 0) {
-      return res.status(400).json({ error: 'Invalid order id' });
-    }
-
-    const result = await pool.query(
-      `
-      SELECT id, tracking_code, tracking_courier_code
-      FROM orders
-      WHERE id = $1
-      LIMIT 1
-      `,
-      [orderId]
-    );
-
-    if (!result.rows.length) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-
-    const order = result.rows[0];
-    const trackingCode = String(order.tracking_code || '').trim();
-    const trackingCourierCode = String(order.tracking_courier_code || '').trim();
-
-    if (!trackingCode) {
-      return res.status(400).json({ error: 'This order does not have a tracking code yet.' });
-    }
-
-    const tracking = await queryTrack123TrackingDetails({
-      trackingNumber: trackingCode,
-      courierCode: trackingCourierCode,
-    });
-
-    await pool.query(
-      `
-      UPDATE orders
-      SET
-        tracking_courier_code = COALESCE(NULLIF($2, ''), tracking_courier_code),
-        tracking_status = CASE
-          WHEN tracking_status IN ('Delivered', 'Cancelled') THEN tracking_status
-          WHEN $3 = 'Pending' AND tracking_status <> 'Pending' THEN tracking_status
-          ELSE COALESCE(NULLIF($3, ''), tracking_status)
-        END,
-        payment_status = CASE
-          WHEN payment_method = 'COD'
-            AND delivery_mode = 'logistics'
-            AND cod_status <> 'Remitted'
-          THEN 'Unpaid'
-          ELSE payment_status
-        END,
-        cod_status = CASE
-          WHEN payment_method = 'COD'
-            AND delivery_mode = 'logistics'
-            AND $3 = 'Delivered'
-            AND cod_status <> 'Remitted'
-          THEN 'Remittance Pending'
-          ELSE cod_status
-        END,
-        track123_tracking_id = COALESCE(NULLIF($4, ''), track123_tracking_id),
-        track123_last_checkpoint_at = COALESCE($5::timestamptz, track123_last_checkpoint_at),
-        track123_last_synced_at = NOW(),
-        updated_at = NOW()
-      WHERE id = $1
-      `,
-      [orderId, tracking.courierCode || trackingCourierCode, tracking.trackingStatus, tracking.trackingId, tracking.checkpointTime]
-    );
-
-    res.json({
-      trackingCode,
-      courierCode: tracking.courierCode || trackingCourierCode,
-      trackingStatus: tracking.trackingStatus,
-      lastCheckpointAt: tracking.checkpointTime,
-      lastSyncedAt: new Date().toISOString(),
-      updates: tracking.updates,
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message || 'Failed to load logistics updates' });
-  }
+    const user=verifyRequestToken(req);
+    if(!['admin','customer'].includes(user.role))return res.status(403).json({error:'Access denied'});
+    const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'Invalid order ID'});
+    const order=(await pool.query(`SELECT o.*,c.updates,c.synced_at AS cached_at,c.tracking_number AS cached_number
+      FROM orders o LEFT JOIN order_courier_tracking c ON c.order_id=o.id
+      WHERE o.id=$1 AND ($2::boolean OR LOWER(o.gmail)=LOWER($3))`,[id,user.role==='admin',user.email||''])).rows[0];
+    if(!order)return res.status(404).json({error:'Order unavailable'});
+    if(order.delivery_mode!=='logistics')return res.status(400).json({error:'This order uses Belfiore rider tracking'});
+    const matched=order.cached_number===order.tracking_code;
+    res.json({trackingCode:order.tracking_code,trackingStatus:order.tracking_status,
+      lastCheckpointAt:order.track123_last_checkpoint_at,lastSyncedAt:matched?order.cached_at:null,
+      updates:matched&&Array.isArray(order.updates)?order.updates:[],automaticTracking:isTrack123Configured(),
+      message:isTrack123Configured()?'Awaiting carrier updates.':'Automatic courier tracking is not configured yet.'});
+  }catch(error){res.status(error.status||500).json({error:error.status?'Authentication required':'Carrier updates are temporarily unavailable.'});}
 });
 
 export default router;

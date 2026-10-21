@@ -1,8 +1,7 @@
 import { getImageUrl } from '../../api/client';
 
 function getCustomerProductName(product) {
-  const category = String(product?.category || '').trim();
-  return category.toLowerCase() === 'aloe hybrids' ? 'Aloe Hybrids' : product?.name || 'Untitled product';
+  return product?.name || 'Untitled product';
 }
 
 function getCustomerProductDescription(product) {
@@ -81,19 +80,20 @@ export default function ShopSection({ products, status, error, onAddToCart, form
                   </div>
                   <div className="mt-5">
                     <h3 className="text-lg font-['Playfair_Display'] text-[#0f4d2e]">{getCustomerProductName(product)}</h3>
+                    {product.inventoryType === 'succulent' && <p className="mt-1 font-mono text-xs text-[#5e6f65]">{product.productCode}</p>}
                     {getCustomerProductDescription(product) ? (
                       <p className="mt-1 max-h-10 overflow-hidden text-sm text-[#5e6f65]">{getCustomerProductDescription(product)}</p>
                     ) : null}
                     <div className="mt-4 flex items-center justify-between">
                       <span className="text-base font-semibold text-[#0f4d2e]">{formatPrice(product.price)}</span>
-                      <span className="text-xs uppercase tracking-[0.25em] text-[#7a8a7f]">{product.stock} in stock</span>
+                      <span className="text-xs uppercase tracking-[0.25em] text-[#7a8a7f]">{product.inventoryType==='GARDENING_SUPPLY'?`${product.variants?.length||0} variants`:`${product.stock} in stock`}</span>
                     </div>
                     <button
                       className="mt-5 w-full rounded-full border border-[#0b7a3c] bg-[#0b7a3c] py-3 text-xs uppercase tracking-[0.35em] text-white transition hover:bg-[#0d6a35]"
                       onClick={() => onAddToCart(product)}
                       type="button"
                     >
-                      Add to cart
+                      {product.inventoryType==='GARDENING_SUPPLY'?'Choose variant':'Add to cart'}
                     </button>
                   </div>
                 </article>

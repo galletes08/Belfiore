@@ -42,6 +42,34 @@ function sortByName(items) {
   return [...items].sort((left, right) => left.name.localeCompare(right.name));
 }
 
+export async function validateDeliveryAddress(value) {
+  const invalid=message=>Object.assign(new Error(message),{status:400});
+  if(!value||typeof value!=='object'||Array.isArray(value))throw invalid('Delivery address is required');
+  const a={};for(const key of ['addressLine','barangay','country','countryCode','province','provinceCode','city','postalCode','landmark']){
+    if(value[key]!=null&&(typeof value[key]!=='string'||value[key].length>1000))throw invalid('Invalid delivery address field');a[key]=String(value[key]||'').trim();
+  }
+  if(!a.countryCode&&!a.country)a.countryCode='PH';
+  const countries=await getCountries();const country=countries.find(c=>normalizeCode(c.iso2)===normalizeCode(a.countryCode)||normalizeLocationName(c.name)===normalizeLocationName(a.country));
+  if(!country)throw invalid('Select a valid country');a.countryCode=country.iso2;a.country=country.name;
+  if(!a.addressLine||!a.barangay||!a.city||!a.postalCode)throw invalid('House/street, barangay, city and postal code are required');
+  const provinces=await getStatesOfCountry(a.countryCode);const province=provinces.find(p=>normalizeLocationName(p.name)===normalizeLocationName(a.province));
+  if(provinces.length&&!province)throw invalid('Select a province belonging to this country');
+  if(province){a.province=province.name;a.provinceCode=province.iso2;}
+  const cities=province?await getCitiesOfState(a.countryCode,province.iso2):await getAllCitiesOfCountry(a.countryCode);
+  const city=cities.find(c=>normalizeLocationName(c.name)===normalizeLocationName(a.city));if(!city)throw invalid('Select a city belonging to this province');a.city=city.name;
+  if(a.countryCode==='PH') {
+    if(!/^\d{4}$/.test(a.postalCode))throw invalid('Enter a valid four-digit Philippine ZIP code');
+    const p=psgcProvinces.find(p=>[p.provName,p.provOldName].some(n=>n&&normalizeLocationName(n)===normalizeLocationName(a.province)));
+    const c=psgcCities.find(c=>(p?c.provCode===p.provCode:['metro manila','ncr','national capital region'].includes(normalizeLocationName(a.province))&&c.regCode==='13')&&[c.munCityName,c.munCityOldName].some(n=>n&&normalizeLocationName(n)===normalizeLocationName(a.city)));
+    const barangays=c?psgcBarangays.filter(b=>b.munCityCode===c.munCityCode):[];
+    if(barangays.length&&!barangays.some(b=>normalizeLocationName(b.brgyName)===normalizeLocationName(a.barangay)))throw invalid('Select a barangay belonging to this city');
+    const known=POSTAL_CODES.get(`${normalizeLocationName(a.province)}:${normalizeLocationName(a.city)}`);if(known&&known!==a.postalCode)throw invalid('ZIP code does not match the selected city');
+  } else if(!/^[A-Za-z0-9 -]{2,12}$/.test(a.postalCode))throw invalid('Enter a valid postal code');
+  for(const [key,min,max] of [['latitude',-90,90],['longitude',-180,180]]){a[key]=value[key]==null||value[key]===''?null:Number(value[key]);if(a[key]!==null&&(!Number.isFinite(a[key])||a[key]<min||a[key]>max))throw invalid('Invalid delivery coordinates');}
+  if((a.latitude===null)!==(a.longitude===null))throw invalid('Provide both delivery coordinates');
+  return a;
+}
+
 router.get('/api/location/countries', async (_req, res) => {
   try {
     if (!cachedCountries.value) {

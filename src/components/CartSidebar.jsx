@@ -10,8 +10,7 @@ import {
   X
 } from "lucide-react";
 
-const FREE_SHIPPING_THRESHOLD = 2000;
-const STANDARD_SHIPPING_FEE = 120;
+import { FREE_SHIPPING_THRESHOLD } from '../utils/shipping';
 
 const formatPhp = (amount) =>
   new Intl.NumberFormat("en-PH", {
@@ -49,12 +48,7 @@ export default function CartSidebar({
 
   const hasItems = cartItems.length > 0;
 
-  const shippingFee =
-    !hasItems || subtotal >= FREE_SHIPPING_THRESHOLD
-      ? 0
-      : STANDARD_SHIPPING_FEE;
-
-  const total = subtotal + shippingFee;
+  const total = subtotal;
 
   const amountToFreeShipping = Math.max(
     0,
@@ -101,7 +95,7 @@ export default function CartSidebar({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[130] bg-slate-950/40 backdrop-blur-[2px]"
+      className="fixed inset-0 z-[1100] bg-slate-950/40 backdrop-blur-[2px]"
       onClick={onClose}
       role="presentation"
     >
@@ -181,7 +175,7 @@ export default function CartSidebar({
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-semibold">
                         {amountToFreeShipping === 0
-                          ? "Free shipping unlocked"
+                          ? "Local free-shipping threshold reached"
                           : "Free shipping progress"}
                       </p>
 
@@ -192,10 +186,10 @@ export default function CartSidebar({
 
                     <p className="mt-1 text-xs leading-5 text-emerald-100/80">
                       {amountToFreeShipping === 0
-                        ? "Your order qualifies for free standard shipping."
+                        ? "Free local delivery at this subtotal, subject to destination validation."
                         : `Add ${formatPhp(
                             amountToFreeShipping
-                          )} more to remove the shipping fee.`}
+                          )} more for free delivery in eligible local areas.`}
                     </p>
 
                     <div
@@ -258,9 +252,10 @@ export default function CartSidebar({
                           <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-slate-900">
                             {item.name}
                           </h3>
+                          {item.batchCode && <p className="font-mono text-xs text-slate-500">{item.batchCode}</p>}
 
                           <p className="mt-1 text-xs text-slate-500">
-                            {formatPhp(item.price)} per item
+                            {formatPhp(item.price)} {item.allowsMultipleQuantity ? 'per 400g pack' : 'per individual plant'}
                           </p>
                         </div>
 
@@ -300,7 +295,7 @@ export default function CartSidebar({
                             className="min-w-8 px-1 text-center text-sm font-semibold text-slate-900"
                             aria-label={`Quantity: ${item.qty}`}
                           >
-                            {item.qty}
+                            {item.qty}{item.sellingUnit?` ${item.sellingUnit}`:''}
                           </span>
 
                           <button
@@ -388,27 +383,16 @@ export default function CartSidebar({
               </div>
 
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Shipping</span>
-                <span
-                  className={
-                    shippingFee === 0
-                      ? "font-semibold text-emerald-700"
-                      : "font-medium text-slate-800"
-                  }
-                >
-                  {shippingFee === 0
-                    ? "Free"
-                    : formatPhp(shippingFee)}
-                </span>
+                <span className="text-slate-500">Shipping estimate</span><span className="text-sm text-slate-700">Confirmed at checkout</span>
               </div>
 
               <div className="flex items-end justify-between border-t border-slate-200 pt-3">
                 <div>
                   <p className="text-sm font-semibold text-slate-950">
-                    Order total
+                    Estimated total
                   </p>
                   <p className="mt-0.5 text-xs text-slate-400">
-                    Taxes included where applicable
+                    Items only; shipping is confirmed at checkout
                   </p>
                 </div>
 

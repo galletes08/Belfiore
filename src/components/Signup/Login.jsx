@@ -27,6 +27,10 @@ export default function LoginPage() {
 
     try {
       const response = await apiLogin(formValues.email, formValues.password);
+      if(response.user?.role!=='customer'||!response.token) {
+        clearCustomerToken();
+        throw new Error('Invalid email or password.');
+      }
       const fullName = response.user?.name || [response.user?.firstName, response.user?.lastName].filter(Boolean).join(" ");
 
       clearCustomerToken();
@@ -76,7 +80,7 @@ export default function LoginPage() {
 
         <main className="p-6 sm:p-8 md:p-10">
           <h2 className="text-3xl font-bold text-gray-900">Login</h2>
-          <p className="mt-2 text-sm text-gray-600">Sign in to continue to your account.</p>{location.state?.verificationSent ? <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Verification email sent. Open the link in your inbox to finish creating your account.</p> : null}
+          <p className="mt-2 text-sm text-gray-600">Sign in to continue to your account.</p>
 
           <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
             <label className="text-sm">
@@ -118,7 +122,7 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-5 space-y-2 text-sm">
+          <div className="mt-5 space-y-2 text-sm"><p><Link to="/verification-pending" state={{email:formValues.email}} className="text-emerald-700 underline">Verify your email / request a new link</Link></p>
             <p className="text-gray-600">
               Do not have an account?{" "}
               <Link to="/signup" className="font-semibold text-emerald-700 hover:text-emerald-800">

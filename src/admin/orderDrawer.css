@@ -1,0 +1,4 @@
+@keyframes order-drawer-enter { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@media (prefers-reduced-motion: no-preference) {
+  .order-details-drawer[open] { animation: order-drawer-enter 160ms ease-out; }
+}

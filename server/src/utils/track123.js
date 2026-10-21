@@ -1,13 +1,5 @@
 const TRACK123_API_URL = 'https://api.track123.com/gateway/open-api';
 
-const TRACK123_STATUS_MAP = [
-  { match: ['003', 'delivered'], value: 'Delivered' },
-  { match: ['002', 'out for delivery'], value: 'Out for Delivery' },
-  { match: ['004', 'in transit', 'transit'], value: 'In Transit' },
-  { match: ['packed'], value: 'Packed' },
-  { match: ['001', 'init', 'preparing', 'info received', 'pending', 'notfound', 'exception'], value: 'Pending' },
-  { match: ['cancelled', 'canceled'], value: 'Cancelled' },
-];
 
 function getApiKey() {
   return String(process.env.TRACK123_API_KEY || '').trim();
@@ -18,12 +10,13 @@ function getWebhookToken() {
 }
 
 export function isTrack123Configured() {
-  return Boolean(getApiKey());
+  return process.env.TRACK123_ENABLED === 'true' && Boolean(getApiKey());
 }
 
 export function verifyTrack123WebhookRequest(req) {
+  if(!isTrack123Configured())return false;
   const configuredToken = getWebhookToken();
-  if (!configuredToken) return true;
+  if (!configuredToken) return false;
 
   const providedToken =
     String(req.query?.token || '').trim() ||
@@ -34,7 +27,7 @@ export function verifyTrack123WebhookRequest(req) {
 
 async function requestTrack123(path, payload, method = 'POST') {
   const apiKey = getApiKey();
-  if (!apiKey) {
+  if (!apiKey || !isTrack123Configured()) {
     throw new Error('Track123 API key is missing. Set TRACK123_API_KEY in server/.env.');
   }
 
@@ -46,10 +39,11 @@ async function requestTrack123(path, payload, method = 'POST') {
       'Track123-Api-Secret': apiKey,
     },
     body: method === 'GET' ? undefined : JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000),
   });
 
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
+  if (!response.ok || (data.code != null && String(data.code) !== '00000' && String(data.code) !== '0')) {
     const message =
       data?.message ||
       data?.msg ||
@@ -115,17 +109,14 @@ function findFirstValue(root, keys) {
   return null;
 }
 
-function normalizeTrackingStatus(rawStatus) {
-  const normalized = String(rawStatus || '').trim().toLowerCase();
-  if (!normalized) return 'Pending';
-
-  for (const entry of TRACK123_STATUS_MAP) {
-    if (entry.match.some((term) => normalized.includes(term))) {
-      return entry.value;
-    }
-  }
-
-  return 'Pending';
+export function normalizeTrackingStatus(rawStatus) {
+  const status=String(rawStatus||'').trim().toUpperCase().replace(/[- ]/g,'_');
+  if (/^(DELIVERED|DELIVERED_\d+)$/.test(status)) return 'Delivered';
+  if (/^(OUT_FOR_DELIVERY|WAITING_DELIVERY)(_|$)/.test(status)) return 'Out for Delivery';
+  if (/^(IN_TRANSIT|TRANSIT)(_|$)/.test(status)) return 'In Transit';
+  if (/^(PACKED)(_|$)/.test(status)) return 'Packed';
+  if (/^(INFO_RECEIVED|PRE_TRANSIT|PENDING|PREPARING)(_|$)/.test(status)) return 'Pending';
+  return null;
 }
 
 function toIsoOrNull(value) {
@@ -229,6 +220,7 @@ function normalizeTrack123Update(entry, index) {
   ]);
   const happenedAt = toIsoOrNull(
     findFirstValue(entry, [
+      'eventTimeZeroUTC',
       'time',
       'eventTime',
       'event_time',
@@ -261,7 +253,7 @@ function extractTrack123Updates(data) {
   ]);
 
   const detailedEntries = candidateArrays.flatMap((array) => array);
-  const entries = detailedEntries.length ? detailedEntries : extractAcceptedContent(data);
+  const entries = detailedEntries;
 
   const updates = entries
     .map((entry, index) => normalizeTrack123Update(entry, index))
@@ -288,9 +280,9 @@ function resolveTrackingStatusFromUpdates(fallbackStatus, updates) {
   if (updates.some((update) => update.status === 'Cancelled')) return 'Cancelled';
 
   const latestMeaningfulUpdate = updates.find(
-    (update) => update.status && update.status !== 'Pending'
+    (update) => ['In Transit','Out for Delivery','Delivered','Packed'].includes(update.status)
   );
-  return fallbackStatus === 'Pending' && latestMeaningfulUpdate
+  return (!fallbackStatus || fallbackStatus === 'Pending') && latestMeaningfulUpdate
     ? latestMeaningfulUpdate.status
     : fallbackStatus;
 }
@@ -306,7 +298,7 @@ function normalizeTrack123Tracking(data, fallback = {}) {
     findFirstString(primaryAccepted || data, ['courierCode', 'courier_code', 'carrierCode', 'carrier_code']) ||
     findFirstString(primaryAccepted?.localLogisticsInfo || {}, ['courierCode']) ||
     String(fallback.courierCode || '').trim();
-  const rawStatus = findFirstString(data, [
+  const rawStatus = findFirstString(primaryAccepted || {}, ['transitStatus','trackingStatus']) || findFirstString(data, [
     'status',
     'trackStatus',
     'trackingStatus',
@@ -317,6 +309,8 @@ function normalizeTrack123Tracking(data, fallback = {}) {
     'status_description',
   ]) || findFirstString(primaryAccepted || {}, ['trackingStatus', 'transitStatus']);
   const checkpointTime = findFirstValue(data, [
+    'eventTimeZeroUTC',
+    'lastTrackingTime',
     'checkpointTime',
     'latestEventTime',
     'latest_event_time',
@@ -325,7 +319,7 @@ function normalizeTrack123Tracking(data, fallback = {}) {
     'event_time',
     'updateTime',
     'updated_at',
-  ]) || findFirstValue(primaryAccepted || {}, ['createTime', 'nextUpdateTime']);
+  ]) || findFirstValue(primaryAccepted || {}, ['lastTrackingTime']);
 
   return {
     trackingId,
@@ -360,24 +354,10 @@ export async function registerTrack123Tracking({ trackingNumber, courierCode }) 
 }
 
 export async function queryTrack123Tracking({ trackingNumber, courierCode }) {
-  const primaryPayload = {
-    trackNos: [trackingNumber],
-    ...(courierCode ? { courierCode } : {}),
-  };
-
-  try {
-    const data = await requestTrack123('/tk/v2.1/track/query', primaryPayload);
-    return normalizeTrack123Tracking(data, { trackingNumber, courierCode });
-  } catch {
-    const fallbackPayload = [
-      {
-        trackNo: trackingNumber,
-        ...(courierCode ? { courierCode } : {}),
-      },
-    ];
-    const data = await requestTrack123('/tk/v2.1/track/query', fallbackPayload);
-    return normalizeTrack123Tracking(data, { trackingNumber, courierCode });
-  }
+  const data=await requestTrack123('/tk/v2.1/track/query',{trackNoInfos:[{trackNo:trackingNumber,...(courierCode?{courierCode}:{})}]});
+  const accepted=extractAcceptedContent(data).filter(entry=>String(entry.trackNo||'')===trackingNumber);
+  if (!accepted.length) return {trackingNumber,courierCode: courierCode||'',trackingStatus:null,checkpointTime:null,raw:{}};
+  return normalizeTrack123Tracking({data:{accepted}}, {trackingNumber,courierCode});
 }
 
 export async function queryTrack123TrackingDetails({ trackingNumber, courierCode }) {
@@ -389,6 +369,7 @@ export async function queryTrack123TrackingDetails({ trackingNumber, courierCode
   const updates = extractTrack123Updates(tracking.raw);
   return {
     ...tracking,
+    checkpointTime: updates.find(update=>update.happenedAt)?.happenedAt || tracking.checkpointTime,
     trackingStatus: resolveTrackingStatusFromUpdates(tracking.trackingStatus, updates),
     courierCode: tracking.courierCode || registered.courierCode || courierCode || '',
     updates,

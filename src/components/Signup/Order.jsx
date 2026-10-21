@@ -161,7 +161,7 @@ function LogisticsUpdatesPanel({ order, logisticsData }) {
     if (!updates.length) {
       return (
         <div className="rounded-2xl border border-dashed border-[#cbd5c6] bg-white/80 px-4 py-5 text-sm leading-6 text-[#5e6f65]">
-          No carrier events were returned for this tracking number yet.
+          Awaiting carrier updates for this tracking number.
         </div>
       );
     }
@@ -258,7 +258,7 @@ export default function Order() {
       .then((result) => {
         if (!isMounted) return;
         const isPaid = result.paymentStatus === 'Paid';
-        setPaymentVerification(isPaid ? 'paid' : 'pending');
+        setPaymentVerification(isPaid ? 'paid' : result.paymentStatus === 'Refund Pending' ? 'refund' : 'pending');
         if (isPaid) {
           setOrders((current) =>
             current.map((order) => (order.id === paymongoOrderId ? { ...order, paymentStatus: 'Paid' } : order))
@@ -272,6 +272,15 @@ export default function Order() {
     return () => {
       isMounted = false;
     };
+  }, [paymongoOrderId, paymongoStatus]);
+
+  useEffect(() => {
+    if (paymongoStatus !== 'cancel' || !Number.isInteger(paymongoOrderId) || paymongoOrderId <= 0) return;
+    let mounted = true;
+    apiCancelCustomerOrder(paymongoOrderId, 'Customer cancelled PayMongo checkout')
+      .then(order => { if (mounted) setOrders(current => current.map(item => item.id === order.id ? order : item)); })
+      .catch(err => { if (mounted) setError(err.message); });
+    return () => { mounted = false; };
   }, [paymongoOrderId, paymongoStatus]);
 
   useEffect(() => {
@@ -384,6 +393,8 @@ export default function Order() {
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm leading-6 text-emerald-800">
               {paymentVerification === 'paid'
                 ? 'Online payment confirmed. Your payment status is now Paid.'
+                : paymentVerification === 'refund'
+                  ? 'Payment requires reconciliation because inventory was released, a harvest batch is held, or the paid amount does not match. Contact Belfiore support about the refund.'
                 : paymentVerification === 'error'
                   ? 'We could not verify the payment yet. Please refresh in a moment or contact support if the payment was deducted.'
                   : paymentVerification === 'pending'
@@ -393,7 +404,7 @@ export default function Order() {
           ) : null}
           {paymongoStatus === 'cancel' ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-6 text-amber-800">
-              PayMongo checkout was canceled. Your order was created, but it will stay unpaid until you complete the online payment.
+              PayMongo checkout was cancelled. Your pending order is being cancelled and its inventory reservation released. Check the order status below.
             </div>
           ) : null}
 
@@ -593,6 +604,8 @@ export default function Order() {
                                 </div>
                                 <div className="min-w-0">
                                   <p className="truncate text-sm font-semibold text-[#173d2b]">{item.productName}</p>
+                                  {item.inventoryType === 'succulent' && <p className="font-mono text-xs text-[#6c786f]">{item.productCode}</p>}
+                                  {item.variantName&&<p className="text-xs text-slate-600">{item.variantName} | {item.variantSku} | {item.qty} {item.sellingUnit} | {item.piecesPerUnit?`${item.piecesPerUnit} pieces / unit`:`${item.weightKg} kg / bag`}</p>}{item.batchCode && <p className="font-mono text-xs text-[#6c786f]">{item.batchCode}</p>}
                                   <p className="mt-1 text-xs text-[#6c786f]">Qty {item.qty}</p>
                                 </div>
                               </div>

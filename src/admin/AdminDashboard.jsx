@@ -1,197 +1,70 @@
-import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowUpRight, PackageCheck, ReceiptText, ShoppingBag, TrendingUp } from 'lucide-react';
-import { apiAdminOrders, apiDashboard } from '../api/client';
+import {createElement,useEffect,useRef,useState} from 'react';
+import {Link} from 'react-router-dom';
+import {AlertTriangle,RefreshCw,ShoppingBag,TrendingUp,ReceiptText} from 'lucide-react';
+import NotificationBell from './NotificationBell';
+import {apiDashboard} from '../api/client';
+import {dashboardRefresh} from '../utils/dashboardRefresh';
+import {manilaDate} from '../utils/orderDisplay';
 
-const statusStyles = {
-  shipped: 'bg-blue-50 text-blue-700 ring-blue-200',
-  delivered: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  processing: 'bg-amber-50 text-amber-700 ring-amber-200',
-  pending: 'bg-orange-50 text-orange-700 ring-orange-200',
-  cancelled: 'bg-rose-50 text-rose-700 ring-rose-200',
-};
+const money=n=>new Intl.NumberFormat('en-PH',{style:'currency',currency:'PHP'}).format(Number(n)||0);
+const time=d=>new Date(d).toLocaleString('en-PH',{timeZone:'Asia/Manila',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+' PHT';
+const panel='min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm';
+const button='inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-emerald-900 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-emerald-700 disabled:opacity-50';
+const badge=status=>({Pending:'bg-amber-100 text-amber-800',Preparing:'bg-sky-100 text-sky-800','Out for Delivery':'bg-violet-100 text-violet-800',Delivered:'bg-emerald-100 text-emerald-800',Cancelled:'bg-rose-100 text-rose-700','Cancellation Requested':'bg-orange-100 text-orange-800'}[status]||'bg-slate-100 text-slate-700');
+const stockLink=(p,b)=>`/admin/inventory?productId=${p}${b?`&batchId=${b}`:''}`;
 
-const tagStyles = {
-  white: 'bg-slate-100 text-slate-700',
-  green: 'bg-emerald-100 text-emerald-700',
-  red: 'bg-rose-100 text-rose-700',
-  aquaponics: 'bg-cyan-100 text-cyan-800',
-  unassigned: 'bg-slate-100 text-slate-700',
-};
-
-const currency = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 });
-
-function formatCurrency(value) {
-  return currency.format(Number(value) || 0).replace('PHP', '₱');
+function SalesChart({data}) {
+  const series=data.salesData;
+  if(!series.length)return <div className="flex h-60 items-center justify-center p-4 text-sm text-slate-500">No sales data available for this period.</div>;
+  const maximum=Math.max(1,...series.map(p=>p.revenue));
+  const start=Date.parse(data.chart.from),end=Date.parse(data.chart.to),span=Math.max(86400000,end-start);
+  const points=series.map(p=>({...p,x:95+(Date.parse(p.date.length===7?p.date+'-01':p.date)-start)/span*670,y:175-p.revenue/maximum*140}));
+  // Calendar ticks have their own spacing; adjacent sales dates must not create adjacent labels.
+  const ticks=data.chart.period==='year'
+    ? [0,2,4,6,8,11].map(month=>Date.UTC(data.chart.year,month,1))
+    : [...new Set(Array.from({length:6},(_,i)=>start+Math.round((end-start)/86400000*i/5)*86400000))];
+  const tickLabel=new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',month:'short',...(data.chart.period==='year'?{}:{day:'numeric'})});
+  return <div className="overflow-x-auto p-3"><svg viewBox="0 0 800 235" className="h-60 w-full min-w-[500px]" role="img" aria-label="Recognized sales in PHP by order creation date in Philippine Time">
+    {[0,.5,1].map(v=><g key={v}><line x1="95" x2="775" y1={175-v*140} y2={175-v*140} stroke="#e2e8f0"/><text x="87" y={179-v*140} textAnchor="end" fontSize="10" fill="#64748b">{money(maximum*v)}</text></g>)}
+    <path d={points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' ')} fill="none" stroke="#176548" strokeWidth="2.5"/>
+    {points.map(p=><circle key={p.date} cx={p.x} cy={p.y} r="4" fill="#176548" tabIndex={0} role="img" aria-label={`${p.date}: ${money(p.revenue)}`}><title>{p.date}: {money(p.revenue)}</title></circle>)}
+    {ticks.map(at=><g key={at}><line x1={95+(at-start)/span*670} x2={95+(at-start)/span*670} y1="175" y2="180" stroke="#94a3b8"/><text x={95+(at-start)/span*670} y="202" textAnchor="middle" fontSize="11" fill="#475569">{tickLabel.format(new Date(at))}</text></g>)}
+    <text x="430" y="226" textAnchor="middle" fontSize="10" fill="#64748b">Order creation date · PHT · Only recorded sales dates are plotted</text>
+  </svg></div>;
 }
 
 export default function AdminDashboard() {
-  const [lowStock, setLowStock] = useState([]);
-  const [recentOrders, setRecentOrders] = useState([]);
-  const [totals, setTotals] = useState({ monthlySales: 0, monthlyOrders: 0 });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [orders, setOrders] = useState([]);
-  const [salesPeriod, setSalesPeriod] = useState('year');
-  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
-  const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1));
-
-  useEffect(() => {
-    let mounted = true;
-    apiDashboard()
-      .then((data) => {
-        if (!mounted) return;
-        setLowStock(Array.isArray(data.lowStock) ? data.lowStock : []);
-        setRecentOrders(Array.isArray(data.recentOrders) ? data.recentOrders : []);
-        setTotals({ monthlySales: Number(data.totals?.monthlySales) || 0, monthlyOrders: Number(data.totals?.monthlyOrders) || 0 });
-        setError('');
-      })
-      .catch((err) => { if (mounted) setError(err.message || 'Failed to load dashboard'); })
-      .finally(() => { if (mounted) setLoading(false); });
-    return () => { mounted = false; };
-  }, []);
-
-  useEffect(() => {
-    apiAdminOrders()
-      .then((data) => setOrders(Array.isArray(data) ? data.filter(Boolean) : []))
-      .catch(() => setOrders([]));
-  }, []);
-
-  const availableYears = useMemo(() => {
-    const years = new Set(orders.filter((order) => order?.status === 'Delivered').map((order) => {
-      const date = new Date(order.createdAt || order.created_at);
-      return Number.isNaN(date.getTime()) ? null : String(date.getFullYear());
-    }).filter(Boolean));
-    years.add(String(new Date().getFullYear()));
-    return [...years].sort((first, second) => Number(second) - Number(first));
-  }, [orders]);
-
-  const periodSales = useMemo(() => {
-    const totals = new Map();
-    orders.filter((order) => order?.status === 'Delivered').forEach((order) => {
-      const date = new Date(order.createdAt || order.created_at);
-      if (Number.isNaN(date.getTime()) || String(date.getFullYear()) !== selectedYear) return;
-      if (salesPeriod === 'month' && String(date.getMonth() + 1) !== selectedMonth) return;
-      const key = salesPeriod === 'year'
-        ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-        : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      const label = salesPeriod === 'year' ? date.toLocaleDateString([], { month: 'short' }) : date.toLocaleDateString([], { day: 'numeric' });
-      const entry = totals.get(key) || { label, value: 0 };
-      entry.value += Number(order.totalAmount || order.total_amount) || 0;
-      totals.set(key, entry);
-    });
-    return [...totals.entries()].sort(([first], [second]) => first.localeCompare(second)).map(([, entry]) => entry);
-  }, [orders, salesPeriod, selectedMonth, selectedYear]);
-
-  const bestSellerSeries = useMemo(() => {
-    const grouped = new Map();
-    orders.filter((order) => order?.status === 'Delivered').forEach((order) => {
-      const date = new Date(order.createdAt || order.created_at);
-      if (Number.isNaN(date.getTime()) || String(date.getFullYear()) !== selectedYear) return;
-      if (salesPeriod === 'month' && String(date.getMonth() + 1) !== selectedMonth) return;
-      const key = salesPeriod === 'year'
-        ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-        : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      const entry = grouped.get(key) || { label: salesPeriod === 'year' ? date.toLocaleDateString([], { month: 'short' }) : date.toLocaleDateString([], { day: 'numeric' }), products: new Map() };
-      (Array.isArray(order.items) ? order.items : []).forEach((item) => {
-        if (!item) return;
-        const name = String(item.productName || item.product_name || 'Unknown product');
-        entry.products.set(name, (entry.products.get(name) || 0) + (Number(item.qty) || 0));
-      });
-      grouped.set(key, entry);
-    });
-    return [...grouped.entries()].sort(([first], [second]) => first.localeCompare(second)).map(([, entry]) => {
-      const best = [...entry.products.entries()].sort(([, first], [, second]) => second - first)[0];
-      return { label: entry.label, product: best?.[0] || 'No sales', value: best?.[1] || 0 };
-    });
-  }, [orders, salesPeriod, selectedMonth, selectedYear]);
-
-  const salesMax = Math.max(...periodSales.map((item) => item.value), 1);
-  const salesPoints = periodSales.map((item, index) => ({ ...item, x: 12 + (index / Math.max(periodSales.length - 1, 1)) * 376, y: 102 - (item.value / salesMax) * 78 }));
-  const bestMax = Math.max(...bestSellerSeries.map((item) => item.value), 1);
-  const bestPoints = bestSellerSeries.map((item, index) => ({ ...item, x: 12 + (index / Math.max(bestSellerSeries.length - 1, 1)) * 376, y: 102 - (item.value / bestMax) * 78 }));
-  const salesPath = salesPoints.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
-  const bestPath = bestPoints.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
-  const averageOrder = totals.monthlyOrders ? totals.monthlySales / totals.monthlyOrders : 0;
-  const lowStockUnits = lowStock.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
-
-  const stats = [
-    { label: 'Monthly sales', value: formatCurrency(totals.monthlySales), note: 'Revenue this month', icon: <TrendingUp size={20} />, tone: 'bg-emerald-100 text-emerald-700' },
-    { label: 'Monthly orders', value: totals.monthlyOrders, note: 'Orders received', icon: <ShoppingBag size={20} />, tone: 'bg-blue-100 text-blue-700' },
-    { label: 'Average order', value: formatCurrency(averageOrder), note: 'Per transaction', icon: <ReceiptText size={20} />, tone: 'bg-violet-100 text-violet-700' },
-    { label: 'Low-stock units', value: lowStockUnits, note: `${lowStock.length} tag${lowStock.length === 1 ? '' : 's'} need attention`, icon: <PackageCheck size={20} />, tone: 'bg-amber-100 text-amber-700' },
-  ];
-
-  return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <header>
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Business overview</p>
-        <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">Dashboard</h1>
-        <p className="mt-2 text-sm text-slate-500">A quick look at sales, orders, and inventory health.</p>
-      </header>
-
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map(({ label, value, note, icon, tone }) => (
-          <article key={label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</p><p className="mt-3 text-2xl font-bold tracking-tight text-slate-900">{loading ? '—' : value}</p></div><span className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}>{icon}</span></div>
-            <p className="mt-2 text-xs text-slate-500">{note}</p>
-          </article>
-        ))}
-      </section>
-
-      <div className="grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            <p className="text-sm font-bold text-slate-900">Sales reports</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <select value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)} className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700">
-                {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
-              </select>
-              {salesPeriod === 'month' ? <select value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700">{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={String(index + 1)}>{new Date(2000, index, 1).toLocaleDateString([], { month: 'long' })}</option>)}</select> : null}
-              <div className="flex rounded-lg bg-slate-100 p-1">{['month', 'year'].map((period) => <button key={period} type="button" onClick={() => setSalesPeriod(period)} className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize ${salesPeriod === period ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500'}`}>{period}</button>)}</div>
-            </div>
-          </div>
-
-          {[
-            { title: 'Sales performance', subtitle: 'Revenue by selected period', points: salesPoints, path: salesPath, max: salesMax, format: formatCurrency, gradient: 'dashboardRevenueGradient' },
-            { title: 'Best-selling product', subtitle: 'Top product units by selected period', points: bestPoints, path: bestPath, max: bestMax, format: (value) => `${value} sold`, gradient: 'dashboardBestSellerGradient' },
-          ].map((chart) => (
-            <section key={chart.title} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div><h2 className="text-lg font-bold text-slate-900">{chart.title}</h2><p className="mt-1 text-sm text-slate-500">{chart.subtitle}</p></div>
-              <div className="mt-6 h-64 w-full">
-                {loading ? <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading sales data...</div> : chart.points.length === 0 ? <div className="flex h-full items-center justify-center text-sm text-slate-400">No delivered sales data available.</div> : (
-                  <svg viewBox="0 0 400 150" className="h-full w-full overflow-visible" preserveAspectRatio="none" role="img" aria-label={chart.title}>
-                    <defs><linearGradient id={chart.gradient} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#1f5a43" stopOpacity="0.25" /><stop offset="100%" stopColor="#1f5a43" stopOpacity="0.02" /></linearGradient></defs>
-                    {[24, 50, 76, 102].map((y) => <line key={y} x1="12" x2="388" y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="3 4" />)}
-                    <path d={`${chart.path} L ${chart.points.at(-1)?.x || 388} 110 L ${chart.points[0]?.x || 12} 110 Z`} fill={`url(#${chart.gradient})`} />
-                    <path d={chart.path} fill="none" stroke="#1f5a43" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-                    {chart.points.map((point, index) => <g key={`${point.label}-${point.product || index}`}><circle cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#1f5a43" strokeWidth="2.5" vectorEffect="non-scaling-stroke" /><text x={point.x} y="135" textAnchor="middle" fill="#64748b" fontSize="9">{point.label}</text></g>)}
-                  </svg>
-                )}
-              </div>
-              <div className="mt-1 flex items-center justify-between border-t border-slate-100 pt-4"><p className="text-xs text-slate-500">Highest value in this period</p><p className="text-sm font-bold text-emerald-700">{chart.format(chart.max === 1 && chart.points.every((item) => !Number(item.value)) ? 0 : chart.max)}</p></div>
-            </section>
-          ))}
-        </div>
-
-        <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700"><AlertTriangle size={20} /></span><div><h2 className="text-lg font-bold text-slate-900">Stock alerts</h2><p className="mt-1 text-sm text-slate-500">Tags at or below five units</p></div></div>
-          {lowStock.length === 0 ? <div className="mt-6 rounded-2xl bg-emerald-50 p-5 text-center"><PackageCheck className="mx-auto text-emerald-600" size={26} /><p className="mt-2 text-sm font-semibold text-emerald-800">Stock levels look healthy</p></div> : (
-            <div className="mt-5 space-y-3">{lowStock.map((item, index) => <div key={item.tag_key || index} className="rounded-2xl border border-slate-100 bg-slate-50 p-4"><div className="flex items-center justify-between gap-3"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${tagStyles[item.tag_key] || tagStyles.unassigned}`}>{item.tag_label || 'Unassigned'}</span><span className="text-lg font-bold text-slate-900">{item.qty}</span></div><div className="mt-2 flex items-center justify-between text-xs text-slate-500"><span>{item.product_count} product{Number(item.product_count) === 1 ? '' : 's'}</span><span>units left</span></div></div>)}</div>
-          )}
-        </aside>
+  const today=manilaDate(new Date());
+  const [filters,setFilters]=useState({period:'month',year:today.slice(0,4),month:today.slice(5,7)});
+  const [data,setData]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [showAttention,setShowAttention]=useState(false);
+  const refresher=useRef(null);
+  useEffect(()=>{
+    const lifecycle=dashboardRefresh({load:signal=>apiDashboard(filters,signal),onBusy:setBusy,
+      onSuccess:result=>{setData(result);setError('');},onError:err=>setError(err.message||'Refresh failed. Previous data is shown.')});
+    refresher.current=lifecycle;
+    return ()=>{lifecycle.dispose();refresher.current=null;};
+  },[filters]);
+  const totals=data?.totals;
+  const years=[...new Set([Number(today.slice(0,4)),Number(filters.year),...(data?.years||[])])].sort((a,b)=>b-a);
+  return <div className="mx-auto min-w-0 max-w-7xl space-y-4">
+    <header><p className="text-xs font-semibold uppercase tracking-[.2em] text-emerald-700">Business Overview</p><div className="mt-1 flex items-center justify-between gap-4"><h1 className="min-w-0 text-2xl font-bold text-slate-900">Dashboard</h1><div className="flex shrink-0 items-center gap-2"><button className={button} disabled={busy} onClick={()=>refresher.current?.refresh()}><RefreshCw size={14} className={busy?'animate-spin':''}/><span className="hidden sm:inline">Refresh</span><span className="sr-only sm:hidden">Refresh Dashboard</span></button><NotificationBell/></div></div><p className="mt-2 text-sm text-slate-500">A quick overview of sales, orders, and inventory health.</p></header>
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><p aria-live="polite">{data?`Last updated: ${time(data.generatedAt)}`:busy?'Loading dashboard…':'No dashboard data loaded.'}{busy&&data?' · Refreshing…':''}</p><p>Automatically refreshes every 60 seconds while visible.</p></div>
+    {error&&<p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{error} {data?'Last successfully loaded data is retained.':''} <button className="underline" disabled={busy} onClick={()=>refresher.current?.refresh()}>Retry</button></p>}
+    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Business summary" aria-busy={busy}>
+      {[[TrendingUp,'Monthly Sales',totals?money(totals.monthlySales):'—','Delivered + verified Paid · current-month creation cohort'],[ShoppingBag,'Monthly Orders',totals?.monthlyOrders??'—','Distinct placed orders · includes cancelled'],[ReceiptText,'Average Order Value',totals?money(totals.averageOrderValue):'—',`${totals?.qualifyingOrders??'—'} qualifying sales orders · same revenue basis`],[AlertTriangle,'Needs Attention',totals?.needsAttention??'—',`${totals?.needsAttention??'—'} distinct items requiring attention`]].map(([icon,label,value,note])=><article key={label} className={`${panel} flex gap-3 p-4`}><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${label==='Needs Attention'&&totals?.needsAttention?'bg-amber-50 text-amber-700':'bg-emerald-50 text-emerald-700'}`}>{createElement(icon,{size:18})}</span><div><h2 className="text-xs font-semibold text-slate-600">{label}</h2>{label==='Needs Attention'?<button className="mt-1 text-2xl font-bold text-emerald-900 underline-offset-4 hover:underline" disabled={!data} onClick={()=>setShowAttention(v=>!v)} aria-expanded={showAttention} aria-controls="dashboard-attention">{value}</button>:<p className="mt-1 text-2xl font-bold text-emerald-900">{value}</p>}<p className="mt-1 text-xs leading-4 text-slate-500">{note}</p></div></article>)}
+    </section>
+    {data&&<>
+      <details id="dashboard-attention" open={showAttention} onToggle={e=>setShowAttention(e.currentTarget.open)} className={`${panel} p-4`}><summary className="cursor-pointer text-sm font-semibold text-slate-900">Attention details · {data.attention.inventoryCount} inventory records · {data.attention.orderCount} orders</summary><p className="mt-2 text-xs text-slate-500">Each affected batch counts once; its parent stock warning is included with that batch. Products without affected batches count once. Each order counts once even with multiple reasons.</p><a href="#dashboard-stock-alerts" className="mt-2 inline-block text-xs text-emerald-800 underline">Review inventory categories and affected batches below</a><div className="mt-3 grid gap-2 md:grid-cols-2">{data.attention.orders.map(o=><Link key={o.id} className="rounded-lg border border-slate-200 p-3 text-sm text-emerald-900 hover:bg-emerald-50" to={`/admin/orders?orderId=${o.id}`}>Order #{o.id}<span className="mt-1 block text-xs text-slate-500">{o.reasons.join(' · ')}</span></Link>)}</div>{data.attention.orderCount>data.attention.orders.length&&<Link className="mt-2 block text-xs text-emerald-800 underline" to="/admin/orders">View all {data.attention.orderCount} actionable orders in Orders</Link>}{!totals.needsAttention&&<p className="mt-3 text-sm text-slate-500">No issues requiring attention.</p>}</details>
+      <section className={panel}><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4"><div><h2 className="font-semibold text-slate-900">Sales Performance</h2><p className="mt-1 text-xs text-slate-500">Loaded period: {data.chart.from} through {data.chart.to} · PHT</p></div><div className="flex flex-wrap gap-2"><label className="text-xs text-slate-500">Period<select className="ml-2 rounded-lg border border-slate-200 p-2 text-sm" value={filters.period} onChange={e=>setFilters({...filters,period:e.target.value})}><option value="month">Month</option><option value="year">Year</option></select></label><label className="text-xs text-slate-500">Year<select className="ml-2 rounded-lg border border-slate-200 p-2 text-sm" value={filters.year} onChange={e=>setFilters({...filters,year:e.target.value})}>{years.map(y=><option key={y}>{y}</option>)}</select></label>{filters.period==='month'&&<label className="text-xs text-slate-500">Month<select className="ml-2 rounded-lg border border-slate-200 p-2 text-sm" value={Number(filters.month)} onChange={e=>setFilters({...filters,month:e.target.value})}>{Array.from({length:12},(_,i)=><option key={i} value={i+1}>{new Date(2000,i,1).toLocaleString('en-PH',{month:'short'})}</option>)}</select></label>}</div></div><SalesChart data={data}/></section>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className={panel}><div className="flex items-center justify-between gap-3 border-b border-slate-100 p-4"><h2 className="font-semibold text-slate-900">Top 5 Best-Selling Products</h2><Link to="/admin/reports" className="text-xs text-emerald-800 underline">View Full Report</Link></div><p className="px-4 pt-3 text-xs text-slate-500">Selected chart period · historical item prices · plants, lettuce packs and supply selling units labeled separately</p><ol className="divide-y divide-slate-100">{data.topProducts.map(p=><li key={`${p.rank}-${p.product}`} className="flex items-center gap-3 p-4 text-sm"><span className="text-xs text-slate-500">{p.rank}</span><div className="min-w-0 flex-1"><p className="font-medium text-slate-900">{p.product}{p.type==='succulent'?` · ${p.tag}`:''}</p><p className="mt-1 text-xs text-slate-500">{p.type} · {p.quantity} {p.unit}</p></div><span className="shrink-0 text-xs font-medium text-emerald-900">{money(p.revenue)}</span></li>)}</ol>{!data.topProducts.length&&<p className="p-6 text-sm text-slate-500">No sales data available for this period.</p>}</section>
+        <section id="dashboard-stock-alerts" className={panel}><div className="flex items-center justify-between border-b border-slate-100 p-4"><h2 className="font-semibold text-slate-900">Stock &amp; Harvest Alerts</h2><Link to="/admin/inventory" className="text-xs text-emerald-800 underline">View Inventory</Link></div><div className="max-h-80 overflow-y-auto divide-y divide-slate-100">{data.attention.inventory.map(i=><article key={i.productId} className="p-4 text-sm"><Link className="font-medium text-emerald-900 underline underline-offset-2" to={stockLink(i.productId)}>{i.product} · {i.productCode}</Link>{i.type==='edible'&&i.stock<=i.threshold&&<p className="mt-1 text-xs text-amber-800">{i.stock} sellable 400g packs available. Minimum threshold: {i.threshold} packs.</p>}{i.reasons.length>0&&<p className="mt-1 text-xs text-amber-800">{i.reasons.join(' · ')}</p>}{i.batches.map(b=><Link key={b.id} className="mt-2 block rounded-lg bg-amber-50 p-2 text-xs text-amber-900 underline" to={stockLink(i.productId,b.id)}>{b.code} · {b.status} · {b.physical} physical packs</Link>)}</article>)}</div>{!data.attention.inventory.length&&<p className="p-6 text-sm text-slate-500">No inventory issues requiring attention.</p>}{data.attention.inventoryProducts>data.attention.inventory.length&&<p className="p-3 text-xs text-slate-500">Showing {data.attention.inventory.length} of {data.attention.inventoryProducts} affected products. View Inventory for all issues.</p>}</section>
       </div>
-
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5"><div><h2 className="text-lg font-bold text-slate-900">Recent orders</h2><p className="mt-1 text-sm text-slate-500">Latest customer transactions</p></div><ArrowUpRight size={19} className="text-slate-400" /></div>
-        {recentOrders.length === 0 ? <div className="p-12 text-center"><ReceiptText className="mx-auto text-slate-300" size={30} /><p className="mt-3 text-sm font-semibold text-slate-700">No recent orders</p><p className="mt-1 text-xs text-slate-500">New orders will appear here.</p></div> : (
-          <>
-            <div className="divide-y divide-slate-100 md:hidden">{recentOrders.map((order) => <article key={order.id} className="p-5"><div className="flex items-start justify-between"><div><p className="font-semibold text-slate-900">{order.customer}</p><p className="mt-1 text-xs text-slate-500">Order #{String(order.id).replace('#', '')} · {new Date(order.date).toLocaleDateString()}</p></div><p className="font-bold text-slate-900">{formatCurrency(order.total)}</p></div><span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusStyles[String(order.status).toLowerCase()] || 'bg-slate-50 text-slate-700 ring-slate-200'}`}>{order.status}</span></article>)}</div>
-            <div className="hidden overflow-x-auto md:block"><table className="w-full text-left text-sm"><thead><tr className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><th className="px-6 py-4 font-semibold">Order</th><th className="px-6 py-4 font-semibold">Customer</th><th className="px-6 py-4 font-semibold">Date</th><th className="px-6 py-4 font-semibold">Status</th><th className="px-6 py-4 text-right font-semibold">Total</th></tr></thead><tbody className="divide-y divide-slate-100">{recentOrders.map((order) => <tr key={order.id} className="transition hover:bg-slate-50"><td className="px-6 py-4 font-semibold text-slate-800">#{String(order.id).replace('#', '')}</td><td className="px-6 py-4 text-slate-700">{order.customer}</td><td className="px-6 py-4 text-slate-500">{new Date(order.date).toLocaleDateString()}</td><td className="px-6 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusStyles[String(order.status).toLowerCase()] || 'bg-slate-50 text-slate-700 ring-slate-200'}`}>{order.status}</span></td><td className="px-6 py-4 text-right font-bold text-slate-900">{formatCurrency(order.total)}</td></tr>)}</tbody></table></div>
-          </>
-        )}
-      </section>
-    </div>
-  );
+      <section className={panel}><div className="flex items-center justify-between border-b border-slate-100 p-4"><h2 className="font-semibold text-slate-900">Recent Orders</h2><Link className="text-xs text-emerald-800 underline" to="/admin/orders">View All Orders</Link></div><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-600"><tr>{['Order ID','Customer','Order Date (PHT)','Order Status','Total Amount','Action'].map(h=><th scope="col" key={h} className="px-4 py-3">{h}</th>)}</tr></thead><tbody>{data.recentOrders.map(o=><tr key={o.id} className="border-t border-slate-100"><td className="px-4 py-3 font-medium">{o.code}</td><td className="px-4 py-3">{o.customer}</td><td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">{time(o.date)}</td><td className="px-4 py-3"><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs ${badge(o.status)}`}>{o.status}</span></td><td className="whitespace-nowrap px-4 py-3">{money(o.total)}</td><td className="whitespace-nowrap px-4 py-3"><Link className="text-emerald-800 underline" to={`/admin/orders?orderId=${o.id}`}>View Order<span className="sr-only"> {o.code}</span></Link></td></tr>)}</tbody></table></div>{!data.recentOrders.length&&<p className="p-6 text-sm text-slate-500">No recent orders.</p>}</section>
+      <details className={`${panel} p-4 text-xs text-slate-500`}><summary className="cursor-pointer font-medium text-emerald-900">Calculation definitions</summary><p className="mt-2">Monthly cards: {data.month.from} through {data.month.to}, Philippine Time. Average Order Value = recognized sales / qualifying sales orders; zero when no qualifying orders exist. Chart selection affects the sales chart and Top 5, while monthly cards remain current-month metrics. Stock alerts are current.</p>{data.notes.map(n=><p className="mt-2" key={n}>{n}</p>)}</details>
+    </>}
+  </div>;
 }

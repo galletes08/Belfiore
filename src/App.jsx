@@ -1,3 +1,5 @@
+import {cartLineId} from '../shared/cartIdentity';
+import {flyToCart} from './utils/flyToCart';
 import { Component, lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter as Router, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { CheckCircle2, X } from "lucide-react";
@@ -27,6 +29,8 @@ const ProductDetail = lazy(() => import("./components/Pages/ProductDetail"));
 const CheckoutPage = lazy(() => import("./components/Pages/CheckoutPage"));
 const Login = lazy(() => import("./components/Signup/Login"));
 const Signup = lazy(() => import("./components/Signup/Signup"));
+const VerificationPending = lazy(() => import('./components/Signup/VerificationPending'));
+const PolicyPage = lazy(() => import('./components/Signup/PolicyPage'));
 const VerifyEmail = lazy(() => import("./components/Signup/VerifyEmail"));
 const ForgotPassword = lazy(() => import("./components/Signup/ForgotPassword"));
 const UserDashboard = lazy(() => import("./components/Signup/UserDashboard"));
@@ -39,6 +43,8 @@ const AdminCustomers = lazy(() => import("./admin/AdminCustomers"));
 const AdminInventory = lazy(() => import("./admin/AdminInventory"));
 const AdminLayout = lazy(() => import("./admin/AdminLayout"));
 const AdminLogin = lazy(() => import("./admin/AdminLogin"));
+const RiderPasswordChange = lazy(() => import("./rider/RiderPasswordChange"));
+const PasswordRecovery = lazy(() => import("./admin/PasswordRecovery"));
 const AdminOrders = lazy(() => import("./admin/AdminOrders"));
 const AdminReports = lazy(() => import("./admin/AdminReports"));
 const AdminLogs = lazy(() => import("./admin/AdminLogs"));
@@ -105,7 +111,9 @@ function App() {
     };
   }, []);
 
-  const handleAddToCart = (product, quantity = 1) => {
+  const handleAddToCart = (product, quantity = 1, source = null) => {
+    if(product.inventoryType==='GARDENING_SUPPLY'&&(!product.variantId||product.stock<=0)){window.location.assign('/product/'+product.id);return false;}
+    if(isLettuceProduct(product)&&!product.batchId) {window.location.assign('/product/'+product.id);return false;}
     if (!hasAuthenticatedCustomer()) {
       window.location.assign("/login");
       return false;
@@ -115,22 +123,24 @@ function App() {
     const productPrice = parsePrice(product.price);
     const resolvedImage = product.image && product.image !== "#" ? product.image : getImageUrl(product.imageUrl);
     const productImage = resolvedImage || plantsImage;
-    const allowsMultipleQuantity = isLettuceProduct(product);
+    const allowsMultipleQuantity = isLettuceProduct(product)||product.inventoryType==='GARDENING_SUPPLY';
     const availableStock = Number(product.stock);
     const requestedQuantity = allowsMultipleQuantity ? safeQuantity : 1;
+    const cartId=cartLineId(product);
     const cartQuantity =
       allowsMultipleQuantity && Number.isFinite(availableStock) && availableStock > 0
         ? Math.min(requestedQuantity, availableStock)
         : requestedQuantity;
 
     setCartItems((previous) => {
-      const existingItem = previous.find((item) => item.id === product.id);
+      const existingItem = previous.find((item) => item.id === cartId);
 
       if (existingItem) {
         return previous.map((item) =>
-          item.id === product.id
+          item.id === cartId
             ? {
                 ...item,
+                price:productPrice,stock:product.stock,
                 qty: allowsMultipleQuantity
                   ? Number.isFinite(availableStock) && availableStock > 0
                     ? Math.min(item.qty + cartQuantity, availableStock)
@@ -145,8 +155,9 @@ function App() {
       return [
         ...previous,
         {
-          id: product.id,
-          name: product.name,
+          id: cartId,
+          productId:product.id,variantId:product.variantId||null,variantName:product.variantName,variantSku:product.variantSku,sellingUnit:product.sellingUnit,piecesPerUnit:product.piecesPerUnit,weightKg:product.weightKg,batchId:product.batchId||null,batchCode:product.batchCode||'',inventoryType:product.inventoryType,
+          name: product.variantId?`${product.name} - ${product.variantName} (${product.sellingUnit})`:product.name,
           price: productPrice,
           qty: cartQuantity,
           stock: product.stock,
@@ -158,6 +169,8 @@ function App() {
         }
       ];
     });
+    flyToCart(source,productImage);
+    return true;
   };
 
   const handleIncreaseQty = (itemId) => {
@@ -234,7 +247,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/signup" element={<Signup />} />
-          <Route path="/verify-email" element={<VerifyEmail />} />
+          <Route path="/verification-pending" element={<VerificationPending/>}/><Route path="/terms" element={<PolicyPage kind="Terms of Service"/>}/><Route path="/privacy" element={<PolicyPage kind="Privacy Notice"/>}/><Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/products" element={<Products onAddToCart={handleAddToCart} />} />
           <Route path="/product/:id" element={<ProductDetail onAddToCart={handleAddToCart} />} />
@@ -256,7 +269,10 @@ function App() {
         </Route>
 
         <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/forgot-password" element={<PasswordRecovery />} />
+        <Route path="/reset-password" element={<PasswordRecovery />} />
         <Route path="/rider/login" element={<AdminLogin />} />
+        <Route path="/rider/change-password" element={<RiderProtectedRoute><RiderPasswordChange/></RiderProtectedRoute>} />
         <Route path="/driver/:token" element={<DriverOrderPage />} />
         <Route
           path="/rider"

@@ -210,7 +210,7 @@ export default function RiderProfilePage() {
         </article>
         <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Availability</p>
-          <p className="mt-2 text-xl font-bold tracking-tight sm:mt-3 sm:text-2xl text-emerald-700">{profile.isAvailable ? 'Available' : 'Busy'}</p>
+          <p className="mt-2 text-xl font-bold tracking-tight sm:mt-3 sm:text-2xl text-emerald-700">{profile.availability || 'Offline'}</p>
         </article>
       </section>
       {loadStatus === 'loading' ? (
@@ -250,11 +250,10 @@ export default function RiderProfilePage() {
               />
               <Field
                 icon={Mail}
-                label="Email"
+                 label="Email (optional)"
                 type="email"
                 value={profile.email}
                 onChange={(value) => updateField('email', value)}
-                required
               />
               <Field
                 icon={Phone}

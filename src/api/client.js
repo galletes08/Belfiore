@@ -1,7 +1,5 @@
-import { getSupabaseConfig, isSupabaseConfigured } from "../lib/supabase";
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const USE_SUPABASE_PRODUCTS = String(import.meta.env.VITE_USE_SUPABASE_PRODUCTS || '').toLowerCase() === 'true';
 const STORAGE_KEYS = {
   adminToken: 'adminToken',
   adminUser: 'adminUser',
@@ -23,7 +21,14 @@ function getToken() {
 }
 
 function getCustomerToken() {
-  return localStorage.getItem(STORAGE_KEYS.customerToken);
+  const token=localStorage.getItem(STORAGE_KEYS.customerToken);
+  if(!token)return null;
+  try {
+    const payload=JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+    if(payload.role==='customer'&&Number(payload.exp)*1000>Date.now())return token;
+  }catch { /* Discard malformed or incompatible legacy sessions. */ }
+  clearCustomerToken();
+  return null;
 }
 
 function getRiderToken() {
@@ -35,6 +40,21 @@ function getAuthHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+export async function apiAdminReport(filters, signal) {
+  const res=await fetch(`${API_URL}/api/admin/reports?${new URLSearchParams(filters)}`,{headers:getAuthHeader(),signal});
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error||'Unable to load reports');
+  return data;
+}
+export async function apiExportReport(filters,format) {
+  const res=await fetch(`${API_URL}/api/admin/reports/export?${new URLSearchParams({...filters,format})}`,{headers:getAuthHeader()});
+  if(!res.ok) {const data=await res.json().catch(()=>({}));throw new Error(data.error||'Unable to export report');}
+  const url=URL.createObjectURL(await res.blob());
+  const link=document.createElement('a');link.href=url;
+  link.download=res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1]||`Belfiore-report.${format}`;
+  document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
 function getCustomerAuthHeader() {
   const token = getCustomerToken();
   return token ? { Authorization: 'Bearer ' + token } : {};
@@ -44,55 +64,36 @@ function getRiderAuthHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function normalizeProductRow(row) {
-  return {
-    id: row.id,
-    category: row.category || '',
-    name: row.name,
-    tag: row.tag || '',
-    price: Number(row.price || 0),
-    stock: Number(row.stock || 0),
-    description: row.description || '',
-    imageUrl: row.image_url || '',
-    createdAt: row.created_at || null,
-    updatedAt: row.updated_at || null,
-  };
-}
-
-async function fetchSupabaseProducts() {
-  if (!isSupabaseConfigured()) return null;
-
-  const { url, anonKey } = getSupabaseConfig();
-  const endpoint = new URL('/rest/v1/products', url);
-  endpoint.searchParams.set('select', 'id,category,name,tag,stock,price,description,image_url,created_at,updated_at');
-  endpoint.searchParams.set('order', 'id.desc');
-
-  const res = await fetch(endpoint.toString(), {
-    headers: {
-      apikey: anonKey,
-      Authorization: `Bearer ${anonKey}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  const data = await res.json().catch(() => ([]));
-  if (!res.ok) {
-    const message = Array.isArray(data) ? 'Failed to load products' : (data.message || data.error || 'Failed to load products');
-    throw new Error(message);
-  }
-
-  return Array.isArray(data) ? data.map(normalizeProductRow) : [];
-}
-
-export async function apiLogin(email, password) {
+export async function apiLogin(email, password, workspace,loginContext) {
   const res = await fetch(`${API_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(workspace==='staff'?{identifier:email,password,workspace,loginContext}:{email,password}),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Login failed');
+  const roles=workspace==='staff'?['admin','rider']:['customer'];
+  if(!data.token||!roles.includes(data.user?.role)) {
+    if(workspace!=='staff')clearCustomerToken();
+    throw new Error('Invalid email or password.');
+  }
   return data;
+}
+
+export async function apiPasswordRecovery(path,body) {
+  const res=await fetch(`${API_URL}/api/auth/${path}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok)throw new Error(data.error||'Unable to process this request. Please try again.');
+  return data;
+}
+
+export async function apiResetRiderPassword(id,body) {
+  const res=await fetch(`${API_URL}/api/admin/riders/${id}/reset-password`,{method:'POST',headers:{...getAuthHeader(),'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const data=await res.json().catch(()=>({}));if(!res.ok)throw new Error(data.error||'Unable to reset rider credentials');return data;
+}
+export async function apiChangeRiderPassword(currentPassword,newPassword) {
+  const res=await fetch(`${API_URL}/api/auth/password`,{method:'PATCH',headers:{...getRiderAuthHeader(),'Content-Type':'application/json'},body:JSON.stringify({currentPassword,newPassword})});
+  const data=await res.json().catch(()=>({}));if(!res.ok)throw new Error(data.error||'Unable to change password');return data;
 }
 
 export async function apiRegister(payload) {
@@ -102,12 +103,12 @@ export async function apiRegister(payload) {
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Registration failed');
+  if (!res.ok) {const error=new Error(data.error || 'Registration failed');error.fields=data.errors;throw error;}
   return data;
 }
 
 export async function apiVerifyEmail(token) {
-  const res = await fetch(`${API_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`);
+  const res = await fetch(`${API_URL}/api/auth/verify-email`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Email verification failed');
   return data;
@@ -141,17 +142,6 @@ export async function apiChangePassword(currentPassword, newPassword) {
   return data;
 }
 export async function apiProducts() {
-  if (USE_SUPABASE_PRODUCTS) {
-    try {
-      const supabaseProducts = await fetchSupabaseProducts();
-      if (supabaseProducts) {
-        return supabaseProducts;
-      }
-    } catch (error) {
-      console.warn('Supabase products lookup failed, falling back to API:', error);
-    }
-  }
-
   const res = await fetch(`${API_URL}/api/products`, {
     headers: getAuthHeader(),
   });
@@ -160,11 +150,12 @@ export async function apiProducts() {
   return data;
 }
 
-export async function apiCreateProduct(payload) {
+export async function apiCreateProduct(payload, options = {}) {
+  if (payload instanceof FormData && options.onProgress) return uploadProduct('/api/products', payload, options);
   const isFormData = payload instanceof FormData;
   const res = await fetch(`${API_URL}/api/products`, {
     method: 'POST',
-    headers: isFormData ? getAuthHeader() : { 'Content-Type': 'application/json', ...getAuthHeader() },
+    headers: isFormData ? { ...getAuthHeader(), ...(options.requestKey ? { 'Idempotency-Key': options.requestKey } : {}) } : { 'Content-Type': 'application/json', ...getAuthHeader() },
     body: isFormData ? payload : JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
@@ -172,10 +163,33 @@ export async function apiCreateProduct(payload) {
   return data;
 }
 
-export async function apiCreateProductsBulk(payload) {
+function uploadProduct(path, payload, { requestKey, onProgress }) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', API_URL + path);
+    Object.entries(getAuthHeader()).forEach(([key, value]) => xhr.setRequestHeader(key, value));
+    if (requestKey) xhr.setRequestHeader('Idempotency-Key', requestKey);
+    xhr.upload.onprogress = event => {
+      if (event.lengthComputable) onProgress?.(Math.round(event.loaded / event.total * 100));
+    };
+    xhr.onload = () => {
+      let data;
+      try { data = JSON.parse(xhr.responseText); }
+      catch { return reject(new Error('Could not confirm the upload result. Retry this unchanged submission to safely retrieve the result.')); }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(Object.assign(new Error(data.error || 'Upload failed. No products were created.'), { confirmedFailure: [400, 409, 502].includes(xhr.status) }));
+    };
+    xhr.onerror = () => reject(new Error('Connection interrupted; the result could not be confirmed. Retry this unchanged submission to avoid duplicate products.'));
+    xhr.onabort = () => reject(new Error('Upload interrupted. Retry this unchanged submission to confirm the result safely.'));
+    xhr.send(payload);
+  });
+}
+
+export async function apiCreateProductsBulk(payload, options = {}) {
+  if (options.onProgress) return uploadProduct('/api/products/bulk', payload, options);
   const res = await fetch(`${API_URL}/api/products/bulk`, {
     method: 'POST',
-    headers: getAuthHeader(),
+    headers: { ...getAuthHeader(), ...(options.requestKey ? { 'Idempotency-Key': options.requestKey } : {}) },
     body: payload,
   });
   const data = await res.json().catch(() => ({}));
@@ -206,9 +220,10 @@ export async function apiDeleteProduct(id) {
   }
 }
 
-export async function apiDashboard() {
-  const res = await fetch(`${API_URL}/api/admin/dashboard`, {
+export async function apiDashboard(filters = {}, signal) {
+  const res = await fetch(`${API_URL}/api/admin/dashboard?${new URLSearchParams(filters)}`, {
     headers: getAuthHeader(),
+    signal,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to load dashboard');
@@ -222,6 +237,28 @@ export async function apiAdminOrders() {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to load orders');
   return data;
+}
+
+export async function apiDeliveryHistory(id,page=1) {
+  const res=await fetch(`${API_URL}/api/admin/orders/${encodeURIComponent(id)}/delivery-history?page=${page}`,{headers:getAuthHeader()});
+  const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to load delivery history');return data;
+}
+
+export async function apiNotifications({page=1,limit=10}={}) {
+  const res=await fetch(`${API_URL}/api/admin/notifications?page=${page}&limit=${limit}`,{headers:getAuthHeader()});
+  const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to load notifications');return data;
+}
+export async function apiNotificationCount() {
+  const res=await fetch(`${API_URL}/api/admin/notifications/unread-count`,{headers:getAuthHeader()});
+  const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to load notifications');return data;
+}
+export async function apiReadNotification(id) {
+  const res=await fetch(`${API_URL}/api/admin/notifications/${encodeURIComponent(id)}/read`,{method:'POST',headers:getAuthHeader()});
+  const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to mark notification read');return data;
+}
+export async function apiReadAllNotifications(throughId) {
+  const res=await fetch(`${API_URL}/api/admin/notifications/read-all`,{method:'POST',headers:{...getAuthHeader(),'Content-Type':'application/json'},body:JSON.stringify({throughId})});
+  const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to mark notifications read');return data;
 }
 
 export async function apiAdminLogs(limit = 250) {
@@ -253,6 +290,12 @@ export async function apiAdminRiders() {
   return data;
 }
 
+export async function apiRiderManagement(path='manage',params={},method='GET',body) {
+  const res=await fetch(`${API_URL}/api/admin/riders/${path}?${new URLSearchParams(params)}`,{method,
+    headers:{...getAuthHeader(),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
+  const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to load or update rider data');return data;
+}
+
 export async function apiAdminCustomers() {
   const res = await fetch(`${API_URL}/api/admin/customers`, {
     headers: getAuthHeader(),
@@ -262,11 +305,26 @@ export async function apiAdminCustomers() {
   return data;
 }
 
-export async function apiUpdateCustomerStatus(id, status) {
+export async function apiCustomerManagement(path='manage',params={}) {
+  const res=await fetch(`${API_URL}/api/admin/customers/${path}?${new URLSearchParams(params)}`,{headers:getAuthHeader()});
+  const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to load customer data');return data;
+}
+
+export function customerAccountStorageKey(name){return `${name}:${getCustomerUser()?.id||'signed-out'}`;}
+export function cacheCustomerAccount(data){
+  if(data.profile)localStorage.setItem(customerAccountStorageKey('customerProfile'),JSON.stringify(data.profile));
+  if(data.addresses)localStorage.setItem(customerAccountStorageKey('customerAddresses'),JSON.stringify(data.addresses));
+}
+export async function apiCustomerAccount(path='',method='GET',body){
+  const res=await fetch(`${API_URL}/api/customer/account${path?'/'+path:''}`,{method,headers:{...getCustomerAuthHeader(),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
+  const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to load or save account data');return data;
+}
+
+export async function apiUpdateCustomerStatus(id, status, confirmation = {}) {
   const res = await fetch(`${API_URL}/api/admin/customers/${id}/status`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, ...confirmation }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to update customer status');
@@ -331,15 +389,6 @@ export async function apiConfirmCodRemittance(id) {
   return data;
 }
 
-export async function apiSyncOrderTrack123(id) {
-  const res = await fetch(`${API_URL}/api/admin/orders/${id}/track123/sync`, {
-    method: 'POST',
-    headers: getAuthHeader(),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Failed to sync Track123 tracking');
-  return data;
-}
 
 export async function apiVerifyOnlinePayment(id) {
   const res = await fetch(API_URL + '/api/orders/' + id + '/payment/verify', {
@@ -501,7 +550,7 @@ export async function apiPlaceOrder(payload) {
 }
 
 export async function apiLogisticsUpdates(id) {
-  const res = await fetch(`${API_URL}/api/orders/${id}/logistics-updates`);
+  const res = await fetch(`${API_URL}/api/orders/${id}/logistics-updates`,{headers:getCustomerAuthHeader()});
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to load logistics updates');
   return data;
@@ -521,6 +570,7 @@ export function setToken(token) {
 
 export function setCustomerToken(token) {
   localStorage.setItem(STORAGE_KEYS.customerToken, token);
+  if(!getCustomerToken())throw new Error('Please sign in with a customer account.');
   notifyCustomerSessionChanged();
 }
 
@@ -554,7 +604,9 @@ export function setCustomerUser(user) {
 }
 
 export function getCustomerUser() {
-  return getStoredValue(STORAGE_KEYS.customerUser);
+  if(!getCustomerToken())return null;
+  const user=getStoredValue(STORAGE_KEYS.customerUser);
+  return user?.role==='customer'?user:null;
 }
 
 export function setRiderUser(user) {
@@ -574,6 +626,8 @@ export function clearCustomerToken() {
   localStorage.removeItem(STORAGE_KEYS.customerToken);
   localStorage.removeItem(STORAGE_KEYS.customerUser);
   localStorage.removeItem('isLoggedIn');
+  localStorage.removeItem('customerName');
+  localStorage.removeItem('customerEmail');
   notifyCustomerSessionChanged();
 }
 
@@ -601,3 +655,36 @@ export function hasCustomerRole(role) {
 export function hasRiderRole(role) {
   return getRiderUser()?.role === role;
 }
+
+async function inventoryRequest(path, options = {}) {
+  const res = await fetch(API_URL + path, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader(), ...options.headers },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Inventory request failed');
+  return data;
+}
+export function apiInventory() { return inventoryRequest('/api/admin/inventory'); }
+export function apiInventoryHistory(params = {}) {
+  return inventoryRequest('/api/admin/inventory/history?' + new URLSearchParams(params));
+}
+export function apiAdjustStock(id, payload) {
+  const { requestKey, ...body } = payload;
+  return inventoryRequest('/api/admin/inventory/' + id + '/adjust', { method: 'POST', headers: { 'Idempotency-Key': requestKey }, body: JSON.stringify(body) });
+}
+export function apiArchiveProduct(id, payload) {
+  return inventoryRequest('/api/admin/inventory/' + id + '/archive', { method: 'POST', body: JSON.stringify(payload) });
+}
+export function apiRestoreProduct(id, payload) {
+  return inventoryRequest('/api/admin/inventory/' + id + '/restore', { method: 'POST', body: JSON.stringify(payload) });
+}
+export function apiHarvestBatches(id) {return inventoryRequest('/api/admin/inventory/'+id+'/batches');}
+export function apiHarvestAction(id,batchId,action,payload,requestKey) {
+  const path='/api/admin/inventory/'+id+'/batches'+(batchId?'/'+batchId:'')+(action==='adjust'||action==='dispose'?'/'+action:'');
+  return inventoryRequest(path,{method:action==='update'?'PATCH':'POST',headers:{'Idempotency-Key':requestKey},body:JSON.stringify(payload)});
+}
+
+export async function apiResendVerification(email){const res=await fetch(API_URL+'/api/auth/resend-verification',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});const data=await res.json().catch(()=>({}));if(!res.ok)throw new Error(data.error||'Unable to resend verification');return data;}
+
+export async function apiSupply(path='',method='GET',body){const multipart=body instanceof FormData;const response=await fetch(API_URL+'/api/admin/supplies'+(path?'/'+path:''),{method,headers:{...getAuthHeader(),...(multipart?{}:{'Content-Type':'application/json'})},...(body?{body:multipart?body:JSON.stringify(body)}:{})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to update gardening supplies');return data;}

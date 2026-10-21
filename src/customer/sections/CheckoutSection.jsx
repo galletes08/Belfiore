@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
-import { apiLocationCities, apiLocationCountries, apiLocationProvinces, getImageUrl } from '../../api/client';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { apiLocationCities, apiLocationCountries, apiLocationProvinces, apiLocationBarangays, getImageUrl, apiCustomerAccount, cacheCustomerAccount, customerAccountStorageKey, getCustomerUser } from '../../api/client';
 import {
   DEFAULT_DELIVERY_COUNTRY,
   DEFAULT_DELIVERY_COUNTRY_CODE,
@@ -8,62 +8,25 @@ import {
 } from '../../utils/deliveryLocations';
 import { getShippingQuote } from '../../utils/shipping';
 
+import {preferredAddress,addressToCheckout,checkoutToAddress,missingAddressFields} from '../../../shared/checkoutAddress';
+
 const PROFILE_STORAGE_KEY = 'customerProfile';
 
-function getSavedDefaultAddress() {
-  try {
-    const addresses = JSON.parse(localStorage.getItem('customerAddresses') || '[]');
-    if (!Array.isArray(addresses) || !addresses.length) return null;
-    return addresses.find((address) => address.isDefault) || addresses[0];
-  } catch {
-    return null;
-  }
-}
-
 function getStoredCustomerDetails() {
-  const savedAddress = getSavedDefaultAddress();
-  try {
-    const rawProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
-    const profile = rawProfile ? JSON.parse(rawProfile) : {};
-    return {
-      fullName: String(savedAddress?.name || profile?.name || localStorage.getItem('customerName') || '').trim(),
-      gmail: String(profile?.email || localStorage.getItem('customerEmail') || '').trim(),
-      mobileNumber: String(savedAddress?.phone || profile?.phone || localStorage.getItem('customerPhone') || '').trim(),
-      streetAddress: String(savedAddress?.addressLine || '').trim(),
-      barangay: String(savedAddress?.barangay || '').trim(),
-      country: DEFAULT_DELIVERY_COUNTRY,
-      countryCode: DEFAULT_DELIVERY_COUNTRY_CODE,
-      province: String(savedAddress?.province || '').trim(),
-      provinceCode: '',
-      city: String(savedAddress?.city || '').trim(),
-      zipCode: String(savedAddress?.postalCode || '').trim(),
-      landmark: String(savedAddress?.landmark || savedAddress?.deliveryInstructions || savedAddress?.instructions || '').trim(),
-      paymentMethod: 'COD',
-      customerLatitude: savedAddress?.latitude ?? savedAddress?.customerLatitude ?? null,
-      customerLongitude: savedAddress?.longitude ?? savedAddress?.customerLongitude ?? null,
-    };
-  } catch {
-    return {
-      fullName: String(savedAddress?.name || localStorage.getItem('customerName') || '').trim(),
-      gmail: String(localStorage.getItem('customerEmail') || '').trim(),
-      mobileNumber: String(savedAddress?.phone || localStorage.getItem('customerPhone') || '').trim(),
-      streetAddress: String(savedAddress?.addressLine || '').trim(),
-      barangay: String(savedAddress?.barangay || '').trim(),
-      country: DEFAULT_DELIVERY_COUNTRY,
-      countryCode: DEFAULT_DELIVERY_COUNTRY_CODE,
-      province: String(savedAddress?.province || '').trim(),
-      provinceCode: '',
-      city: String(savedAddress?.city || '').trim(),
-      zipCode: String(savedAddress?.postalCode || '').trim(),
-      landmark: String(savedAddress?.landmark || savedAddress?.deliveryInstructions || savedAddress?.instructions || '').trim(),
-      paymentMethod: 'COD',
-      customerLatitude: savedAddress?.latitude ?? savedAddress?.customerLatitude ?? null,
-      customerLongitude: savedAddress?.longitude ?? savedAddress?.customerLongitude ?? null,
-    };
-  }
+  const user=getCustomerUser()||{};let profile={};try{profile=JSON.parse(localStorage.getItem(customerAccountStorageKey(PROFILE_STORAGE_KEY))||'{}');}catch{/* Load authoritative data below. */}
+  return {fullName:profile.name||user.name||'',gmail:user.email||'',mobileNumber:profile.phone||'',...addressToCheckout(),paymentMethod:'COD'};
 }
 export default function CheckoutSection({ items, total, formatPrice, onOrderPlaced, onPlaceOrder }) {
   const [form, setForm] = useState(getStoredCustomerDetails);
+  const [addresses,setAddresses]=useState([]),[selectedAddress,setSelectedAddress]=useState(''),[accountLoading,setAccountLoading]=useState(true),[accountError,setAccountError]=useState('');
+  const [editingAddress,setEditingAddress]=useState(false),[repairFields,setRepairFields]=useState([]),[saveAddress,setSaveAddress]=useState(false),[addressLabel,setAddressLabel]=useState('Other'),[makeDefault,setMakeDefault]=useState(false),[addressNotice,setAddressNotice]=useState('');
+  const submission=useRef(null),submitting=useRef(false),initialContacts=useRef(form);
+  useEffect(()=>{
+    let active=true;apiCustomerAccount().then(data=>{if(!active)return;cacheCustomerAccount(data);setAddresses(data.addresses||[]);
+      const address=preferredAddress(data.addresses||[]);if(address){setSelectedAddress(String(address.id));setRepairFields(missingAddressFields(addressToCheckout(address)));setAddressLabel(['Home','Work','Other'].includes(address.label)?address.label:'Other');setMakeDefault(Boolean(address.isDefault));}
+      setForm(current=>({...current,fullName:current.fullName===initialContacts.current.fullName?(data.profile.name||current.fullName):current.fullName,gmail:current.gmail===initialContacts.current.gmail?(data.profile.email||current.gmail):current.gmail,mobileNumber:current.mobileNumber===initialContacts.current.mobileNumber?(data.profile.phone||address?.phone||current.mobileNumber):current.mobileNumber,...(address?addressToCheckout(address):{})}));
+    }).catch(err=>{if(active)setAccountError(err.message);}).finally(()=>{if(active)setAccountLoading(false);});return()=>{active=false;};
+  },[]);
   const [errors, setErrors] = useState({});
   const [confirmation, setConfirmation] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -95,7 +58,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
     [form.streetAddress, form.landmark, form.barangay, form.city, form.province, form.zipCode, form.country]
   );
   const countryHasProvinces = provinceOptions.length > 0;
-  const shippingQuote = useMemo(
+  const estimatedQuote = useMemo(
     () => getShippingQuote({
       country: form.country,
       province: form.province,
@@ -107,7 +70,31 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
     }),
     [form.country, form.province, form.city, form.barangay, form.zipCode, total, items]
   );
-  const orderTotal = shippingQuote.isConfirmed ? total + shippingQuote.fee : null;
+  const [serverQuote,setServerQuote]=useState(null),[quoteError,setQuoteError]=useState(''),[quoting,setQuoting]=useState(false);
+  const addressPayload=checkoutToAddress(form);
+  const quoteInput=JSON.stringify({savedAddressId:selectedAddress||undefined,deliveryAddress:addressPayload,items:items.map(i=>({id:i.productId||i.id,qty:i.qty,batchId:i.batchId||null,variantId:i.variantId||null,expectedUnitPrice:i.price}))});
+  useEffect(()=>{let active=true;setServerQuote(null);setQuoteError('');setQuoting(true);const timer=setTimeout(()=>{
+    if(accountLoading||accountError||missingAddressFields(addressToCheckout(JSON.parse(quoteInput).deliveryAddress)).length||!JSON.parse(quoteInput).items.length){if(active)setQuoting(false);return;}
+    apiCustomerAccount('checkout-quote','POST',JSON.parse(quoteInput)).then(result=>{if(active)setServerQuote({key:quoteInput,...result.quote});}).catch(err=>{if(active)setQuoteError(err.message);}).finally(()=>{if(active)setQuoting(false);});
+    },300);
+    return()=>{active=false;clearTimeout(timer);};
+  },[quoteInput,accountLoading,accountError,items.length]);
+  const confirmedQuote=serverQuote?.key===quoteInput?serverQuote:null;
+  const shippingQuote=confirmedQuote||{...estimatedQuote,isConfirmed:false,status:'Estimate',message:estimatedQuote.fee!=null?'Estimated fee: '+formatPrice(estimatedQuote.fee)+'. Validate your destination to confirm.':estimatedQuote.message};
+  const orderTotal=confirmedQuote?.totalAmount??null;
+  const showAddressForm=!selectedAddress||editingAddress||repairFields.length>0||Boolean(quoteError);
+  const repairOnly=Boolean(selectedAddress)&&!editingAddress&&repairFields.length>0&&!quoteError;
+  function chooseAddress(id){
+    const address=addresses.find(a=>String(a.id)===id);setSelectedAddress(id);setEditingAddress(false);setSaveAddress(false);setAddressNotice('');setMakeDefault(Boolean(address?.isDefault));setAddressLabel(['Home','Work','Other'].includes(address?.label)?address.label:'Other');
+    setRepairFields(address?missingAddressFields(addressToCheckout(address)):[]);
+    setForm(current=>({...current,...addressToCheckout(address),provinceCode:address?.provinceCode||provinceOptions.find(p=>p.name===address?.province)?.isoCode||''}));
+  }
+  async function saveDeliveryAddress(){
+    const path=selectedAddress?'addresses/'+encodeURIComponent(selectedAddress):'addresses';
+    const result=await apiCustomerAccount(path,selectedAddress?'PATCH':'POST',{...checkoutToAddress(form),name:form.fullName,phone:form.mobileNumber,label:addressLabel,isDefault:makeDefault});
+    cacheCustomerAccount(result);setAddresses(result.addresses);setAddressNotice('Address saved for future orders.');return result.address;
+  }
+
 
   useEffect(() => {
     let active = true;
@@ -131,7 +118,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
           const fallbackCountry =
             options.find((option) => option.isoCode === DEFAULT_DELIVERY_COUNTRY_CODE) || options[0] || null;
 
-          if (!fallbackCountry) {
+          if (prev.countryCode||!fallbackCountry) {
             return prev;
           }
 
@@ -183,12 +170,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
             return prev;
           }
 
-          return {
-            ...prev,
-            province: '',
-            provinceCode: '',
-            city: '',
-          };
+          return prev;
         });
       } catch (error) {
         if (!active) return;
@@ -231,10 +213,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
             return prev;
           }
 
-          return {
-            ...prev,
-            city: '',
-          };
+          return prev;
         });
       } catch (error) {
         if (!active) return;
@@ -259,6 +238,9 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
     };
   }, [form.countryCode, form.provinceCode, countryHasProvinces, isProvinceLoading]);
 
+  useEffect(()=>{if(!form.province||form.provinceCode)return;const match=provinceOptions.find(p=>p.name===form.province);if(match)setForm(current=>({...current,provinceCode:match.isoCode}));},[form.province,form.provinceCode,provinceOptions]);
+  const [barangayOptions,setBarangayOptions]=useState([]);
+  useEffect(()=>{let active=true;setBarangayOptions([]);if(form.countryCode==='PH'&&form.province&&form.city)apiLocationBarangays(form.countryCode,form.province,form.city).then(data=>{if(active)setBarangayOptions(data);}).catch(()=>{});return()=>{active=false;};},[form.countryCode,form.province,form.city]);
   function resolveItemImage(item) {
     return item.image || getImageUrl(item.imageUrl);
   }
@@ -277,7 +259,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
 
   function handleFieldChange(event) {
     const { name, value } = event.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((prev) => ({ ...prev, [name]: value,...(['streetAddress','barangay','zipCode'].includes(name)?{customerLatitude:null,customerLongitude:null}:{}) }));
     clearFieldErrors([name]);
   }
 
@@ -292,6 +274,8 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
       province: '',
       provinceCode: '',
       city: '',
+      barangay: '',
+      customerLatitude:null,customerLongitude:null,
       zipCode: '',
     }));
     setProvinceOptions([]);
@@ -321,7 +305,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
 
     setForm((prev) => ({
       ...prev,
-      city: nextCity,
+      city: nextCity,barangay:'',customerLatitude:null,customerLongitude:null,
     }));
     clearFieldErrors(['city']);
   }
@@ -360,6 +344,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if(submitting.current)return;
 
     if (items.length === 0) {
       setConfirmation({
@@ -373,8 +358,8 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
     if (!form.fullName.trim()) nextErrors.fullName = 'Full name is required.';
     if (!form.gmail.trim()) {
       nextErrors.gmail = 'Gmail is required.';
-    } else if (!/^[^\s@]+@gmail\.com$/i.test(form.gmail.trim())) {
-      nextErrors.gmail = 'Enter a valid Gmail address (example@gmail.com).';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.gmail.trim())) {
+      nextErrors.gmail = 'Enter a valid contact email.';
     }
     if (!form.mobileNumber.trim()) {
       nextErrors.mobileNumber = 'Mobile number is required.';
@@ -395,9 +380,12 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
+    if(accountLoading||accountError||quoting||!confirmedQuote){setConfirmation({type:'error',message:quoteError||'Wait for your delivery destination to be validated.'});return;}
     try {
-      setIsSubmitting(true);
-      const order = await onPlaceOrder({
+      submitting.current=true;setIsSubmitting(true);
+      if(saveAddress)await saveDeliveryAddress();
+      const payload={
+        savedAddressId:selectedAddress||undefined,deliveryAddress:checkoutToAddress(form),
         fullName: form.fullName.trim(),
         gmail: form.gmail.trim(),
         mobileNumber: form.mobileNumber.trim(),
@@ -411,9 +399,17 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
         customerLatitude: shippingQuote.isLocalDelivery ? form.customerLatitude ?? null : null,
         customerLongitude: shippingQuote.isLocalDelivery ? form.customerLongitude ?? null : null,
         paymentMethod: form.paymentMethod,
-        items: items.map((item) => ({ id: item.id, qty: item.qty })),
-      });
+        items: items.map((item) => ({ id: item.productId||item.id, qty: item.qty,batchId:item.batchId||null,variantId:item.variantId||null,expectedUnitPrice:item.price })),
+      };
+      const signature=JSON.stringify(payload);if(submission.current?.signature!==signature){
+        let hash=null;try{hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(signature))),b=>b.toString(16).padStart(2,'0')).join('');}catch{/* In-memory keyed retries remain supported. */}
+        let pending=null;try{pending=JSON.parse(sessionStorage.getItem(customerAccountStorageKey('pendingCheckout'))||'null');}catch{/* Storage can be unavailable. */}
+        submission.current={signature,key:hash&&pending?.hash===hash?pending.key:crypto.randomUUID()};
+        if(hash)try{sessionStorage.setItem(customerAccountStorageKey('pendingCheckout'),JSON.stringify({hash,key:submission.current.key}));}catch{/* No raw contact or address data is stored. */}
+      }
+      const order=await onPlaceOrder({...payload,checkoutRequestId:submission.current.key});
 
+      try{sessionStorage.removeItem(customerAccountStorageKey('pendingCheckout'));}catch{/* Optional browser storage. */}
       const reference = `BF-${String(order.id).padStart(6, '0')}`;
 
       if (form.paymentMethod === 'ONLINE') {
@@ -454,7 +450,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
         message: error?.message || 'Failed to place order. Please try again.',
       });
     } finally {
-      setIsSubmitting(false);
+      submitting.current=false;setIsSubmitting(false);
     }
   }
 
@@ -502,7 +498,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
 
               <div>
                 <label htmlFor="gmail" className="mb-2 block text-sm text-[#1f2f28]">
-                  Gmail
+                  Email
                 </label>
                 <input
                   id="gmail"
@@ -533,6 +529,14 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
               </div>
 
               <div className="md:col-span-2">
+                <h3 className="text-lg font-semibold text-[#0f4d2e]">Select Delivery Address</h3>
+                {accountLoading?<p role="status" className="mt-3 text-sm">Loading your saved addresses...</p>:accountError?<p role="alert" className="mt-3 text-sm text-red-700">{accountError} Refresh checkout to retry.</p>:<div className="mt-3 space-y-3">
+                  {addresses.length>0&&<label className="block text-sm">Saved address<select value={selectedAddress} onChange={e=>chooseAddress(e.target.value)} className="mt-1 w-full rounded-xl border border-[#d8dfd3] p-3"><option value="">Enter a new address</option>{[...addresses].sort((a,b)=>Number(b.isDefault)-Number(a.isDefault)).map(a=><option key={a.id} value={a.id}>{a.label||'Address'} {a.isDefault?'(Default)':''} - {a.addressLine}, {a.city}</option>)}</select></label>}
+                  {selectedAddress&&<div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm"><p className="font-semibold">{addresses.find(a=>String(a.id)===selectedAddress)?.label||'Saved delivery address'}</p><p className="mt-1">{deliveryLocation}</p><p className="mt-1 text-xs text-emerald-900">Saved recipient: {addresses.find(a=>String(a.id)===selectedAddress)?.name} {addresses.find(a=>String(a.id)===selectedAddress)?.phone}</p><div className="mt-3 flex flex-wrap gap-3"><button type="button" onClick={()=>{setEditingAddress(true);setRepairFields([]);}} className="font-medium text-emerald-900 underline">Edit Address</button><button type="button" onClick={()=>chooseAddress('')} className="font-medium text-emerald-900 underline">Add New Address</button><Link to="/addresses" className="text-emerald-900 underline">Manage Addresses</Link></div></div>}
+                  {!selectedAddress&&addresses.length>1&&!preferredAddress(addresses)&&<p className="text-xs text-slate-500">Select a saved address or enter a new one. No default address was changed.</p>}
+                  {repairOnly&&<p className="text-sm text-amber-800">Complete only the missing address details below.</p>}
+                </div>}
+                <div hidden={!showAddressForm||accountLoading}>
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                   <label htmlFor="streetAddress" className="block text-sm text-[#1f2f28]">
                     Delivery Address
@@ -541,7 +545,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                 </div>
 
                 <div className="mt-3 grid gap-4 md:grid-cols-2">
-                  <div>
+                  <div hidden={repairOnly&&!repairFields.includes('streetAddress')}>
                     <label htmlFor="streetAddress" className="mb-2 block text-sm text-[#1f2f28]">
                       House No. / Street
                     </label>
@@ -557,11 +561,12 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                     {errors.streetAddress ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.streetAddress}</p> : null}
                   </div>
 
-                  <div>
+                  <div hidden={repairOnly&&!repairFields.includes('barangay')}>
                     <label htmlFor="barangay" className="mb-2 block text-sm text-[#1f2f28]">
                       Barangay
                     </label>
                     <input
+                      list="checkout-barangays"
                       id="barangay"
                       name="barangay"
                       type="text"
@@ -570,10 +575,11 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                       className="w-full rounded-xl border border-[#d8dfd3] bg-white px-4 py-3 text-sm outline-none focus:border-[#0b7a3c] focus:ring-2 focus:ring-[#0b7a3c]/20"
                       placeholder="Barangay San Roque"
                     />
+                    <datalist id="checkout-barangays">{barangayOptions.map(a=><option key={a.code||a.name} value={a.name}/>)}</datalist>
                     {errors.barangay ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.barangay}</p> : null}
                   </div>
 
-                  <div>
+                  <div hidden={repairOnly&&!repairFields.includes('countryCode')}>
                     <label htmlFor="countryCode" className="mb-2 block text-sm text-[#1f2f28]">
                       Country
                     </label>
@@ -595,7 +601,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                     {errors.country ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.country}</p> : null}
                   </div>
 
-                  <div>
+                  <div hidden={repairOnly&&!repairFields.includes('province')}>
                     <label htmlFor="provinceCode" className="mb-2 block text-sm text-[#1f2f28]">
                       Province / State
                     </label>
@@ -625,7 +631,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                     {errors.province ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.province}</p> : null}
                   </div>
 
-                  <div>
+                  <div hidden={repairOnly&&!repairFields.includes('city')}>
                     <label htmlFor="city" className="mb-2 block text-sm text-[#1f2f28]">
                       City / Municipality
                     </label>
@@ -657,7 +663,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                     {errors.city ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.city}</p> : null}
                   </div>
 
-                  <div>
+                  <div hidden={repairOnly&&!repairFields.includes('zipCode')}>
                     <label htmlFor="zipCode" className="mb-2 block text-sm text-[#1f2f28]">
                       Postal Code / ZIP Code
                     </label>
@@ -674,6 +680,14 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                   </div>
                 </div>
 
+                <label className="mt-4 block text-sm">Address label<select value={addressLabel} onChange={e=>setAddressLabel(e.target.value)} className="ml-2 rounded-lg border p-2">{['Home','Work','Other'].map(label=><option key={label}>{label}</option>)}</select></label>
+                <label className="mt-3 flex gap-2 text-sm"><input type="checkbox" checked={saveAddress} onChange={e=>setSaveAddress(e.target.checked)}/>Save this address for future orders.</label>
+                {saveAddress&&<label className="mt-2 flex gap-2 text-sm"><input type="checkbox" checked={makeDefault} onChange={e=>setMakeDefault(e.target.checked)}/>Set as my default address</label>}
+                {selectedAddress&&<button type="button" disabled={!confirmedQuote||quoting} onClick={()=>{setEditingAddress(false);setRepairFields([]);}} className="mt-3 rounded-lg border border-emerald-200 px-3 py-2 text-sm disabled:opacity-50">Use this address for this order</button>}
+                </div>
+                {addressNotice&&<p role="status" className="mt-2 text-sm text-emerald-800">{addressNotice}</p>}
+                {quoting&&<p role="status" className="mt-2 text-xs text-slate-500">Validating destination and shipping...</p>}
+                {quoteError&&<p role="alert" className="mt-2 text-sm text-red-700">{quoteError}</p>}
                 {locationOptionsError ? <p className="mt-3 text-sm text-[#8b4a4a]">{locationOptionsError}</p> : null}
 
                 <div className="mt-4 rounded-xl border border-[#d8dfd3] bg-[#fbfdf9] px-4 py-3">
@@ -757,12 +771,13 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
               </label>
             </div>
             {errors.paymentMethod ? <p className="mt-2 text-sm text-[#8b4a4a]">{errors.paymentMethod}</p> : null}
+            {form.paymentMethod === 'ONLINE' && <p className="mt-2 text-xs text-[#5e6f65]">Online checkout temporarily reserves your plants and lettuce packs while payment is pending. Unpaid reservations are automatically released when they expire.</p>}
           </fieldset>
 
           <button
             className="w-full rounded-full border border-[#0b7a3c] bg-[#0b7a3c] py-3 text-xs uppercase tracking-[0.35em] text-white transition hover:bg-[#0d6a35] disabled:cursor-not-allowed disabled:border-[#95a29b] disabled:bg-[#95a29b]"
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting||accountLoading||Boolean(accountError)||quoting||!confirmedQuote}
           >
             {isSubmitting
               ? form.paymentMethod === 'ONLINE'
@@ -781,7 +796,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
         </form>
 
         <aside className="h-fit rounded-2xl border border-[#e1e7dc] bg-white p-6">
-          <h3 className="font-['Playfair_Display'] text-lg text-[#0f4d2e]">Order Summary</h3>
+          <h3 className="font-['Playfair_Display'] text-lg text-[#0f4d2e]">Review Order</h3>
 
           <div className="mt-5 space-y-3">
             {items.length === 0 ? (
@@ -803,7 +818,8 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
                     </div>
                     <div className="min-w-0 text-[#1f2f28]">
                       <p className="truncate">{item.name}</p>
-                      <p className="text-xs text-[#5e6f65]">Qty: {item.qty}</p>
+                      {item.sellingUnit&&<p className="text-xs text-slate-600">{item.qty} {item.sellingUnit} | {item.variantSku}{item.weightKg?` | Total weight: ${Number(item.weightKg)*Number(item.qty)} kg`:item.piecesPerUnit?` | ${Number(item.piecesPerUnit)*Number(item.qty)} pieces total`:null}</p>}{item.batchCode && <p className="text-xs text-[#5e6f65]">{item.batchCode} · {formatPrice(item.price)} per 400g pack</p>}
+                      <p className="text-xs text-[#5e6f65]">Qty: {item.qty} {item.allowsMultipleQuantity ? 'packs · 400g per pack' : 'individual plant'}</p>
                     </div>
                   </div>
                   <span className="font-medium text-[#0f4d2e]">{formatPrice(item.price * item.qty)}</span>
@@ -820,7 +836,7 @@ export default function CheckoutSection({ items, total, formatPrice, onOrderPlac
               </div>
               <div className="flex items-center justify-between">
                 <span>Subtotal</span>
-                <span className="font-medium text-[#0f4d2e]">{formatPrice(total)}</span>
+                <span className="font-medium text-[#0f4d2e]">{formatPrice(confirmedQuote?.subtotal??total)}</span>
               </div>
               <div className="flex items-start justify-between gap-4">
                 <span>Shipping Fee</span>

@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { apiAdminOrders, apiAdminRiders, apiConfirmCodRemittance, apiConfirmOrder, apiSyncOrderTrack123, apiUpdateOrder, getImageUrl } from '../api/client';
+import { ShoppingBag, AlertTriangle, Truck, CheckCircle, Search, Eye, MoreHorizontal, History, CreditCard } from 'lucide-react';
+import OrderDetailsDrawer from './OrderDetailsDrawer';
+import NotificationBell from './NotificationBell';
+import InventoryActionMenu from './InventoryActionMenu';
+import { orderSummary, filterOrders } from '../utils/orderDisplay';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { apiAdminOrders, apiAdminRiders, apiConfirmCodRemittance, apiConfirmOrder, apiUpdateOrder, apiReadNotification } from '../api/client';
 
 const STATUS_FILTERS = [
   { key: 'All', label: 'All' },
@@ -31,16 +37,23 @@ const emptyForm = {
   courierName: '',
   riderId: '',
   trackingCode: '',
-  trackingCourierCode: '',
   trackingStatus: 'Pending',
   cancelReason: '',
+  deliveryNotes: '',
 };
+
+function orderForm(order) {
+  return {status:order.status || 'Pending',deliveryMode:order.deliveryMode || 'rider',courierName:order.courierName || '',
+    riderId:order.riderId ? String(order.riderId) : '',trackingCode:order.trackingCode || '',
+    trackingStatus:order.trackingStatus || 'Pending',cancelReason:order.cancelReason || '',deliveryNotes:''};
+}
 
 function formatDateTime(value) {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString([], {
+  return date.toLocaleString('en-PH', {
+    timeZone: 'Asia/Manila',
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -67,6 +80,15 @@ function buildDriverPortalUrl(token) {
 }
 
 export default function AdminOrders() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedOrderId = searchParams.get('orderId');
+  const requestedNotificationId = searchParams.get('notificationId');
+  const [fromDate,setFromDate]=useState('');
+  const [toDate,setToDate]=useState('');
+  const [page,setPage]=useState(1);
+  const [drawerTab,setDrawerTab]=useState('Overview');
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [riders, setRiders] = useState([]);
@@ -78,7 +100,6 @@ export default function AdminOrders() {
   const [saving, setSaving] = useState(false);
   const [confirmingOrderId, setConfirmingOrderId] = useState(null);
   const [remittingOrderId, setRemittingOrderId] = useState(null);
-  const [syncingTrack123, setSyncingTrack123] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -90,7 +111,17 @@ export default function AdminOrders() {
         if (!isMounted) return;
         setOrders(Array.isArray(ordersData) ? ordersData : []);
         setRiders(Array.isArray(ridersData) ? ridersData : []);
-        setError('');
+        if (requestedOrderId) {
+          const linked = /^\d+$/.test(requestedOrderId) && ordersData.find(order=>String(order.id)===requestedOrderId);
+          if (linked) {
+            setDrawerTab('Overview');setSelectedOrder(linked);setForm(orderForm(linked));setError('');
+            if(requestedNotificationId) {
+              try{await apiReadNotification(requestedNotificationId);window.dispatchEvent(new Event('belfiore-notifications-changed'));}
+              catch{if(isMounted)setError('Order opened, but its notification could not be marked read. Retry from the notification bell.');}
+            }
+          }
+          else {setSelectedOrder(null);setError('The linked order is unavailable or you do not have access.');}
+        } else setError('');
       } catch (err) {
         if (!isMounted) return;
         setError(err.message || 'Failed to load orders');
@@ -103,7 +134,36 @@ export default function AdminOrders() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [requestedOrderId,requestedNotificationId]);
+
+  useEffect(() => {
+    let active = true;
+    let inFlight = false;
+    const refresh = async () => {
+      if (document.hidden || inFlight || saving || confirmingOrderId || remittingOrderId) return;
+      inFlight = true;
+      try {
+        const latest = await apiAdminOrders();
+        if (!active || !Array.isArray(latest)) return;
+        setOrders(latest);
+        if (selectedOrder) {
+          const fresh = latest.find(order => order.id === selectedOrder.id);
+          if (fresh) {
+            const dirty = JSON.stringify(form) !== JSON.stringify(orderForm(selectedOrder));
+            if (!dirty) setForm(orderForm(fresh));
+            else if (fresh.status !== selectedOrder.status) setError('This order was updated by the rider or another administrator. Your unsaved changes were kept. Close and reopen the details before saving.');
+            setSelectedOrder(fresh);
+          }
+        }
+      } catch (err) {
+        if (active) setError(`Unable to refresh orders: ${err.message}`);
+      } finally { inFlight = false; }
+    };
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+  }, [selectedOrder, form, saving, confirmingOrderId, remittingOrderId]);
 
   const counts = useMemo(() => {
     const next = { All: orders.length };
@@ -114,56 +174,37 @@ export default function AdminOrders() {
     return next;
   }, [orders]);
 
-  const filteredOrders = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return orders.filter((order) => {
-      if (activeFilter !== 'All' && order.status !== activeFilter) return false;
-      if (!query) return true;
+  const filteredOrders = useMemo(() => filterOrders(orders,{search,status:activeFilter,fromDate,toDate}),[orders,search,activeFilter,fromDate,toDate]);
+  const summary=orderSummary(orders);
+  const pages=Math.max(1,Math.ceil(filteredOrders.length/20));
+  useEffect(()=>{setPage(1);},[search,activeFilter,fromDate,toDate]);
+  useEffect(()=>{setPage(current=>Math.min(current,pages));},[pages]);
 
-      const haystack = [
-        order.orderCode,
-        order.customerName,
-        order.gmail,
-        order.mobileNumber,
-        order.location,
-        order.courierName,
-        order.trackingCode,
-        order.trackingStatus,
-        order.status,
-      ]
-        .join(' ')
-        .toLowerCase();
-
-      return haystack.includes(query);
-    });
-  }, [activeFilter, orders, search]);
-
-  const openEditor = (order) => {
+  const openEditor = (order, tab = 'Overview') => {
+    setDrawerTab(tab);
     setSelectedOrder(order);
-    setForm({
-      status: order.status || 'Pending',
-      deliveryMode: order.deliveryMode || 'rider',
-      courierName: order.courierName || '',
-      riderId: order.riderId ? String(order.riderId) : '',
-      trackingCode: order.trackingCode || '',
-      trackingCourierCode: order.trackingCourierCode || '',
-      trackingStatus: order.trackingStatus || 'Pending',
-      cancelReason: order.cancelReason || '',
-    });
+    setForm(orderForm(order));
     setError('');
   };
 
   const closeEditor = () => {
+    if (saving || confirmingOrderId || remittingOrderId) return;
+    if (selectedOrder && JSON.stringify(form)!==JSON.stringify(orderForm(selectedOrder)) && !window.confirm('Discard unsaved order changes?')) return;
+    if (requestedOrderId) {const next = new URLSearchParams(searchParams);next.delete('orderId');setSearchParams(next,{replace:true,state:location.state});}
     setSelectedOrder(null);
     setForm(emptyForm);
     setSaving(false);
     setRemittingOrderId(null);
-    setSyncingTrack123(false);
   };
 
   const handleSave = async (event) => {
     event.preventDefault();
     if (!selectedOrder) return;
+    if (['Delivered','Cancelled'].includes(selectedOrder.status) && form.status !== selectedOrder.status) {
+      setError('This order has already been completed or cancelled. Close and reopen its details to load the current status.');
+      return;
+    }
+    if (form.status !== selectedOrder.status && !window.confirm(`Change order status from ${selectedOrder.status} to ${form.status}?`)) return;
 
     setSaving(true);
     setError('');
@@ -172,16 +213,7 @@ export default function AdminOrders() {
       const updatedOrder = await apiUpdateOrder(selectedOrder.id, form);
       setOrders((current) => current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)));
       setSelectedOrder(updatedOrder);
-      setForm({
-        status: updatedOrder.status,
-        deliveryMode: updatedOrder.deliveryMode || 'rider',
-        courierName: updatedOrder.courierName || '',
-        riderId: updatedOrder.riderId ? String(updatedOrder.riderId) : '',
-        trackingCode: updatedOrder.trackingCode || '',
-        trackingCourierCode: updatedOrder.trackingCourierCode || '',
-        trackingStatus: updatedOrder.trackingStatus || 'Pending',
-        cancelReason: updatedOrder.cancelReason || '',
-      });
+      setForm(orderForm(updatedOrder));
     } catch (err) {
       setError(err.message || 'Failed to update order');
     } finally {
@@ -205,16 +237,7 @@ export default function AdminOrders() {
       );
       if (selectedOrder?.id === updatedOrder.id) {
         setSelectedOrder(updatedOrder);
-        setForm({
-          status: updatedOrder.status,
-          deliveryMode: updatedOrder.deliveryMode || 'rider',
-          courierName: updatedOrder.courierName || '',
-          riderId: updatedOrder.riderId ? String(updatedOrder.riderId) : '',
-          trackingCode: updatedOrder.trackingCode || '',
-          trackingCourierCode: updatedOrder.trackingCourierCode || '',
-          trackingStatus: updatedOrder.trackingStatus || 'Preparing',
-          cancelReason: updatedOrder.cancelReason || '',
-        });
+        setForm(orderForm(updatedOrder));
       }
     } catch (err) {
       setError(err.message || 'Failed to confirm order');
@@ -247,48 +270,30 @@ export default function AdminOrders() {
     }
   };
 
-  const handleTrack123Sync = async () => {
-    if (!selectedOrder) return;
-
-    setSyncingTrack123(true);
-    setError('');
-
-    try {
-      const savedOrder = await apiUpdateOrder(selectedOrder.id, form);
-      const updatedOrder = await apiSyncOrderTrack123(savedOrder.id);
-      setOrders((current) => current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)));
-      setSelectedOrder(updatedOrder);
-      setForm({
-        status: updatedOrder.status,
-        deliveryMode: updatedOrder.deliveryMode || 'rider',
-        courierName: updatedOrder.courierName || '',
-        riderId: updatedOrder.riderId ? String(updatedOrder.riderId) : '',
-        trackingCode: updatedOrder.trackingCode || '',
-        trackingCourierCode: updatedOrder.trackingCourierCode || '',
-        trackingStatus: updatedOrder.trackingStatus || 'Pending',
-        cancelReason: updatedOrder.cancelReason || '',
-      });
-    } catch (err) {
-      setError(err.message || 'Failed to sync Track123 tracking');
-    } finally {
-      setSyncingTrack123(false);
-    }
-  };
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-gray-900">Order Management</h1>
-        <p className="mt-2 text-sm text-gray-500">Review orders, update the status, and maintain tracking details.</p>
-      </div>
+    <div className="mx-auto min-w-0 max-w-7xl space-y-4">
+      {location.state?.customerReturn && <button type="button" className="mb-4 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800" onClick={()=>navigate('/admin/customers',{state:{customerReturn:location.state.customerReturn}})}>Back to Customer Management</button>}
+      {location.state?.inventoryHistory && <button type="button" className="mb-4 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800" onClick={()=>navigate('/admin/inventory',{state:{inventoryHistory:location.state.inventoryHistory}})}>Back to Inventory History</button>}
+      <header>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Orders &amp; fulfillment</p>
+        <div className="mt-1 flex items-center justify-between gap-4">
+          <h1 className="min-w-0 text-2xl font-bold text-slate-900">Order Management</h1>
+          <div className="shrink-0"><NotificationBell /></div>
+        </div>
+        <p className="mt-2 text-sm text-slate-500">View and manage customer orders.</p>
+      </header>
 
+      <section aria-label="Order summary" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[
+        ['Total Orders',summary.total,'All recorded orders',ShoppingBag],['Pending Action',summary.pending,'Confirmation, cancellations or payment issues',AlertTriangle],['In Progress',summary.progress,'Preparing or on the way',Truck],['Delivered',summary.delivered,'Successfully completed deliveries',CheckCircle],
+      ].map(card=>{const [label,value,note]=card;const Icon=card[3];return <article key={label} className="flex gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Icon size={18} aria-hidden="true"/></span><div><h2 className="text-xs font-semibold text-slate-500">{label}</h2><p className="mt-1 text-2xl font-bold text-[#1f5a43]">{loading?'—':value}</p><p className="mt-1 text-xs text-slate-500">{note}</p></div></article>;})}</section>
       {error && !selectedOrder ? (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
 
-      <div className="mb-4 flex flex-col gap-4 rounded-3xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+      <div className="mb-4 flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <label className="w-full max-w-md">
             <span className="sr-only">Search orders</span>
@@ -297,7 +302,7 @@ export default function AdminOrders() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by customer, order ID, courier, or tracking code"
-              className="w-full rounded-full border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm text-gray-700 outline-none transition focus:border-[#2d5a45] focus:bg-white"
+              className="w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-[#2d5a45] focus:bg-white"
             />
           </label>
 
@@ -306,7 +311,8 @@ export default function AdminOrders() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-end gap-3"><label className="text-xs font-medium text-slate-600">From Date<input type="date" value={fromDate} max={toDate||undefined} onChange={e=>setFromDate(e.target.value)} className="mt-1 block rounded-lg border border-slate-200 px-3 py-2 text-sm"/></label><label className="text-xs font-medium text-slate-600">To Date<input type="date" value={toDate} min={fromDate||undefined} onChange={e=>setToDate(e.target.value)} className="mt-1 block rounded-lg border border-slate-200 px-3 py-2 text-sm"/></label><button onClick={()=>{setSearch('');setActiveFilter('All');setFromDate('');setToDate('');setPage(1);}} className="min-h-10 rounded-lg border border-slate-200 px-3 text-xs font-medium">Reset</button><span className="pb-2 text-xs text-slate-500">Order creation dates | Philippine Time | Entire end date included</span></div>
+        <div aria-label="Order status filters" className="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap">
           {STATUS_FILTERS.map((filter) => {
             const isActive = activeFilter === filter.key;
             return (
@@ -314,7 +320,7 @@ export default function AdminOrders() {
                 key={filter.key}
                 type="button"
                 onClick={() => setActiveFilter(filter.key)}
-                className={`rounded-xl px-3 py-2 text-sm transition ${
+                className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition ${
                   isActive
                     ? 'bg-[#1f5a43] text-white shadow-sm'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -327,243 +333,27 @@ export default function AdminOrders() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
-        {loading ? (
-          <div className="p-12 text-center text-gray-500">Loading orders...</div>
-        ) : filteredOrders.length === 0 ? (
-          <div className="p-12 text-center text-gray-500">No orders match the current filter.</div>
-        ) : (
-          <div className="overflow-x-auto [scrollbar-gutter:stable]">
-            <table className="min-w-[1480px] text-left text-sm">
-              <thead className="bg-[#1f5a43] text-white">
-                <tr>
-                  <th className="px-5 py-4 font-medium">Order ID</th>
-                  <th className="px-5 py-4 font-medium">Customer</th>
-                  <th className="px-5 py-4 font-medium">Order Status</th>
-                  <th className="px-5 py-4 font-medium">Payment Status</th>
-                  <th className="px-5 py-4 font-medium">COD Status</th>
-                  <th className="px-5 py-4 font-medium">Courier</th>
-                  <th className="px-5 py-4 font-medium">Driver Status</th>
-                  <th className="px-5 py-4 font-medium">Tracking Code</th>
-                  <th className="px-5 py-4 font-medium">Delivery Status</th>
-                  <th className="px-5 py-4 font-medium">Last Update</th>
-                  <th className="sticky right-0 z-20 min-w-[190px] bg-[#1f5a43] px-5 py-4 text-right font-medium shadow-[-10px_0_18px_rgba(0,0,0,0.12)]">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredOrders.map((order) => (
-                  <tr key={order.id} className="group border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
-                    <td className="px-5 py-4 font-medium text-gray-900">{order.orderCode}</td>
-                    <td className="px-5 py-4">
-                      <div className="font-medium text-gray-900">{order.customerName}</div>
-                      <div className="mt-1 text-xs text-gray-500">{order.gmail || order.mobileNumber || '-'}</div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(order.status)}`}>
-                        {order.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-gray-700">{order.paymentStatus || '-'}</td>
-                    <td className="px-5 py-4 text-gray-700">
-                      {order.paymentMethod === 'COD' ? order.codStatus || 'Awaiting Payment' : 'Not applicable'}
-                    </td>
-                    <td className="px-5 py-4 text-gray-700">{order.courierName || (order.deliveryMode === 'logistics' ? 'Select courier' : '-')}</td>
-                    <td className="px-5 py-4 text-gray-700">{order.deliveryMode === 'logistics' ? 'Not applicable' : order.driverAcceptedAt ? 'Accepted' : order.courierName ? 'Assigned' : '-'}</td>
-                    <td className="px-5 py-4 text-gray-700">{order.trackingCode || '-'}</td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(order.trackingStatus)}`}>
-                        {order.trackingStatus}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-gray-600">{formatDateTime(order.statusUpdatedAt || order.updatedAt)}</td>
-                    <td className="sticky right-0 z-10 bg-white px-5 py-4 text-right shadow-[-10px_0_18px_rgba(15,77,46,0.08)] transition group-hover:bg-gray-50">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {order.status === 'Pending' ? (
-                          <button
-                            type="button"
-                            disabled={confirmingOrderId === order.id}
-                            onClick={() => handleConfirmOrder(order)}
-                            className="rounded-full bg-[#1f5a43] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#163f2f] disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {confirmingOrderId === order.id ? 'Confirming...' : 'Confirm Order'}
-                          </button>
-                        ) : null}
-                        {order.deliveryMode === 'logistics' && order.paymentMethod === 'COD' && order.codStatus === 'Remittance Pending' ? (
-                          <button
-                            type="button"
-                            disabled={remittingOrderId === order.id}
-                            onClick={() => handleConfirmCodRemittance(order)}
-                            className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {remittingOrderId === order.id ? 'Confirming...' : 'Confirm COD Received'}
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => openEditor(order)}
-                          className="rounded-full border border-[#1f5a43]/20 px-4 py-2 text-sm font-medium text-[#1f5a43] transition hover:bg-[#1f5a43] hover:text-white"
-                        >
-                          View / Track
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        {loading ? <p className="p-8 text-center text-sm text-slate-500">Loading orders...</p> : filteredOrders.length===0 ? <p className="p-8 text-center text-sm text-slate-500">No orders match the selected filters.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500"><tr>{['Order ID','Customer','Total Amount','Order Status','Payment Status','Order Date','Actions'].map(label=><th key={label} className="px-4 py-3 font-semibold">{label}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">
+          {filteredOrders.slice((page-1)*20,page*20).map(order=><tr key={order.id} className="hover:bg-emerald-50/30"><td className="px-4 py-3 font-semibold text-slate-900">{order.orderCode}</td><td className="px-4 py-3"><p className="font-medium">{order.customerName}</p>{order.gmail&&<p className="mt-0.5 text-xs text-slate-500">{order.gmail}</p>}</td><td className="whitespace-nowrap px-4 py-3 font-semibold">{formatPhp(order.totalAmount)}</td><td className="px-4 py-3"><span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-xs ${badgeClass(order.status)}`}>{order.status}</span></td><td className="px-4 py-3"><span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-xs ${order.paymentStatus==='Paid'?'bg-emerald-50 text-emerald-800':['Refund Pending','Failed'].includes(order.paymentStatus)?'bg-amber-50 text-amber-800':'bg-slate-100 text-slate-600'}`}>{order.paymentMethod==='COD'&&['Unpaid','Pending'].includes(order.paymentStatus)?'Pending Collection':order.paymentStatus || 'Not recorded'}</span></td><td className="px-4 py-3 text-xs text-slate-500">{formatDateTime(order.createdAt)} PHT</td><td className="px-4 py-3"><div className="flex items-center gap-2 whitespace-nowrap"><button className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-emerald-800" onClick={()=>openEditor(order)}><Eye size={14} aria-hidden="true"/>View Details</button><InventoryActionMenu label="More" productName={order.orderCode} icon={MoreHorizontal} items={[
+            {label:'Payment details',icon:CreditCard,action:()=>openEditor(order,'Payment')},
+            {label:'Delivery & status',icon:Truck,action:()=>openEditor(order,'Delivery')},
+            {label:'Order history',icon:History,action:()=>openEditor(order,'History')},
+          ]}/></div></td></tr>)}
+        </tbody></table></div>}
+        <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 p-3 text-xs text-slate-500"><span>{filteredOrders.length} orders | Page {page} of {pages}</span><div className="flex gap-2"><button disabled={loading||page===1} onClick={()=>setPage(p=>p-1)} className="min-h-9 rounded-lg border border-slate-200 px-3 disabled:opacity-40">Previous</button><button disabled={loading||page===pages} onClick={()=>setPage(p=>p+1)} className="min-h-9 rounded-lg border border-slate-200 px-3 disabled:opacity-40">Next</button></div></footer>
+      </section>
 
-      {selectedOrder ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#06110d]/55 p-4 backdrop-blur-[1px]"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) closeEditor();
-          }}
-        >
-          <div className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[2rem] border border-emerald-100/80 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdfb_52%,#f5f9f7_100%)] font-['Montserrat'] shadow-[0_24px_80px_rgba(5,35,25,0.36)]">
-            <div className="border-b border-emerald-100/90 bg-[linear-gradient(120deg,#f6fffa_0%,#ecf8f1_48%,#e5f4ec_100%)] px-5 py-5 sm:px-6">
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#1f5a43]">Order Details</p>
-                  <h2 className="mt-2 font-['Playfair_Display'] text-4xl font-semibold leading-tight text-gray-900">{selectedOrder.orderCode}</h2>
-                  <p className="mt-2 text-sm text-gray-500">Created {formatDateTime(selectedOrder.createdAt)}</p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${badgeClass(selectedOrder.status)}`}>
-                      {selectedOrder.status}
-                    </span>
-                    <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${badgeClass(selectedOrder.trackingStatus)}`}>
-                      {selectedOrder.trackingStatus}
-                    </span>
-                    <span className="inline-flex rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#1f5a43] ring-1 ring-[#1f5a43]/15">
-                      {selectedOrder.deliveryMode === 'logistics' ? 'Logistics Only' : 'Rider Delivery'}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {selectedOrder.status === 'Pending' ? (
-                    <button
-                      type="button"
-                      disabled={confirmingOrderId === selectedOrder.id}
-                      onClick={() => handleConfirmOrder(selectedOrder)}
-                      className="w-fit rounded-full bg-[#1f5a43] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#163f2f] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {confirmingOrderId === selectedOrder.id ? 'Confirming...' : 'Confirm Order'}
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={closeEditor}
-                    className="w-fit rounded-full border border-emerald-200 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-emerald-50"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-5 px-5 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_420px]">
-              <div className="space-y-5">
-                <div className="rounded-3xl border border-emerald-100 bg-[linear-gradient(180deg,#f8fcfa_0%,#f2f8f4_100%)] p-5 shadow-sm">
-                  <div className="border-b border-emerald-100/80 pb-4">
-                    <h3 className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-500">Customer</h3>
-                    <p className="mt-1 font-['Playfair_Display'] text-2xl font-semibold text-gray-900">{selectedOrder.customerName}</p>
-                  </div>
-                  <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
-                    <div className="rounded-2xl bg-white/80 px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Email</p>
-                      <p className="mt-1 break-words font-medium text-gray-900">{selectedOrder.gmail || '-'}</p>
-                    </div>
-                    <div className="rounded-2xl bg-white/80 px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Phone</p>
-                      <p className="mt-1 font-medium text-gray-900">{selectedOrder.mobileNumber || '-'}</p>
-                    </div>
-                    <div className="rounded-2xl bg-white/80 px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Payment</p>
-                      <p className="mt-1 font-medium text-gray-900">{selectedOrder.paymentMethod} · {selectedOrder.paymentStatus}</p>
-                    </div>
-                    <div className="rounded-2xl bg-white/80 px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">COD Status</p>
-                      <p className="mt-1 font-medium text-gray-900">
-                        {selectedOrder.paymentMethod === 'COD' ? selectedOrder.codStatus || 'Awaiting Payment' : 'Not applicable'}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl bg-white/80 px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Customer Pin</p>
-                      <p className="mt-1 font-medium text-gray-900">
-                        {selectedOrder.deliveryMode === 'logistics' ? 'Hidden for logistics tracking' : selectedOrder.customerLatitude != null && selectedOrder.customerLongitude != null ? `${selectedOrder.customerLatitude.toFixed(5)}, ${selectedOrder.customerLongitude.toFixed(5)}` : 'Not saved yet'}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl bg-white/80 px-4 py-3 md:col-span-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Address</p>
-                      <p className="mt-1 leading-6 text-gray-900">{selectedOrder.location || '-'}</p>
-                    </div>
-                    <div className="rounded-2xl bg-white/80 px-4 py-3 md:col-span-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Rider GPS</p>
-                      <p className="mt-1 font-medium text-gray-900">
-                        {selectedOrder.deliveryMode === 'logistics' ? 'Not used for logistics orders' : selectedOrder.driverLatitude != null && selectedOrder.driverLongitude != null ? `${selectedOrder.driverLatitude.toFixed(5)}, ${selectedOrder.driverLongitude.toFixed(5)}` : 'No live location yet'}
-                      </p>
-                    </div>
-                    {selectedOrder.deliveryProofUrl ? (
-                      <div className="rounded-2xl bg-white/80 px-4 py-3 md:col-span-2">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Proof of Delivery</p>
-                        <img src={getImageUrl(selectedOrder.deliveryProofUrl)} alt="Proof of delivery" className="mt-2 max-h-64 rounded-xl object-cover" />
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="rounded-3xl border border-gray-200/80 bg-white p-5 shadow-sm">
-                  <div className="flex items-center justify-between gap-4 border-b border-gray-100 pb-4">
-                    <div>
-                      <h3 className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-500">Items</h3>
-                      <p className="mt-1 text-sm text-gray-500">{selectedOrder.itemCount} item{selectedOrder.itemCount === 1 ? '' : 's'} in this order</p>
-                    </div>
-                    <span className="text-xl font-semibold text-gray-900">{formatPhp(selectedOrder.totalAmount)}</span>
-                  </div>
-                  <div className="mt-4 space-y-3">
-                   {selectedOrder.items.map((item) => (
-                      <div key={item.id} className="flex items-center gap-4 rounded-2xl bg-gray-50 px-4 py-3">
-                        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-gray-200 bg-white">
-                          {item.imageUrl ? (
-                            <img
-                              src={getImageUrl(item.imageUrl)}
-                              alt={item.productName}
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <span className="px-2 text-center text-[10px] font-medium leading-tight text-gray-400">No image</span>
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate font-semibold text-gray-900">{item.productName}</div>
-                          <div className="mt-1 text-xs text-gray-500">Qty {item.qty} x {formatPhp(item.unitPrice)}</div>
-                        </div>
-                        <div className="shrink-0 text-sm font-semibold text-gray-900">{formatPhp(item.lineTotal)}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-4">
-                    <span className="text-sm text-gray-500">Order Total</span>
-                    <span className="text-xl font-semibold text-gray-900">{formatPhp(selectedOrder.totalAmount)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <form onSubmit={handleSave} className="space-y-4 rounded-2xl border border-emerald-100/80 bg-white/90 px-5 py-4 shadow-sm">
+      {selectedOrder && <OrderDetailsDrawer key={selectedOrder.id + drawerTab} order={selectedOrder} initialTab={drawerTab} onClose={closeEditor}
+        busy={saving || Boolean(confirmingOrderId) || Boolean(remittingOrderId)} error={error}
+        onConfirm={handleConfirmOrder} confirming={confirmingOrderId===selectedOrder.id} onRemit={handleConfirmCodRemittance} remitting={remittingOrderId===selectedOrder.id}
+        backLabel={location.state?.customerReturn?'Back to Customer Management':'Back to Inventory History'}
+        backToHistory={location.state?.customerReturn ? ()=>{if(JSON.stringify(form)!==JSON.stringify(orderForm(selectedOrder))&&!window.confirm('Discard unsaved order changes?'))return;navigate('/admin/customers',{state:{customerReturn:location.state.customerReturn}});} : location.state?.inventoryHistory ? ()=>{if(JSON.stringify(form)!==JSON.stringify(orderForm(selectedOrder))&&!window.confirm('Discard unsaved changes and return to Inventory History?'))return;navigate('/admin/inventory',{state:{inventoryHistory:location.state.inventoryHistory}});} : undefined}>
+              <form onSubmit={handleSave} className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
                 <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">Track Order</h3>
-                  <p className="mt-1 text-sm text-gray-500">Update delivery and tracking details in one place.</p>
+                  <h3 className="text-sm font-semibold text-gray-700">Delivery Management</h3>
+                  <p className="mt-1 text-sm text-gray-500">{form.deliveryMode==='logistics'?'Courier statuses update automatically when carrier data is available. Enter the courier tracking number to begin.':'Manage rider assignment and the existing delivery workflow.'}</p>
                 </div>
-
-                {error ? (
-                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {error}
-                  </div>
-                ) : null}
 
                 <label className="block">
                   <span className="mb-1 block text-sm font-medium text-gray-700">Order Status</span>
@@ -573,7 +363,7 @@ export default function AdminOrders() {
                     className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
                   >
                     {ORDER_STATUS_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
+                      <option key={option} value={option} disabled={['Delivered','Cancelled'].includes(selectedOrder.status) && option !== selectedOrder.status}>
                         {option}
                       </option>
                     ))}
@@ -638,8 +428,8 @@ export default function AdminOrders() {
                     >
                       <option value="">No rider assigned</option>
                       {riders.map((rider) => (
-                        <option key={rider.id} value={rider.id}>
-                          {rider.fullName} {rider.isAvailable ? '(Available)' : '(Busy)'}
+                        <option key={rider.id} value={rider.id} disabled={!rider.isAvailable && String(form.riderId)!==String(rider.id)}>
+                          {rider.fullName} {`(${rider.availability || 'Offline'})`}
                         </option>
                       ))}
                     </select>
@@ -654,7 +444,6 @@ export default function AdminOrders() {
                           setForm((current) => ({
                             ...current,
                             courierName: event.target.value,
-                            trackingCourierCode: event.target.value === 'LBC' ? 'lbc' : event.target.value === 'J&T Express' ? 'jtexpress' : '',
                           }))
                         }
                         required
@@ -671,45 +460,20 @@ export default function AdminOrders() {
                       <input
                         type="text"
                         value={form.trackingCode}
-                        onChange={(event) => {
-                          const trackingCode = event.target.value;
-                          setForm((current) => {
-                            const shouldStartShipping =
-                              trackingCode.trim() &&
-                              ['Pending', 'Preparing'].includes(current.status) &&
-                              ['Pending', 'Preparing'].includes(current.trackingStatus);
-                            return {
-                              ...current,
-                              trackingCode,
-                              status: shouldStartShipping ? 'Out for Delivery' : current.status,
-                              trackingStatus: shouldStartShipping ? 'In Transit' : current.trackingStatus,
-                            };
-                          });
-                        }}
+                        onChange={(event) => setForm(current=>({...current,trackingCode:event.target.value}))}
                         placeholder="LBC123456789PH"
                         className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
                       />
                       <p className="mt-1 text-xs text-gray-500">
-                        Adding a tracking number automatically sets Order Status to Out for Delivery and Delivery Status to In Transit.
+                        A tracking reference does not confirm dispatch. Courier events determine shipment progress.
                       </p>
-                    </label>
-
-                    <label className="block">
-                      <span className="mb-1 block text-sm font-medium text-gray-700">Courier Code</span>
-                      <input
-                        type="text"
-                        value={form.trackingCourierCode}
-                        onChange={(event) => setForm((current) => ({ ...current, trackingCourierCode: event.target.value }))}
-                        placeholder="fedex"
-                        className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
-                      />
-                      <p className="mt-1 text-xs text-gray-500">Optional. Leave blank for Track123 carrier auto-detection.</p>
                     </label>
 
                     <label className="block">
                       <span className="mb-1 block text-sm font-medium text-gray-700">Delivery Status</span>
                       <select
                         value={form.trackingStatus}
+                        disabled={selectedOrder.automaticTracking && form.deliveryMode==='logistics'}
                         onChange={(event) => setForm((current) => ({ ...current, trackingStatus: event.target.value }))}
                         className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
                       >
@@ -755,14 +519,6 @@ export default function AdminOrders() {
                         <span className="font-medium text-gray-900">{form.trackingStatus || 'Pending'}</span>
                       </div>
                       <div className="mt-2 flex items-center justify-between gap-3">
-                        <span>Courier code</span>
-                        <span className="font-medium text-gray-900">{form.trackingCourierCode || 'Auto detect'}</span>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-3">
-                        <span>Track123 sync</span>
-                        <span>{formatDateTime(selectedOrder.track123LastSyncedAt)}</span>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-3">
                         <span>Payment status</span>
                         <span className="font-medium text-gray-900">{selectedOrder.paymentStatus}</span>
                       </div>
@@ -785,14 +541,7 @@ export default function AdminOrders() {
                       </button>
                     ) : null}
 
-                    <button
-                      type="button"
-                      disabled={syncingTrack123 || saving || !form.trackingCode.trim()}
-                      onClick={handleTrack123Sync}
-                      className="w-full rounded-xl border border-[#1f5a43] px-4 py-3 text-sm font-medium text-[#1f5a43] transition hover:bg-[#1f5a43] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {syncingTrack123 ? 'Syncing Track123...' : 'Sync Tracking With Track123'}
-                    </button>
+
                   </>
                 )}
                 {form.deliveryMode === 'rider' && selectedOrder.driverAccessToken ? (
@@ -821,18 +570,16 @@ export default function AdminOrders() {
                   </div>
                 )}
 
+                {form.deliveryMode==='logistics'&&<label className="block text-sm font-medium text-slate-700">Delivery notes (optional)<textarea value={form.deliveryNotes || ''} maxLength={1000} rows={2} onChange={event=>setForm(current=>({...current,deliveryNotes:event.target.value}))} className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-sm"/></label>}
                 <button
                   type="submit"
                   disabled={saving}
                   className="w-full rounded-xl bg-[#1f5a43] px-4 py-3 text-sm font-medium text-white transition hover:bg-[#163f2f] disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {saving ? 'Saving Changes...' : 'Update Order'}
+                  {saving ? 'Saving Changes...' : (form.deliveryMode === 'logistics' ? 'Save Delivery Details' : 'Update Status')}
                 </button>
               </form>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      </OrderDetailsDrawer>}
     </div>
   );
 }

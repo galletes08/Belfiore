@@ -1,0 +1,19 @@
+.catalog-hero {
+  background-color: #315e3c;
+  background-image: linear-gradient(90deg, rgba(17, 68, 41, 0.91) 0%, rgba(31, 83, 46, 0.8) 35%, rgba(53, 105, 54, 0.28) 62%, rgba(53, 105, 54, 0.02) 100%), var(--catalog-hero-image);
+  background-size: cover;
+  background-position: center right;
+  background-repeat: no-repeat;
+}
+
+.catalog-hero h1,
+.catalog-hero p {
+  text-shadow: 0 1px 3px rgba(25, 55, 16, 0.65);
+}
+
+@media (max-width: 767px) {
+  .catalog-hero {
+    background-image: linear-gradient(90deg, rgba(17, 68, 41, 0.94) 0%, rgba(31, 83, 46, 0.87) 62%, rgba(53, 105, 54, 0.4) 100%), var(--catalog-hero-image);
+    background-position: 65% center;
+  }
+}

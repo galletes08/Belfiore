@@ -7,6 +7,7 @@ import {
   apiLocationPostalCode,
   apiLocationProvinces,
   clearCustomerToken,
+  apiCustomerAccount, cacheCustomerAccount, customerAccountStorageKey,
 } from '../../api/client';
 import AddressPinMap from '../AddressPinMap';
 import AccountSidebar from './AccountSidebar';
@@ -14,6 +15,7 @@ import AccountSidebar from './AccountSidebar';
 const STORAGE_KEY = 'customerAddresses';
 const COUNTRY_CODE = 'PH';
 const blankAddress = {
+  label: 'Other',
   name: '',
   phone: '',
   addressLine: '',
@@ -46,7 +48,7 @@ function normalizeStoredAddress(address = {}) {
 
 function loadAddresses() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    const saved = JSON.parse(localStorage.getItem(customerAccountStorageKey(STORAGE_KEY)) || '[]');
     return Array.isArray(saved) ? saved.map(normalizeStoredAddress) : [];
   } catch {
     return [];
@@ -326,6 +328,7 @@ function AddressForm({ address, change, save, cancel }) {
         ) : null}
       </section>
 
+      <label className="mt-4 block text-sm">Address label<select value={address.label||'Other'} onChange={event=>updateField('label',event.target.value)} className={inputClass}>{['Home','Work','Other'].map(value=><option key={value}>{value}</option>)}</select></label>
       <div className="mt-5 flex flex-wrap gap-3">
         <button type="submit" className="inline-flex items-center gap-2 rounded-xl bg-[#0f4d2e] px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-white"><Plus size={15} />Save Address</button>
         <button type="button" onClick={cancel} className="inline-flex items-center gap-2 rounded-xl border border-[#dce5d8] bg-white px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#405145]"><X size={15} />Cancel</button>
@@ -342,10 +345,24 @@ export default function Addresses() {
   const [editingId, setEditingId] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
 
-  const persist = (next) => {
-    setAddresses(next);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  const [syncError,setSyncError]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [legacy,setLegacy]=useState([]);
+  useEffect(()=>{
+    let active=true;
+    apiCustomerAccount().then(data=>{
+      if(!active)return;cacheCustomerAccount(data);setAddresses(data.addresses.map(normalizeStoredAddress));
+      if(!data.addresses.length){try{const old=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');if(Array.isArray(old))setLegacy(old.map(normalizeStoredAddress));}catch{/* Existing browser data remains untouched. */}}
+    }).catch(err=>{if(active)setSyncError(err.message);});return()=>{active=false;};
+  },[]);
+  const persist = async(next) => {
+    if(busy)return false;setBusy(true);setSyncError('');
+    try{const result=await apiCustomerAccount('addresses','PUT',{addresses:next});cacheCustomerAccount(result);setAddresses(result.addresses.map(normalizeStoredAddress));setLegacy([]);return true;}
+    catch(err){setSyncError(err.message);return false;}finally{setBusy(false);}
   };
+  async function mutateAddress(path,method,body){
+    if(busy)return false;setBusy(true);setSyncError('');try{const result=await apiCustomerAccount(path,method,body);cacheCustomerAccount(result);setAddresses(result.addresses.map(normalizeStoredAddress));return true;}catch(err){setSyncError(err.message);return false;}finally{setBusy(false);}
+  }
   const changeDraft = useCallback((key, value) => {
     setDraft((current) => ({ ...current, [key]: value }));
   }, []);
@@ -359,8 +376,8 @@ export default function Addresses() {
     setEditingId(address.id);
     setFormOpen(true);
   };
-  const save = () => {
-    const { label: _legacyLabel, ...addressWithoutLabel } = draft;
+  const save = async () => {
+    const addressWithoutLabel = draft;
     const nextAddress = {
       ...addressWithoutLabel,
       id: editingId || crypto.randomUUID(),
@@ -375,23 +392,12 @@ export default function Addresses() {
       latitude: addressWithoutLabel.latitude === '' ? null : addressWithoutLabel.latitude,
       longitude: addressWithoutLabel.longitude === '' ? null : addressWithoutLabel.longitude,
     };
-    const next = editingId
-      ? addresses.map((item) => item.id === editingId ? nextAddress : item)
-      : [...addresses, nextAddress];
-    persist(next.map((item) => ({
-      ...item,
-      isDefault: nextAddress.isDefault ? item.id === nextAddress.id : item.isDefault,
-    })));
+    const saved=await mutateAddress(editingId?'addresses/'+encodeURIComponent(editingId):'addresses',editingId?'PATCH':'POST',nextAddress);
+    if(!saved)return;
     setFormOpen(false);
     if (location.state?.fromCheckout) navigate('/checkout', { replace: true });
   };
-  const remove = (id) => {
-    const next = addresses.filter((item) => item.id !== id);
-    persist(next.map((item, index) => ({
-      ...item,
-      isDefault: item.isDefault || (index === 0 && !next.some((current) => current.isDefault)),
-    })));
-  };
+  const remove = id => {if(window.confirm('Delete this saved address? Existing order addresses will remain unchanged.'))mutateAddress('addresses/'+encodeURIComponent(id),'DELETE');};
   const logout = () => {
     localStorage.removeItem('isLoggedIn');
     clearCustomerToken();
@@ -412,6 +418,10 @@ export default function Addresses() {
             </div>
 
             <div className="p-5 md:p-6">
+              {syncError&&<p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{syncError}</p>}
+              {busy&&<p role="status" className="mb-3 text-sm text-emerald-800">Saving addresses...</p>}
+              {legacy.length>0&&<details className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm"><summary className="cursor-pointer font-medium">Review older browser-only addresses</summary><p className="mt-2 text-xs">These entries have no verified account owner. Import them only if they belong to you. Nothing is imported automatically.</p><ul className="mt-2 space-y-2">{legacy.map((address,index)=><li key={address.id||index}>{[address.name,address.addressLine,address.barangay,address.city,address.province].filter(Boolean).join(', ')}</li>)}</ul><button disabled={busy} className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs" onClick={()=>{if(window.confirm('I confirm these reviewed addresses belong to my signed-in account. Save them to this account?'))persist(legacy);}}>Save reviewed addresses to my account</button></details>}
+
               {formOpen ? <AddressForm address={draft} change={changeDraft} save={save} cancel={() => setFormOpen(false)} /> : null}
               {addresses.length === 0 ? (
                 <div className="grid min-h-64 place-items-center rounded-2xl border border-dashed border-[#cbd9c9] bg-[#fbfcf8] px-6 text-center">
@@ -428,7 +438,7 @@ export default function Addresses() {
                       <div className="flex flex-col gap-4 sm:flex-row sm:justify-between">
                         <div>
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                            <h2 className="text-lg font-semibold text-[#173d2b]">{address.name}</h2>
+                            <h2 className="text-lg font-semibold text-[#173d2b]">{address.name} {address.label&&<span className="text-xs font-normal">({address.label})</span>}</h2>
                             <span className="h-5 border-l border-[#cbd5cb]" />
                             <span className="text-sm text-[#405145]">{address.phone}</span>
                             {address.isDefault ? <span className="inline-flex items-center gap-1 rounded-md border border-[#f04b2f] px-2 py-0.5 text-xs font-medium text-[#e44227]"><Star size={12} />Default</span> : null}
@@ -442,7 +452,7 @@ export default function Addresses() {
                           <button onClick={() => remove(address.id)} className="inline-flex items-center gap-1 text-red-600"><Trash2 size={15} />Remove Address</button>
                         </div>
                       </div>
-                      {!address.isDefault ? <button onClick={() => persist(addresses.map((item) => ({ ...item, isDefault: item.id === address.id })))} className="mt-4 rounded-lg border border-[#cbd5cb] bg-white px-3 py-2 text-sm font-medium text-[#173d2b] transition hover:border-[#0f6b45] hover:text-[#0f6b45]">Set as default</button> : null}
+                      {!address.isDefault ? <button onClick={() => mutateAddress('addresses/'+encodeURIComponent(address.id),'PATCH',{isDefault:true})} className="mt-4 rounded-lg border border-[#cbd5cb] bg-white px-3 py-2 text-sm font-medium text-[#173d2b] transition hover:border-[#0f6b45] hover:text-[#0f6b45]">Set as default</button> : null}
                     </article>
                   ))}
                 </div>

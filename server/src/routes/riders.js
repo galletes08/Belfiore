@@ -1,11 +1,12 @@
 import { Router } from 'express';
-import bcrypt from 'bcryptjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 import { pool } from '../config/db.js';
 import { verifyRequestToken } from '../utils/auth.js';
+import {registerRiderAdminAccounts,auditRiderAccount} from './rider-admin-accounts.js';
+import {riderManagementSelect,riderAvailability} from '../utils/riderManagement.js';
 import { storeUploadedImage, usesSupabaseStorage } from '../utils/storage.js';
 
 const router = Router();
@@ -13,7 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsDir = path.resolve(__dirname, '../../uploads/riders');
 let ensureRidersTablePromise;
-let ensureUsersTablePromise;
+
 const RIDER_VEHICLE_TYPES = new Set(['Tricycle', 'SUV']);
 const DEFAULT_RIDER_VEHICLE_TYPE = 'Tricycle';
 
@@ -51,6 +52,12 @@ function formatRiderRow(row) {
     lastName: row.last_name || '',
     fullName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
     email: row.email || '',
+    username:row.username||'',
+    mustChangePassword:Boolean(row.must_change_password),
+    securityLocked:Boolean(row.rider_security_locked),
+    failedLoginAttempts:Number(row.rider_failed_attempts||0),
+    securityLockedAt:row.rider_security_locked_at||null,
+    assignmentReviewRequired:Boolean(row.rider_security_locked)&&Number(row.active_assignments)>0,
     phone: row.phone || '',
     address: row.address || '',
     vehicleType: normalizeRiderVehicleType(row.vehicle_type),
@@ -60,108 +67,16 @@ function formatRiderRow(row) {
     bio: row.bio || '',
     profileImageUrl: row.profile_image_url || '',
     status: row.status || 'active',
-    isAvailable: Boolean(row.is_available),
+    isOnDuty: Boolean(row.is_available),
+    isAvailable: riderAvailability(row)==='Available',
+    availability: riderAvailability(row),
+    accountEnabled: Boolean(row.account_enabled),
+    activeAssignments: Number(row.active_assignments||0),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-function normalizeEmail(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-async function ensureUserForRider({ firstName, lastName, email, password }) {
-  if (!ensureUsersTablePromise) {
-    ensureUsersTablePromise = pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id BIGSERIAL PRIMARY KEY,
-        first_name TEXT,
-        last_name TEXT,
-        email TEXT NOT NULL UNIQUE,
-        password_hash TEXT,
-        password TEXT,
-        role TEXT NOT NULL DEFAULT 'customer',
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `).then(() =>
-      pool.query(`
-        ALTER TABLE users
-          ADD COLUMN IF NOT EXISTS first_name TEXT,
-          ADD COLUMN IF NOT EXISTS last_name TEXT,
-          ADD COLUMN IF NOT EXISTS email TEXT,
-          ADD COLUMN IF NOT EXISTS password_hash TEXT,
-          ADD COLUMN IF NOT EXISTS password TEXT,
-          ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'customer',
-          ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
-          ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      `)
-    );
-  }
-
-  await ensureUsersTablePromise;
-
-  const riderEmail = normalizeEmail(email);
-  const riderPassword = String(password || '');
-  const riderFirstName = String(firstName || '').trim();
-  const riderLastName = String(lastName || '').trim();
-
-  if (!riderEmail) {
-    return null;
-  }
-
-  const existingUser = await pool.query(
-    `
-    SELECT id, role
-    FROM users
-    WHERE LOWER(email) = $1
-    LIMIT 1
-    `,
-    [riderEmail]
-  );
-
-  if (existingUser.rows.length) {
-    const user = existingUser.rows[0];
-    if (user.role !== 'rider') {
-      throw new Error('That email is already used by a non-rider account');
-    }
-
-    const updateValues = [user.id, riderFirstName, riderLastName];
-    const updateSql = [
-      'UPDATE users',
-      'SET first_name = $2,',
-      '    last_name = $3,',
-    ];
-
-    if (riderPassword) {
-      const passwordHash = await bcrypt.hash(riderPassword, 10);
-      updateValues.push(passwordHash);
-      updateSql.push(`    password_hash = $${updateValues.length},`);
-    }
-
-    updateSql.push('    updated_at = NOW()', 'WHERE id = $1');
-    await pool.query(updateSql.join('\n'), updateValues);
-
-    return Number(user.id);
-  }
-
-  if (!riderPassword) {
-    throw new Error('Password is required when creating a rider login');
-  }
-
-  const passwordHash = await bcrypt.hash(riderPassword, 10);
-  const insertedUser = await pool.query(
-    `
-    INSERT INTO users (first_name, last_name, email, password_hash, role, status, updated_at)
-    VALUES ($1, $2, $3, $4, 'rider', 'active', NOW())
-    RETURNING id
-    `,
-    [riderFirstName, riderLastName, riderEmail, passwordHash]
-  );
-
-  return Number(insertedUser.rows[0].id);
-}
 
 async function findLinkedRiderForUser(authUser) {
   const directMatch = await pool.query(
@@ -318,133 +233,8 @@ const riderProfileColumns = `
   updated_at
 `;
 
-router.get('/api/admin/riders', async (_req, res) => {
-  try {
-    await ensureRidersTable();
-
-    const result = await pool.query(`
-      SELECT id, first_name, last_name, email, phone, profile_image_url, status, is_available, created_at, updated_at
-      FROM riders
-      ORDER BY updated_at DESC, created_at DESC
-    `);
-
-    res.json(result.rows.map(formatRiderRow));
-  } catch (error) {
-    res.status(500).json({ error: error.message || 'Failed to load riders' });
-  }
-});
-
-router.post('/api/admin/riders', upload.single('profileImage'), async (req, res) => {
-  try {
-    await ensureRidersTable();
-
-    const firstName = String(req.body?.firstName || '').trim();
-    const lastName = String(req.body?.lastName || '').trim();
-    const email = String(req.body?.email || '').trim().toLowerCase();
-    const phone = String(req.body?.phone || '').trim();
-    const password = String(req.body?.password || '').trim();
-    const status = String(req.body?.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active';
-    const isAvailable = req.body?.isAvailable == null ? true : String(req.body.isAvailable).toLowerCase() === 'true';
-    const profileImageUrl = req.file ? await storeUploadedImage(req.file, 'riders') : null;
-
-    if (!firstName || !lastName || !phone) {
-      return res.status(400).json({ error: 'First name, last name, and phone are required' });
-    }
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required for rider login' });
-    }
-    if (!password) {
-      return res.status(400).json({ error: 'Password is required for rider login' });
-    }
-
-    const linkedUserId = await ensureUserForRider({ firstName, lastName, email, password });
-
-    const result = await pool.query(
-      `
-      INSERT INTO riders (first_name, last_name, email, phone, user_id, status, is_available, profile_image_url, updated_at)
-      VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, NOW())
-      RETURNING id, first_name, last_name, email, phone, profile_image_url, status, is_available, created_at, updated_at
-      `,
-      [firstName, lastName, email, phone, linkedUserId, status, isAvailable, profileImageUrl]
-    );
-
-    await pool.query(
-      `UPDATE users SET status = $2, updated_at = NOW() WHERE id = $1 AND role = 'rider'`,
-      [linkedUserId, status]
-    );
-
-    res.status(201).json(formatRiderRow(result.rows[0]));
-  } catch (error) {
-    if (String(error.message || '').toLowerCase().includes('duplicate')) {
-      return res.status(409).json({ error: 'A rider with that email already exists' });
-    }
-    res.status(500).json({ error: error.message || 'Failed to create rider' });
-  }
-});
-
-router.patch('/api/admin/riders/:id', upload.single('profileImage'), async (req, res) => {
-  try {
-    await ensureRidersTable();
-
-    const riderId = Number(req.params.id);
-    if (!Number.isInteger(riderId) || riderId <= 0) {
-      return res.status(400).json({ error: 'Invalid rider id' });
-    }
-
-    const firstName = String(req.body?.firstName || '').trim();
-    const lastName = String(req.body?.lastName || '').trim();
-    const email = String(req.body?.email || '').trim().toLowerCase();
-    const phone = String(req.body?.phone || '').trim();
-    const password = String(req.body?.password || '').trim();
-    const status = String(req.body?.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active';
-    const isAvailable = String(req.body?.isAvailable).toLowerCase() === 'true';
-    const profileImageUrl = req.file ? await storeUploadedImage(req.file, 'riders') : null;
-
-    if (!firstName || !lastName || !phone) {
-      return res.status(400).json({ error: 'First name, last name, and phone are required' });
-    }
-
-    let linkedUserId = null;
-    if (email) {
-      linkedUserId = await ensureUserForRider({ firstName, lastName, email, password });
-    }
-
-    const result = await pool.query(
-      `
-      UPDATE riders
-      SET
-        first_name = $2,
-        last_name = $3,
-        email = NULLIF($4, ''),
-        phone = $5,
-        user_id = COALESCE($6, user_id),
-        status = $7,
-        is_available = $8,
-        profile_image_url = COALESCE($9, profile_image_url),
-        updated_at = NOW()
-      WHERE id = $1
-      RETURNING id, first_name, last_name, email, phone, profile_image_url, status, is_available, created_at, updated_at
-      `,
-      [riderId, firstName, lastName, email, phone, linkedUserId, status, isAvailable, profileImageUrl]
-    );
-
-    await pool.query(
-      `UPDATE users SET status = $2, updated_at = NOW() WHERE id = (SELECT user_id FROM riders WHERE id = $1) AND role = 'rider'`,
-      [riderId, status]
-    );
-
-    if (!result.rows.length) {
-      return res.status(404).json({ error: 'Rider not found' });
-    }
-
-    res.json(formatRiderRow(result.rows[0]));
-  } catch (error) {
-    if (String(error.message || '').toLowerCase().includes('duplicate')) {
-      return res.status(409).json({ error: 'A rider with that email already exists' });
-    }
-    res.status(500).json({ error: error.message || 'Failed to update rider' });
-  }
-});
+router.use('/api/admin/riders',(req,res,next)=>{try{const user=verifyRequestToken(req);if(user.role!=='admin')return res.status(403).json({error:'Admin access only'});req.riderAdmin=user;next();}catch(error){res.status(error.status||401).json({error:'Administrator authentication required'});}});
+registerRiderAdminAccounts(router,{upload,ensureRidersTable,formatRiderRow,storeUploadedImage});
 
 router.get('/api/rider/profile', async (req, res) => {
   try {
@@ -465,7 +255,7 @@ router.get('/api/rider/profile', async (req, res) => {
       return res.status(404).json({ error: 'Rider profile not found' });
     }
 
-    res.json(formatRiderRow(result.rows[0]));
+    res.json(formatRiderRow((await pool.query(riderManagementSelect+' WHERE r.id=$1',[riderId])).rows[0]));
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message || 'Failed to load rider profile' });
   }
@@ -604,9 +394,10 @@ router.patch('/api/rider/profile', upload.single('profileImage'), async (req, re
     const bio = String(req.body?.bio || '').trim();
     const profileImageUrl = req.file ? await storeUploadedImage(req.file, 'riders') : null;
 
-    if (!firstName || !lastName || !email || !phone) {
-      return res.status(400).json({ error: 'First name, last name, email, and phone are required' });
+    if (!firstName || !lastName || !phone) {
+      return res.status(400).json({ error: 'First name, last name, and phone are required' });
     }
+    if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:'Enter a valid optional email'});
 
     await client.query('BEGIN');
 
@@ -625,13 +416,13 @@ router.patch('/api/rider/profile', upload.single('profileImage'), async (req, re
       return res.status(404).json({ error: 'Rider profile not found' });
     }
 
-    const result = await client.query(
+    await client.query(
       `
       UPDATE riders
       SET
         first_name = $2,
         last_name = $3,
-        email = $4,
+        email = NULLIF($4,''),
         phone = $5,
         address = NULLIF($6, ''),
         vehicle_type = NULLIF($7, ''),
@@ -667,7 +458,7 @@ router.patch('/api/rider/profile', upload.single('profileImage'), async (req, re
         UPDATE users
         SET first_name = $2,
             last_name = $3,
-            email = $4,
+            email = NULLIF($4,''),
             updated_at = NOW()
         WHERE id = $1
           AND role = 'rider'
@@ -676,8 +467,9 @@ router.patch('/api/rider/profile', upload.single('profileImage'), async (req, re
       );
     }
 
+    await auditRiderAccount(client,req,linkedUserId,'Rider Profile Updated',riderId,{reason:'Rider updated their own profile'});
     await client.query('COMMIT');
-    res.json(formatRiderRow(result.rows[0]));
+    res.json(formatRiderRow((await pool.query(riderManagementSelect+' WHERE r.id=$1',[riderId])).rows[0]));
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     if (String(error.message || '').toLowerCase().includes('duplicate')) {
@@ -728,7 +520,7 @@ router.get('/api/rider/orders', async (req, res) => {
             json_build_object(
               'id', oi.id,
               'productId', oi.product_id,
-              'productName', oi.product_name,
+              'productName', oi.product_name,'variantName',oi.variant_name,'variantSku',oi.variant_sku,'sellingUnit',oi.selling_unit,'piecesPerUnit',oi.pieces_per_unit,'weightKg',oi.weight_kg,
               'imageUrl', oi.image_url,
               'qty', oi.qty,
               'unitPrice', oi.unit_price,
@@ -779,7 +571,7 @@ router.get('/api/rider/orders', async (req, res) => {
         ? row.items.map((item) => ({
           id: Number(item.id),
           productId: item.productId == null ? null : Number(item.productId),
-          productName: item.productName,
+          productName: item.productName,variantName:item.variantName,variantSku:item.variantSku,sellingUnit:item.sellingUnit,piecesPerUnit:item.piecesPerUnit,weightKg:item.weightKg,
           imageUrl: item.imageUrl || '',
           qty: Number(item.qty || 0),
           unitPrice: Number(item.unitPrice || 0),

@@ -1,480 +1,88 @@
-import { useEffect, useMemo, useState } from 'react';
-import { apiAdminCustomers, apiAdminOrders, apiAdminRiders, apiDashboard } from '../api/client';
+import {useEffect,useState} from 'react';
+import {Link} from 'react-router-dom';
+import {Download,RefreshCw} from 'lucide-react';
+import NotificationBell from './NotificationBell';
+import {apiAdminReport,apiExportReport} from '../api/client';
 
-const statusLabelMap = {
-  Pending: 'Pending',
-  Preparing: 'Preparing',
-  'Cancellation Requested': 'Cancellation Requested',
-  'Out for Delivery': 'Out for Delivery',
-  Delivered: 'Delivered',
-  Cancelled: 'Cancelled',
-};
+const money=value=>new Intl.NumberFormat('en-PH',{style:'currency',currency:'PHP'}).format(Number(value)||0);
+const date=value=>value?new Date(value).toLocaleString('en-PH',{timeZone:'Asia/Manila',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+' PHT':'Unavailable';
+const button='inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-emerald-700 disabled:opacity-50';
+const panel='rounded-xl border border-slate-200 bg-white shadow-sm';
+const presets=[['today','Today'],['week','Last 7 Days'],['month','This Month'],['lastMonth','Last Month'],['year','This Year'],['custom','Custom Range']];
 
-const tagStyles = {
-  white: 'bg-gray-100 text-gray-700 ring-gray-200',
-  green: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
-  red: 'bg-rose-100 text-rose-700 ring-rose-200',
-  aquaponics: 'bg-amber-100 text-amber-800 ring-amber-200',
-  unassigned: 'bg-slate-100 text-slate-700 ring-slate-200',
-};
-
-function normalizeCustomer(customer) {
-  const firstName = String(customer?.firstName || customer?.first_name || '').trim();
-  const lastName = String(customer?.lastName || customer?.last_name || '').trim();
-  const fullName =
-    String(customer?.fullName || customer?.full_name || `${firstName} ${lastName}` || customer?.email || 'Customer').trim() ||
-    'Customer';
-
-  return {
-    ...customer,
-    firstName,
-    lastName,
-    fullName,
-    email: String(customer?.email || '').trim(),
-    createdAt: customer?.createdAt || customer?.created_at || null,
-    updatedAt: customer?.updatedAt || customer?.updated_at || null,
-  };
+function ReportTable({table,onPage}) {
+  const orderLinks=['orders','shipments'].includes(table.key);
+  return <section className={panel} aria-label={table.title}>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3"><h2 className="font-semibold text-slate-900">{table.title}</h2><span className="text-xs text-slate-500">{table.total} records</span></div>
+    <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-600"><tr>{table.columns.map(c=><th key={c.key} scope="col" className="px-4 py-3">{c.label}</th>)}{orderLinks&&<th scope="col" className="px-4 py-3">Action</th>}</tr></thead>
+    <tbody>{table.rows.map((row,i)=><tr key={row.id||i} className="border-t border-slate-100 align-top hover:bg-emerald-50/30">{table.columns.map(c=><td key={c.key} className={`px-4 py-3 ${c.type==='money'||c.type==='date'?'whitespace-nowrap':''}`}><span className={c.key==='codes'?'block max-w-72 break-words text-xs':''}>{c.key==='codes'?<details><summary className="cursor-pointer text-emerald-800">View code references</summary><span className="mt-2 block">{row[c.key]||'Unavailable'}</span></details>:row[c.key]==null?'Unavailable':c.type==='money'?money(row[c.key]):c.type==='date'?date(row[c.key]):String(row[c.key])}</span></td>)}{orderLinks&&<td className="whitespace-nowrap px-4 py-3"><Link className="font-medium text-emerald-800 underline underline-offset-2" to={`/admin/orders?orderId=${row.id}`}>View Order<span className="sr-only"> {row.order_code}</span></Link></td>}</tr>)}</tbody></table>
+    {!table.rows.length&&<p className="p-8 text-center text-sm text-slate-500">No records found for the selected period.</p>}</div>
+    {table.total>table.pageSize&&<div className="flex items-center justify-end gap-3 border-t border-slate-100 p-3"><button className={button} disabled={table.page<=1} onClick={()=>onPage(table.key,table.page-1)}>Previous</button><span className="text-xs text-slate-600">Page {table.page} of {Math.ceil(table.total/table.pageSize)}</span><button className={button} disabled={table.page*table.pageSize>=table.total} onClick={()=>onPage(table.key,table.page+1)}>Next</button></div>}
+  </section>;
 }
 
-function normalizeLowStockItem(item) {
-  const tagKey = String(item?.tag_key || item?.tagKey || item?.tag || '').trim().toLowerCase() || 'unassigned';
-  const tagLabel = String(item?.tag_label || item?.tagLabel || item?.name || item?.tag || 'Tag').trim() || 'Tag';
-
-  return {
-    ...item,
-    tag_key: tagKey,
-    tag_label: tagLabel,
-    product_count: Number(item?.product_count ?? item?.productCount ?? 0) || 0,
-    qty: Number(item?.qty ?? item?.stock ?? 0) || 0,
-  };
-}
-
-function formatCurrency(amount) {
-  return new Intl.NumberFormat('en-PH', {
-    style: 'currency',
-    currency: 'PHP',
-    minimumFractionDigits: 2,
-  }).format(Number(amount) || 0);
-}
-
-function formatDateTime(value) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString([], {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+function SalesChart({series}) {
+  if(!series.length) return <p className="p-8 text-center text-sm text-slate-500">No records found for the selected period.</p>;
+  const max=Math.max(1,...series.map(s=>s.revenue));
+  // Horizontally scroll long daily ranges; exact values are visible to keyboard and pointer users.
+  return <div className="overflow-x-auto px-4 pb-4"><div className="flex min-w-full items-end gap-3 pt-6" style={{width:Math.max(500,series.length*65)}}>{series.map(s=><div key={s.date} className="flex min-w-12 flex-1 flex-col items-center justify-end"><div className="flex h-40 w-full items-end justify-center"><div tabIndex={0} role="img" aria-label={`${s.date}: ${money(s.revenue)}`} title={`${s.date}: ${money(s.revenue)}`} className="w-8 rounded-t bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2" style={{height:`${Math.max(1,s.revenue/max*100)}%`}} /></div><span className="mt-2 whitespace-nowrap text-[10px] text-slate-500">{s.date}</span><span className="mt-1 whitespace-nowrap text-[10px] text-emerald-900">{money(s.revenue)}</span></div>)}</div><p className="mt-3 text-xs text-slate-500">Y: Sales amount (PHP) · X: Order creation date (PHT)</p></div>;
 }
 
 export default function AdminReports() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [dashboard, setDashboard] = useState({ salesData: [], lowStock: [], recentOrders: [], totals: {} });
-  const [orders, setOrders] = useState([]);
-  const [riders, setRiders] = useState([]);
-  const [customers, setCustomers] = useState([]);
-  const [salesPeriod, setSalesPeriod] = useState('month');
-  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
-  const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1));
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadReports() {
-      setLoading(true);
-      try {
-        const [dashboardResult, ordersResult, ridersResult, customersResult] = await Promise.allSettled([
-          apiDashboard(),
-          apiAdminOrders(),
-          apiAdminRiders(),
-          apiAdminCustomers(),
-        ]);
-
-        if (!mounted) return;
-
-        const dashboardData = dashboardResult.status === 'fulfilled' ? dashboardResult.value : null;
-        const ordersData = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
-        const ridersData = ridersResult.status === 'fulfilled' ? ridersResult.value : [];
-        const customersData = customersResult.status === 'fulfilled' ? customersResult.value : [];
-
-        setDashboard({
-          salesData: Array.isArray(dashboardData?.salesData) ? dashboardData.salesData : [],
-          lowStock: Array.isArray(dashboardData?.lowStock) ? dashboardData.lowStock.map(normalizeLowStockItem) : [],
-          recentOrders: Array.isArray(dashboardData?.recentOrders) ? dashboardData.recentOrders : [],
-          totals: dashboardData?.totals || {},
-        });
-        setOrders(Array.isArray(ordersData) ? ordersData.filter(Boolean) : []);
-        setRiders(Array.isArray(ridersData) ? ridersData.filter(Boolean) : []);
-        setCustomers(Array.isArray(customersData) ? customersData.filter(Boolean).map(normalizeCustomer) : []);
-
-        const failures = [
-          dashboardResult,
-          ordersResult,
-          ridersResult,
-          customersResult,
-        ].filter((result) => result.status === 'rejected');
-        setError(
-          failures.length > 0
-            ? failures.map((result) => result.reason?.message || 'One section failed to load').join(' ')
-            : ''
-        );
-      } catch (err) {
-        if (!mounted) return;
-        setError(err.message || 'Failed to load reports');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-
-    loadReports();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const orderCounts = useMemo(() => {
-    const counts = {
-      Pending: 0,
-      Preparing: 0,
-      'Cancellation Requested': 0,
-      'Out for Delivery': 0,
-      Delivered: 0,
-      Cancelled: 0,
-    };
-
-    for (const order of orders) {
-      if (counts[order?.status] != null) counts[order.status] += 1;
-    }
-
-    return counts;
-  }, [orders]);
-
-  const activeRiders = riders.filter((rider) => Boolean(rider?.isAvailable)).length;
-  const inactiveRiders = riders.filter((rider) => !rider?.isAvailable).length;
-  const customerGrowth = customers.filter((customer) => {
-    const created = new Date(customer.createdAt);
-    if (Number.isNaN(created.getTime())) return false;
-    const ageDays = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
-    return ageDays <= 30;
-  }).length;
-
-  const bestSellingSeries = useMemo(() => {
-    const grouped = new Map();
-    const safeOrders = Array.isArray(orders) ? orders : [];
-
-    safeOrders
-      .filter((order) => order?.status === 'Delivered')
-      .forEach((order) => {
-        const date = new Date(order.createdAt || order.created_at);
-        if (Number.isNaN(date.getTime())) return;
-        if (String(date.getFullYear()) !== selectedYear) return;
-        if (salesPeriod === 'month' && String(date.getMonth() + 1) !== selectedMonth) return;
-        const periodKey = salesPeriod === 'year'
-          ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-          : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-        const periodLabel = salesPeriod === 'year'
-          ? date.toLocaleDateString([], { month: 'short' })
-          : date.toLocaleDateString([], { day: 'numeric' });
-        const products = grouped.get(periodKey)?.products || new Map();
-
-        (Array.isArray(order.items) ? order.items : []).forEach((item) => {
-          if (!item) return;
-          const name = String(item.productName || item.product_name || 'Unknown product');
-          products.set(name, (products.get(name) || 0) + (Number(item.qty) || 0));
-        });
-        grouped.set(periodKey, { label: periodLabel, products });
-      });
-
-    return [...grouped.entries()]
-      .sort(([first], [second]) => first.localeCompare(second))
-      .map(([, entry]) => {
-        const best = [...entry.products.entries()].sort(([, firstQty], [, secondQty]) => secondQty - firstQty)[0];
-        return { label: entry.label, product: best?.[0] || 'No product sales', quantity: best?.[1] || 0 };
-      })
-      .slice(-12);
-  }, [orders, salesPeriod, selectedMonth, selectedYear]);
-
-  const chartMax = Math.max(...bestSellingSeries.map((entry) => entry.quantity), 1);
-  const chartPoints = bestSellingSeries.map((entry, index) => {
-    const x = 12 + (index / Math.max(bestSellingSeries.length - 1, 1)) * 376;
-    const y = 102 - (entry.quantity / chartMax) * 78;
-    return { ...entry, x, y };
-  });
-  const chartLine = chartPoints.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
-
-  const salesSeries = useMemo(() => {
-    const totals = new Map();
-    orders.filter((order) => order?.status === 'Delivered').forEach((order) => {
-      const date = new Date(order.createdAt || order.created_at);
-      if (Number.isNaN(date.getTime()) || String(date.getFullYear()) !== selectedYear) return;
-      if (salesPeriod === 'month' && String(date.getMonth() + 1) !== selectedMonth) return;
-      const key = salesPeriod === 'year'
-        ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-        : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      const label = salesPeriod === 'year' ? date.toLocaleDateString([], { month: 'short' }) : date.toLocaleDateString([], { day: 'numeric' });
-      const entry = totals.get(key) || { label, value: 0 };
-      entry.value += Number(order.totalAmount || order.total_amount) || 0;
-      totals.set(key, entry);
-    });
-    return [...totals.entries()].sort(([first], [second]) => first.localeCompare(second)).map(([, entry]) => entry);
-  }, [orders, salesPeriod, selectedMonth, selectedYear]);
-  const salesMax = Math.max(...salesSeries.map((entry) => entry.value), 1);
-  const salesPoints = salesSeries.map((entry, index) => ({ ...entry, x: 12 + (index / Math.max(salesSeries.length - 1, 1)) * 376, y: 102 - (entry.value / salesMax) * 78 }));
-  const salesLine = salesPoints.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
-
-  const productSalesTotals = useMemo(() => {
-    const totals = new Map();
-    orders
-      .filter((order) => order?.status === 'Delivered')
-      .forEach((order) => {
-        const date = new Date(order.createdAt || order.created_at);
-        if (Number.isNaN(date.getTime()) || String(date.getFullYear()) !== selectedYear) return;
-        if (salesPeriod === 'month' && String(date.getMonth() + 1) !== selectedMonth) return;
-        (Array.isArray(order.items) ? order.items : []).forEach((item) => {
-          if (!item) return;
-          const name = String(item.productName || item.product_name || 'Unknown product');
-          totals.set(name, (totals.get(name) || 0) + (Number(item.qty) || 0));
-        });
-      });
-    return [...totals.entries()]
-      .map(([product, quantity]) => ({ product, quantity }))
-      .sort((first, second) => second.quantity - first.quantity || first.product.localeCompare(second.product));
-  }, [orders, salesPeriod, selectedMonth, selectedYear]);
-
-  const availableYears = useMemo(() => {
-    const years = new Set(orders.filter((order) => order?.status === 'Delivered').map((order) => {
-      const date = new Date(order.createdAt || order.created_at);
-      return Number.isNaN(date.getTime()) ? null : String(date.getFullYear());
-    }).filter(Boolean));
-    years.add(String(new Date().getFullYear()));
-    return [...years].sort((first, second) => Number(second) - Number(first));
-  }, [orders]);
-
-  return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(220,252,231,0.9),_transparent_28%),linear-gradient(180deg,#f5faf7_0%,#eef5f1_100%)] px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <section className="overflow-hidden rounded-3xl border border-white/80 bg-white/90 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
-          <div className="bg-[linear-gradient(135deg,#0f4d2e_0%,#137a46_42%,#ecfdf5_100%)] px-6 py-6 text-white sm:px-8 sm:py-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100/90">Reports</p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Business overview</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-emerald-50/90 sm:text-base">
-              A quick snapshot of sales, orders, riders, customers, and low-stock products.
-            </p>
-          </div>
-
-          <div className="grid gap-3 border-b border-gray-100 bg-white px-6 py-5 sm:grid-cols-2 xl:grid-cols-4 sm:px-8">
-            <article className="rounded-2xl border border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] p-4 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">This Month Sales</p>
-              <p className="mt-2 text-2xl font-bold text-gray-900">{formatCurrency(dashboard.totals?.monthlySales)}</p>
-              <p className="mt-1 text-sm text-gray-500">Sales from the current month</p>
-            </article>
-            <article className="rounded-2xl border border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] p-4 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">This Month Orders</p>
-              <p className="mt-2 text-3xl font-bold text-emerald-700">{dashboard.totals?.monthlyOrders || 0}</p>
-              <p className="mt-1 text-sm text-gray-500">Orders placed this month</p>
-            </article>
-            <article className="rounded-2xl border border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] p-4 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Customers</p>
-              <p className="mt-2 text-3xl font-bold text-gray-900">{customers.length}</p>
-              <p className="mt-1 text-sm text-gray-500">{customerGrowth} joined in the last 30 days</p>
-            </article>
-            <article className="rounded-2xl border border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] p-4 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Riders</p>
-              <p className="mt-2 text-3xl font-bold text-gray-900">{riders.length}</p>
-              <p className="mt-1 text-sm text-gray-500">{activeRiders} available, {inactiveRiders} busy or inactive</p>
-            </article>
-          </div>
-        </section>
-
-        {error ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
-            {error}
-          </div>
-        ) : null}
-
-        <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <div className="overflow-hidden rounded-3xl border border-white/80 bg-white/90 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
-            <div className="border-b border-gray-100 px-6 py-5 sm:px-8">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">Best-Selling Product</h2>
-                  <p className="mt-1 text-sm text-gray-500">Top product by units sold from delivered orders.</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)} className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-700 outline-none focus:border-emerald-600">
-                    {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
-                  </select>
-                  {salesPeriod === 'month' ? (
-                    <select value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-xs font-semibold text-gray-700 outline-none focus:border-emerald-600">
-                      {Array.from({ length: 12 }, (_, index) => (
-                        <option key={index + 1} value={String(index + 1)}>{new Date(2000, index, 1).toLocaleDateString([], { month: 'long' })}</option>
-                      ))}
-                    </select>
-                  ) : null}
-                  <div className="flex rounded-xl bg-gray-100 p-1">
-                  {['month', 'year'].map((period) => (
-                    <button
-                      key={period}
-                      type="button"
-                      onClick={() => setSalesPeriod(period)}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition ${salesPeriod === period ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
-                    >
-                      {period}
-                    </button>
-                  ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {loading ? (
-              <div className="p-12 text-center text-gray-500">Loading reports...</div>
-            ) : (
-              <div className="px-6 py-6 sm:px-8">
-                {bestSellingSeries.length === 0 && salesSeries.length === 0 ? (
-                  <div className="flex h-64 items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-500">
-                    No delivered product sales yet.
-                  </div>
-                ) : (
-                  <>
-                    <div className="border-b border-gray-100 pb-6">
-                      <h3 className="mb-3 text-sm font-bold text-gray-900">Sales Performance</h3>
-                      {salesSeries.length === 0 ? <div className="flex h-40 items-center justify-center rounded-xl bg-gray-50 text-sm text-gray-500">No sales for this period.</div> : (
-                        <svg viewBox="0 0 400 150" className="h-56 w-full overflow-visible" preserveAspectRatio="none" role="img" aria-label="Sales performance">
-                          <defs><linearGradient id="reportsRevenueGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#1f5a43" stopOpacity="0.25" /><stop offset="100%" stopColor="#1f5a43" stopOpacity="0.02" /></linearGradient></defs>
-                          {[24, 50, 76, 102].map((y) => <line key={y} x1="12" x2="388" y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="3 4" />)}
-                          <path d={`${salesLine} L ${salesPoints.at(-1)?.x || 388} 110 L ${salesPoints[0]?.x || 12} 110 Z`} fill="url(#reportsRevenueGradient)" />
-                          <path d={salesLine} fill="none" stroke="#1f5a43" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-                          {salesPoints.map((point, index) => <g key={`${point.label}-${index}`}><circle cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#1f5a43" strokeWidth="2.5" vectorEffect="non-scaling-stroke" /><text x={point.x} y="135" textAnchor="middle" fill="#64748b" fontSize="9">{point.label}</text></g>)}
-                        </svg>
-                      )}
-                      <div className="mt-1 flex items-center justify-between border-t border-gray-100 pt-3"><span className="text-xs text-gray-500">Highest sales in this period</span><span className="text-sm font-bold text-emerald-700">{formatCurrency(salesMax === 1 && salesSeries.every((entry) => !Number(entry.value)) ? 0 : salesMax)}</span></div>
-                    </div>
-                    <h3 className="mb-3 pt-1 text-sm font-bold text-gray-900">Best-Selling Product</h3>
-                    <div className="h-64 w-full">
-                      <svg viewBox="0 0 400 150" className="h-full w-full overflow-visible" preserveAspectRatio="none" role="img" aria-label="Best-selling product units by period">
-                        <defs><linearGradient id="reportsSalesGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#1f5a43" stopOpacity="0.25" /><stop offset="100%" stopColor="#1f5a43" stopOpacity="0.02" /></linearGradient></defs>
-                        {[24, 50, 76, 102].map((y) => <line key={y} x1="12" x2="388" y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="3 4" />)}
-                        <path d={`${chartLine} L ${chartPoints.at(-1)?.x || 388} 110 L ${chartPoints[0]?.x || 12} 110 Z`} fill="url(#reportsSalesGradient)" />
-                        <path d={chartLine} fill="none" stroke="#1f5a43" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-                        {chartPoints.map((point) => (
-                          <g key={`${point.label}-${point.product}`}>
-                            <circle cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#1f5a43" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-                            <text x={point.x} y="135" textAnchor="middle" fill="#64748b" fontSize="9">{point.label}</text>
-                          </g>
-                        ))}
-                      </svg>
-                    </div>
-                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                      {bestSellingSeries.slice(-4).map((entry) => (
-                        <div key={`${entry.label}-${entry.product}`} className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2 text-xs">
-                          <span className="truncate pr-3 text-gray-600">{entry.label}: <span className="font-semibold text-gray-900">{entry.product}</span></span>
-                          <span className="shrink-0 font-semibold text-emerald-700">{entry.quantity} sold</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-5 border-t border-gray-100 pt-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-bold text-gray-900">Product Sales</h3>
-                        <span className="text-xs text-gray-500">All delivered orders</span>
-                      </div>
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        {productSalesTotals.map((entry) => (
-                          <div key={entry.product} className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-sm">
-                            <span className="truncate pr-3 font-medium text-gray-700">{entry.product}</span>
-                            <span className="shrink-0 font-bold text-emerald-700">{entry.quantity} sold</span>
-                          </div>
-                        ))}
-                        {productSalesTotals.length === 0 ? <p className="text-sm text-gray-500">No delivered product sales yet.</p> : null}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-6">
-            <section className="overflow-hidden rounded-3xl border border-white/80 bg-white/90 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
-              <div className="border-b border-gray-100 px-6 py-5 sm:px-8">
-                <h2 className="text-xl font-bold text-gray-900">Order Status Breakdown</h2>
-              </div>
-              <div className="grid gap-3 px-6 py-6 sm:px-8">
-                {Object.entries(orderCounts).map(([status, count]) => (
-                  <div key={status} className="flex items-center justify-between rounded-2xl bg-gray-50 px-4 py-3">
-                    <span className="text-sm font-medium text-gray-700">{statusLabelMap[status] || status}</span>
-                    <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-gray-900 ring-1 ring-gray-200">{count}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="overflow-hidden rounded-3xl border border-white/80 bg-white/90 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
-              <div className="border-b border-gray-100 px-6 py-5 sm:px-8">
-                <h2 className="text-xl font-bold text-gray-900">Low Stock</h2>
-              </div>
-              {dashboard.lowStock.length === 0 ? (
-                <div className="p-6 text-sm text-gray-500">No tags are currently at low stock.</div>
-              ) : (
-                <div className="grid gap-3 px-6 py-6 sm:px-8">
-                  {dashboard.lowStock.map((item) => (
-                    <div key={item.tag_key || item.tag_label} className="flex items-center justify-between rounded-2xl bg-amber-50 px-4 py-3">
-                      <div>
-                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${tagStyles[item.tag_key] || tagStyles.unassigned}`}>
-                          {item.tag_label || item.tag_key || 'Tag'}
-                        </span>
-                        <p className="mt-2 text-sm font-medium text-gray-900">{item.qty} total stock</p>
-                        <p className="text-xs text-gray-500">{item.product_count} product(s) in this tag</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-        </section>
-
-        <section className="grid gap-6 xl:grid-cols-2">
-          <div className="overflow-hidden rounded-3xl border border-white/80 bg-white/90 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
-            <div className="border-b border-gray-100 px-6 py-5 sm:px-8">
-              <h2 className="text-xl font-bold text-gray-900">Recent Orders</h2>
-            </div>
-            {dashboard.recentOrders.length === 0 ? (
-              <div className="p-6 text-sm text-gray-500">No recent orders yet.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-gray-100 bg-gray-50/80">
-                      <th className="px-5 py-3 text-sm font-semibold text-gray-600">Order</th>
-                      <th className="px-5 py-3 text-sm font-semibold text-gray-600">Customer</th>
-                      <th className="px-5 py-3 text-sm font-semibold text-gray-600">Date</th>
-                      <th className="px-5 py-3 text-sm font-semibold text-gray-600">Status</th>
-                      <th className="px-5 py-3 text-sm font-semibold text-gray-600">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dashboard.recentOrders.filter(Boolean).map((order) => (
-                      <tr key={order.id} className="border-b border-gray-100 hover:bg-emerald-50/40">
-                        <td className="px-5 py-3 font-medium text-gray-900">#{order.id}</td>
-                        <td className="px-5 py-3 text-gray-700">{order.customer || '-'}</td>
-                        <td className="px-5 py-3 text-gray-600">{formatDateTime(order.date)}</td>
-                        <td className="px-5 py-3 text-gray-700">{order.status || '-'}</td>
-                        <td className="px-5 py-3 text-gray-700">{formatCurrency(order.total)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-        </section>
+  const [filters,setFilters]=useState({preset:'month',tab:'sales'});
+  const [custom,setCustom]=useState({fromDate:'',toDate:''});
+  const [report,setReport]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState('');
+  const [exporting,setExporting]=useState('');
+  const [refresh,setRefresh]=useState(0);
+  const [customMode,setCustomMode]=useState(false);
+  useEffect(()=>{
+    const controller=new AbortController();setLoading(true);setError('');
+    apiAdminReport(filters,controller.signal).then(data=>{setReport(data);setLoading(false);}).catch(err=>{if(err.name!=='AbortError'){setError(err.message);setReport(null);setLoading(false);}});
+    return ()=>controller.abort();
+  },[filters,refresh]);
+  function choosePreset(preset) {
+    setCustomMode(preset==='custom');
+    if(preset!=='custom') setFilters({preset,tab:filters.tab});
+  }
+  function applyCustom(event) {
+    event.preventDefault();
+    if(!custom.fromDate||!custom.toDate||custom.fromDate>custom.toDate) {setError('Enter a valid date range. From Date must be on or before To Date.');return;}
+    setFilters({preset:'custom',tab:filters.tab,...custom});
+  }
+  async function download(format) {
+    setExporting(format);setError('');
+    try{await apiExportReport(filters,format);}catch(err){setError(err.message);}finally{setExporting('');}
+  }
+  const s=report?.summary;
+  return <div className="mx-auto min-w-0 max-w-7xl space-y-4">
+    <header>
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Analytics &amp; Reporting</p>
+      <div className="mt-1 flex items-center justify-between gap-4">
+        <h1 className="min-w-0 text-2xl font-bold text-slate-900">Reports &amp; Analytics</h1>
+        <div className="shrink-0"><NotificationBell /></div>
       </div>
-    </div>
-  );
+      <p className="mt-2 text-sm text-slate-500">Monitor business performance, sales, inventory, orders, and deliveries.</p>
+    </header>
+    <section className={`${panel} flex flex-wrap items-end gap-3 p-4`} aria-label="Report filters"><label className="text-xs font-medium text-slate-600">Reporting period<select className="mt-1 block rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={customMode?'custom':filters.preset} onChange={e=>choosePreset(e.target.value)}>{presets.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>
+      {customMode&&<form onSubmit={applyCustom} className="flex flex-wrap items-end gap-3"><label className="text-xs text-slate-600">From Date<input className="mt-1 block rounded-lg border border-slate-200 px-3 py-2 text-sm" type="date" required value={custom.fromDate} max={custom.toDate||undefined} onChange={e=>setCustom({...custom,fromDate:e.target.value})} /></label><label className="text-xs text-slate-600">To Date<input className="mt-1 block rounded-lg border border-slate-200 px-3 py-2 text-sm" type="date" required value={custom.toDate} min={custom.fromDate||undefined} onChange={e=>setCustom({...custom,toDate:e.target.value})} /></label><button className={button}>Apply</button></form>}
+      <button className={button} disabled={loading} onClick={()=>setRefresh(n=>n+1)}><RefreshCw size={15}/>Refresh</button><div className="flex flex-wrap gap-2 sm:ml-auto">{['pdf','xlsx'].map(f=><button key={f} className={button} disabled={loading||!report||!!exporting} onClick={()=>download(f)}><Download size={15}/>{exporting===f?'Exporting…':f==='pdf'?'Export PDF':'Export Excel (.xlsx)'}</button>)}</div>
+      {report&&!loading&&<p className="w-full text-xs text-slate-500">Selected period: {report.period.from} through {report.period.to} · Philippine Time · Entire end date included</p>}
+    </section>
+    {error&&<p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    {loading&&<p role="status" className="p-8 text-center text-slate-500">Loading reports…</p>}
+    {!loading&&report&&<>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Report summary">
+        {[['Total Sales',money(s.sales),'Delivered + verified Paid · creation cohort'],['Total Orders',s.orders,'Distinct orders created · includes cancelled'],['Available Inventory',`${s.plants} plants`,`${s.packs} sellable 400g packs · Current Inventory`],['Completed Deliveries',s.completed,'Recorded completion date within selected period']].map(([label,value,note])=><article key={label} className={`${panel} p-4`}><h2 className="text-sm text-slate-600">{label}</h2><p className="mt-2 text-2xl font-semibold text-emerald-900">{value}</p><p className="mt-2 text-xs text-slate-500">{note}</p></article>)}
+      </section>
+      <nav className="flex gap-1 overflow-x-auto border-b border-slate-200" aria-label="Report tabs">{['sales','inventory','orders','delivery'].map(tab=><button key={tab} aria-current={filters.tab===tab?'page':undefined} className={`px-5 py-3 text-sm font-medium capitalize ${filters.tab===tab?'border-b-2 border-emerald-700 text-emerald-800':'text-slate-500 hover:text-emerald-800'}`} onClick={()=>setFilters(({preset,fromDate,toDate})=>({preset,...(fromDate?{fromDate,toDate}:{}),tab}))}>{tab}</button>)}</nav>
+      <p className="text-xs leading-5 text-slate-600">{filters.tab==='inventory'?'Movements use backend recording dates; availability and alerts show current stock. Historical physical stock and undated fulfillment quantities are unavailable.':filters.tab==='delivery'?`Shipment details use the order-creation cohort and current statuses. Completion card uses recorded completion dates. ${s.undated_deliveries} delivered orders in the creation cohort have no reliable completion date. Failed/returned counts and delivery duration: unavailable.`:'Orders created in the selected period, evaluated using their current statuses. Sales include recorded delivery fees and require verified payment plus delivery.'}</p>
+      {filters.tab==='sales'&&<><section className={panel}><h2 className="px-4 pt-4 font-semibold text-slate-900">Sales performance</h2><SalesChart series={report.series}/></section><section className={`${panel} grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-5`}>{[['Gross sales before discounts','Unavailable'],['Separate discounts','Unavailable'],['Refund amounts','Unavailable'],['Net eligible sales',money(s.sales)],['Valid transactions',s.transactions]].map(([l,v])=><div key={l}><p className="text-xs text-slate-500">{l}</p><p className="mt-1 font-semibold text-slate-900">{v}</p></div>)}<p className="text-xs text-slate-500 sm:col-span-2 xl:col-span-5">Stored selling prices include batch pricing. Original-price discounts and actual refund amounts are not separately recorded; excluded refund orders are not presented as zero refunds.</p></section></>}
+      {report.breakdowns.length>0&&<section className={`${panel} p-4`}><h2 className="mb-3 font-semibold text-slate-900">{filters.tab==='delivery'?'Delivery method and current status':'Current order status breakdown'}</h2><div className="flex flex-wrap gap-2">{report.breakdowns.map(b=><span key={b.label} className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-900">{b.label} <strong className="ml-2">{b.count}</strong></span>)}</div></section>}
+      {report.deliverySummary&&<section className={`${panel} p-4`}><h2 className="font-semibold">Shipment creation cohort</h2><p className="mt-2 text-sm text-slate-600">Total shipments: {report.deliverySummary.shipments} · Currently delivered: {report.deliverySummary.delivered} · In progress: {report.deliverySummary.in_progress} · Failed / returned: Unavailable</p><div className="mt-3 flex flex-wrap gap-3">{report.carriers.map(c=><p key={c.carrier} className="rounded-lg bg-slate-50 p-3 text-xs">{c.carrier}: {c.assigned} assigned orders · {c.completed} currently delivered</p>)}</div></section>}
+      {report.tables.map(t=><ReportTable key={t.key} table={t} onPage={(key,page)=>setFilters({...filters,[`${key}Page`]:page})}/>)}
+      <details className={`${panel} p-4 text-xs text-slate-600`}><summary className="cursor-pointer font-medium text-emerald-900">Metric definitions and data limitations</summary><div className="mt-3 space-y-2">{report.notes.map(note=><p key={note}>{note}</p>)}<p>Snapshot generated: {date(report.generatedAt)}. Refresh to include subsequent changes.</p></div></details>
+    </>}
+  </div>;
 }

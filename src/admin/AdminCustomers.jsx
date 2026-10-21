@@ -1,206 +1,53 @@
-import { useEffect, useMemo, useState } from 'react';
-import { apiAdminCustomers, apiUpdateCustomerStatus } from '../api/client';
+import CustomerAvatar from './CustomerAvatar';
+import {useEffect,useRef,useState} from 'react';
+import {useLocation,useNavigate} from 'react-router-dom';
+import {Users,UserPlus,UserCheck,MoreHorizontal,UserX,Eye} from 'lucide-react';
+import NotificationBell from './NotificationBell';
+import InventoryActionMenu from './InventoryActionMenu';
+import CustomerDetailsDrawer from './CustomerDetailsDrawer';
+import {apiCustomerManagement,apiUpdateCustomerStatus} from '../api/client';
 
-function formatDateTime(value) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString([], {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
-
-function normalizeCustomer(customer) {
-  const firstName = String(customer?.firstName || customer?.first_name || '').trim();
-  const lastName = String(customer?.lastName || customer?.last_name || '').trim();
-  const fullName =
-    String(customer?.fullName || customer?.full_name || `${firstName} ${lastName}` || customer?.email || 'Customer').trim() ||
-    'Customer';
-
-  return {
-    ...customer,
-    firstName,
-    lastName,
-    fullName,
-    email: String(customer?.email || '').trim(),
-    role: String(customer?.role || 'customer').trim() || 'customer',
-    status: String(customer?.status || 'active').trim().toLowerCase() || 'active',
-    createdAt: customer?.createdAt || customer?.created_at || null,
-    updatedAt: customer?.updatedAt || customer?.updated_at || null,
+const control='min-h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-emerald-700 disabled:opacity-40';
+const date=value=>value?new Date(value).toLocaleString('en-PH',{timeZone:'Asia/Manila'})+' PHT':'Not recorded';
+function AccountConfirmation({customer,onClose,onSaved}){
+  const dialog=useRef(null),disable=customer.status==='active';
+  const [reason,setReason]=useState('Customer Request'),[description,setDescription]=useState('');
+  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[pending,setPending]=useState(null);
+  useEffect(()=>{const node=dialog.current;node.showModal();return()=>node.close();},[]);
+  useEffect(()=>{let active=true;apiCustomerManagement(`${customer.id}/details`).then(result=>{if(active)setPending(result.statistics.pending);}).catch(()=>{});return()=>{active=false;};},[customer.id]);
+  const submit=async event=>{
+    event.preventDefault();if(busy)return;setBusy(true);setError('');
+    try{const result=await apiUpdateCustomerStatus(customer.id,disable?'inactive':'active',{confirmed:true,reasonType:reason,description});onSaved(result.message);}catch(err){setError(err.message);}finally{setBusy(false);}
   };
+  return <dialog ref={dialog} aria-labelledby="account-confirm-title" onCancel={event=>{event.preventDefault();if(!busy)onClose();}} className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-xl backdrop:bg-slate-900/40"><form onSubmit={submit} className="space-y-4">
+    <h2 id="account-confirm-title" className="text-lg font-bold">{disable?'Disable':'Enable'} Customer Account</h2><p className="text-sm"><strong>{customer.fullName}</strong> · Customer #{customer.id}<span className="mt-1 block text-xs text-slate-500">Current status: {disable?'Active':'Disabled'}</span></p>
+    <p className="text-sm text-slate-600">{disable?'Disabling this account will prevent the customer from accessing their account. Existing orders and transaction history will be preserved.':'Confirm that this customer should regain account access.'}</p>
+    {pending>0&&<p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900">{pending} open orders need separate administrative review. They will not be cancelled by this action.</p>}
+    {disable&&<><label className="block text-sm font-medium">Reason for Disabling<select className={control+' mt-1 w-full'} value={reason} onChange={event=>setReason(event.target.value)} disabled={busy}>{['Customer Request','Suspicious Activity','Account Policy Violation','Duplicate Account','Other'].map(value=><option key={value}>{value}</option>)}</select></label><label className="block text-sm font-medium">Description {reason==='Other'?'(required)':'(optional)'}<textarea required={reason==='Other'} minLength={reason==='Other'?3:undefined} maxLength={1000} disabled={busy} rows={3} value={description} onChange={event=>setDescription(event.target.value)} className={control+' mt-1 w-full'}/></label></>}
+    {error&&<p role="alert" className="text-sm text-red-700">{error}</p>}<div className="flex justify-end gap-2"><button type="button" disabled={busy} onClick={onClose} className={control}>Cancel</button><button disabled={busy} className="rounded-lg bg-[#1f5a43] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy?'Saving…':disable?'Confirm Disable':'Confirm Enable'}</button></div>
+  </form></dialog>;
 }
 
-export default function AdminCustomers() {
-  const [customers, setCustomers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [error, setError] = useState('');
-  const [updatingId, setUpdatingId] = useState(null);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadCustomers() {
-      setLoading(true);
-      try {
-        const data = await apiAdminCustomers();
-        if (!mounted) return;
-        setCustomers(Array.isArray(data) ? data.map(normalizeCustomer) : []);
-        setError('');
-      } catch (err) {
-        if (!mounted) return;
-        setError(err.message || 'Failed to load customers');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-
-    loadCustomers();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const filteredCustomers = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return customers;
-
-    return customers.filter((customer) =>
-      [customer.fullName, customer.email, customer.role, customer.firstName, customer.lastName]
-        .join(' ')
-        .toLowerCase()
-        .includes(query)
-    );
-  }, [customers, search]);
-
-  const totalCustomers = customers.length;
-  const recentCustomers = customers.filter((customer) => {
-    const created = new Date(customer.createdAt);
-    if (Number.isNaN(created.getTime())) return false;
-    const daysAgo = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
-    return daysAgo <= 30;
-  }).length;
-
-  const latestCustomer = customers[0] || null;
-
-  async function toggleCustomerStatus(customer) {
-    const nextStatus = customer.status === 'inactive' ? 'active' : 'inactive';
-    const action = nextStatus === 'inactive' ? 'disable' : 'enable';
-    if (!window.confirm(`Are you sure you want to ${action} ${customer.fullName}'s account?`)) return;
-    setUpdatingId(customer.id);
-    setError('');
-    try {
-      const updated = await apiUpdateCustomerStatus(customer.id, nextStatus);
-      setCustomers((current) => current.map((item) => item.id === updated.id ? normalizeCustomer(updated) : item));
-    } catch (err) {
-      setError(err.message || 'Failed to update customer status');
-    } finally {
-      setUpdatingId(null);
-    }
-  }
-
-  return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(220,252,231,0.9),_transparent_28%),linear-gradient(180deg,#f5faf7_0%,#eef5f1_100%)] px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <section className="overflow-hidden rounded-3xl border border-white/80 bg-white/90 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
-          <div className="bg-[linear-gradient(135deg,#0f4d2e_0%,#137a46_42%,#ecfdf5_100%)] px-6 py-6 text-white sm:px-8 sm:py-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100/90">Customer Accounts</p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">View customers as they sign up</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-emerald-50/90 sm:text-base">
-              This page shows every customer account created in the system, along with the signup time.
-            </p>
-          </div>
-
-          <div className="grid gap-3 border-b border-gray-100 bg-white px-6 py-5 sm:grid-cols-2 xl:grid-cols-4 sm:px-8">
-            <article className="rounded-2xl border border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] p-4 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Customers</p>
-              <p className="mt-2 text-3xl font-bold text-gray-900">{totalCustomers}</p>
-              <p className="mt-1 text-sm text-gray-500">Registered customer accounts</p>
-            </article>
-            <article className="rounded-2xl border border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] p-4 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Last 30 Days</p>
-              <p className="mt-2 text-3xl font-bold text-emerald-700">{recentCustomers}</p>
-              <p className="mt-1 text-sm text-gray-500">Recently created accounts</p>
-            </article>
-            <article className="rounded-2xl border border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] p-4 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Latest Account</p>
-              <p className="mt-2 text-lg font-semibold text-gray-900">{latestCustomer?.fullName || 'No customers yet'}</p>
-              <p className="mt-1 text-sm text-gray-500">{latestCustomer ? formatDateTime(latestCustomer.createdAt) : 'Waiting for first signup'}</p>
-            </article>
-            <article className="rounded-2xl border border-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbf8_100%)] p-4 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Search</p>
-              <input
-                type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by name or email"
-                className="mt-2 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#2d5a45] focus:ring-2 focus:ring-[#2d5a45]/20"
-              />
-            </article>
-          </div>
-        </section>
-
-        {error ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
-            {error}
-          </div>
-        ) : null}
-
-        <section className="overflow-hidden rounded-3xl border border-white/80 bg-white/90 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
-          {loading ? (
-            <div className="p-12 text-center text-gray-500">Loading customers...</div>
-          ) : filteredCustomers.length === 0 ? (
-            <div className="p-12 text-center text-gray-500">No customer accounts found.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-gray-200 bg-gray-50/80">
-                    <th className="px-5 py-4 text-sm font-semibold text-gray-600">Customer</th>
-                    <th className="px-5 py-4 text-sm font-semibold text-gray-600">Email</th>
-                    <th className="px-5 py-4 text-sm font-semibold text-gray-600">Role</th>
-                    <th className="px-5 py-4 text-sm font-semibold text-gray-600">Status</th>
-                    <th className="px-5 py-4 text-sm font-semibold text-gray-600">Created</th>
-                    <th className="px-5 py-4 text-sm font-semibold text-gray-600">Updated</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCustomers.map((customer) => (
-                    <tr key={customer.id} className="border-b border-gray-100 transition-colors hover:bg-emerald-50/40">
-                      <td className="px-5 py-4">
-                        <div className="font-medium text-gray-900">{customer.fullName}</div>
-                        <div className="mt-1 text-xs text-gray-500">ID #{customer.id}</div>
-                      </td>
-                      <td className="px-5 py-4 text-gray-700">{customer.email || '-'}</td>
-                      <td className="px-5 py-4">
-                        <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
-                          {customer.role || 'customer'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${customer.status === 'inactive' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'}`}>
-                            {customer.status === 'inactive' ? 'Disabled' : 'Active'}
-                          </span>
-                          <button type="button" onClick={() => toggleCustomerStatus(customer)} disabled={updatingId === customer.id} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${customer.status === 'inactive' ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50' : 'border-red-200 text-red-700 hover:bg-red-50'}`}>
-                            {updatingId === customer.id ? 'Saving...' : customer.status === 'inactive' ? 'Enable' : 'Disable'}
-                          </button>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4 text-gray-600">{formatDateTime(customer.createdAt)}</td>
-                      <td className="px-5 py-4 text-gray-600">{formatDateTime(customer.updatedAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </div>
-    </div>
-  );
+export default function AdminCustomers(){
+  const location=useLocation(),navigate=useNavigate(),saved=location.state?.customerReturn;
+  const [search,setSearch]=useState(saved?.search||''),[status,setStatus]=useState(saved?.status||''),[fromDate,setFromDate]=useState(saved?.fromDate||''),[toDate,setToDate]=useState(saved?.toDate||''),[page,setPage]=useState(saved?.page||1);
+  const [data,setData]=useState({customers:[],summary:{},total:0}),[loading,setLoading]=useState(true),[error,setError]=useState('');
+  const [selected,setSelected]=useState(saved?.id||null),[confirmation,setConfirmation]=useState(null),[notice,setNotice]=useState(''),[revision,setRevision]=useState(0);
+  useEffect(()=>{
+    let active=true;setLoading(true);
+    const timer=setTimeout(()=>apiCustomerManagement('manage',{search,status,fromDate,toDate,page}).then(result=>{if(active){setData(result);setError('');if(page>Math.max(1,Math.ceil(result.total/20)))setPage(Math.max(1,Math.ceil(result.total/20)));}}).catch(err=>{if(active)setError(err.message);}).finally(()=>{if(active)setLoading(false);}),200);
+    return()=>{active=false;clearTimeout(timer);};
+  },[search,status,fromDate,toDate,page,revision]);
+  const change=(setter,value)=>{setter(value);setPage(1);};
+  return <div className="mx-auto min-w-0 max-w-7xl space-y-4">
+    <header><p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Customer Accounts</p><div className="mt-1 flex items-center justify-between gap-4"><h1 className="min-w-0 text-2xl font-bold text-slate-900">Customer Management</h1><div className="flex shrink-0 items-center"><button className={control+" mr-2"} onClick={()=>setRevision(value=>value+1)}>Refresh</button><NotificationBell/></div></div><p className="mt-2 text-sm text-slate-500">Manage customer accounts, monitor registrations, and view purchase history.</p></header>
+    <section aria-label="Customer summary" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[['Total Customers',data.summary.total,'Registered customer accounts',Users],['New Customers (Last 30 Days)',data.summary.recent,'Recent registrations',UserPlus],['Active Accounts',data.summary.active,'Currently enabled accounts',UserCheck]].map(card=>{const Icon=card[3];return <article key={card[0]} className="flex gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Icon size={18}/></span><div><h2 className="text-xs font-semibold text-slate-500">{card[0]}</h2><p className="mt-1 text-2xl font-bold text-[#1f5a43]">{loading?'—':card[1]??'—'}</p><p className="mt-1 text-xs text-slate-500">{card[2]}</p></div></article>;})}</section>
+    {error&&<p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error} <button className="underline" onClick={()=>setRevision(value=>value+1)}>Retry</button></p>}{notice&&<p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
+    <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-wrap items-end gap-3 border-b border-slate-100 p-4"><label className="min-w-0 flex-1 text-xs font-medium text-slate-600">Search customers<input className={control+' mt-1 w-full min-w-40'} placeholder="Name, email or Customer ID" value={search} onChange={event=>change(setSearch,event.target.value)}/></label><label className="text-xs font-medium text-slate-600">Account status<select className={control+' mt-1 block'} value={status} onChange={event=>change(setStatus,event.target.value)}><option value="">All Customers</option><option value="active">Active Accounts</option><option value="inactive">Disabled Accounts</option></select></label><label className="text-xs font-medium text-slate-600">From Date<input className={control+' mt-1 block'} type="date" max={toDate||undefined} value={fromDate} onChange={event=>change(setFromDate,event.target.value)}/></label><label className="text-xs font-medium text-slate-600">To Date<input className={control+' mt-1 block'} type="date" min={fromDate||undefined} value={toDate} onChange={event=>change(setToDate,event.target.value)}/></label><button className={control} onClick={()=>{setSearch('');setStatus('');setFromDate('');setToDate('');setPage(1);}}>Reset Filters</button></div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{['Customer','Email','Account Status','Date Registered','Total Orders','Actions'].map(label=><th key={label} className="px-4 py-3">{label}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{loading?<tr><td colSpan={6} className="p-8 text-center text-slate-500">Loading customers…</td></tr>:error?null:data.customers.length===0?<tr><td colSpan={6} className="p-8 text-center text-slate-500">No customers match the selected filters.</td></tr>:data.customers.map(customer=><tr key={customer.id} className="hover:bg-emerald-50/30"><td className="px-4 py-3"><div className="flex items-center gap-3"><CustomerAvatar customer={customer}/><div><p className="font-semibold">{customer.fullName}</p><p className="mt-0.5 text-xs text-slate-500">Customer #{customer.id}</p></div></div></td><td className="px-4 py-3">{customer.email}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs ${customer.status==='active'?'bg-emerald-50 text-emerald-800':'bg-slate-100 text-slate-600'}`}>{customer.status==='active'?'Active':'Disabled'}</span></td><td className="px-4 py-3 text-xs text-slate-500">{date(customer.createdAt)}</td><td className="px-4 py-3">{customer.totalOrders}</td><td className="px-4 py-3"><div className="flex items-center gap-2 whitespace-nowrap"><button className={control+' inline-flex items-center gap-1.5 text-xs text-emerald-800'} onClick={()=>setSelected(customer.id)}><Eye size={14}/>View Details</button><InventoryActionMenu label="More" productName={customer.fullName} icon={MoreHorizontal} items={[{label:customer.status==='active'?'Disable Account':'Enable Account',icon:customer.status==='active'?UserX:UserCheck,action:()=>setConfirmation(customer)}]}/></div></td></tr>)}</tbody></table></div>
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 p-3 text-xs text-slate-500"><span>{data.total} customers · Page {page} of {Math.max(1,Math.ceil(data.total/20))}</span><div className="flex gap-2"><button className={control} disabled={loading||page===1} onClick={()=>setPage(value=>value-1)}>Previous</button><button className={control} disabled={loading||page*20>=data.total} onClick={()=>setPage(value=>value+1)}>Next</button></div></footer>
+    </section>
+    {selected&&<CustomerDetailsDrawer key={`${selected}-${revision}`} id={selected} initial={saved?.drawer} onClose={()=>setSelected(null)} onViewOrder={(orderId,drawer)=>navigate(`/admin/orders?orderId=${orderId}`,{state:{customerReturn:{id:selected,search,status,fromDate,toDate,page,drawer}}})}/>}
+    {confirmation&&<AccountConfirmation customer={confirmation} onClose={()=>setConfirmation(null)} onSaved={message=>{setNotice(message);setConfirmation(null);setRevision(value=>value+1);}}/>}
+  </div>;
 }

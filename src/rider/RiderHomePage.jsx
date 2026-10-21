@@ -214,7 +214,7 @@ export default function RiderHomePage() {
                             {imageSrc ? <img src={imageSrc} alt={item.productName} className="h-full w-full object-cover" /> : null}
                           </div>
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-gray-900">{item.productName}</p>
+                            <p className="truncate text-sm font-semibold text-gray-900">{item.productName}</p>{item.variantName&&<p className="text-xs text-gray-600">{item.variantName} | {item.variantSku} | {item.qty} {item.sellingUnit}</p>}
                             <p className="mt-0.5 text-xs text-gray-500">Qty {item.qty}</p>
                           </div>
                         </div>

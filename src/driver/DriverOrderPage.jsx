@@ -489,7 +489,7 @@ export default function DriverOrderPage() {
                     {order.items.map((item) => (
                       <div key={item.id} className="flex items-center justify-between rounded-2xl bg-gray-50 px-4 py-3">
                         <div>
-                          <p className="text-sm font-semibold text-gray-900">{item.productName}</p>
+                          <p className="text-sm font-semibold text-gray-900">{item.productName}</p>{item.variantName&&<p className="text-xs text-gray-600">{item.variantName} | {item.variantSku} | {item.qty} {item.sellingUnit}</p>}
                           <p className="text-xs text-gray-500">Qty {item.qty}</p>
                         </div>
                         <p className="text-sm font-semibold text-gray-900">{formatPhp(item.lineTotal)}</p>

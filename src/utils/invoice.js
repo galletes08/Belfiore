@@ -1,3 +1,5 @@
+import { displayProductName } from './inventory';
+
 export const formatPhp = (amount) =>
   new Intl.NumberFormat("en-PH", {
     style: "currency",
@@ -22,8 +24,8 @@ const formatInvoiceDate = (dateValue) =>
 
 const getSafeItems = (items = []) =>
   items.map((item) => ({
-    name: item.name || item.productName || "Unnamed item",
-    variation: item.variation || "",
+    name: displayProductName(item),
+    variation: item.variantName?`${item.piecesPerUnit?item.piecesPerUnit+' pieces':item.weightKg+' kg'} per ${item.sellingUnit}`:item.variation || "",
     qty: Number(item.qty) > 0 ? Number(item.qty) : 1,
     unitPrice: Number(item.unitPrice) || Number(item.lineTotal) / Number(item.qty || 1) || 0
   }));

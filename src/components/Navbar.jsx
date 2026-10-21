@@ -5,7 +5,7 @@ import CartSidebar from "./CartSidebar";
 import logoImage from "../assets/Logo.png";
 import { getCustomerUser, hasCustomerToken } from "../api/client";
 
-const ANNOUNCEMENT_TEXT = "Free shipping on orders over Php2,000";
+const ANNOUNCEMENT_TEXT = "Free local delivery on eligible orders of PHP 2,000 or more";
 
 const navItems = [
   { to: "/", label: "Home" },
@@ -139,6 +139,7 @@ export default function Navbar({
                 onClick={handleCartClick}
                 className="relative grid h-10 w-10 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 md:h-11 md:w-11"
                 aria-label="Open cart"
+                data-cart-target
               >
                 <ShoppingCart className="h-5 w-5" strokeWidth={2.2} />
                 {cartItemCount > 0 && (

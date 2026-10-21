@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link,useNavigate,useLocation } from 'react-router-dom';
 import {
   apiLogin,
   setAdminUser,
@@ -14,14 +14,16 @@ export default function AdminLogin() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword,setShowPassword] = useState(false);
   const navigate = useNavigate();
+  const location=useLocation();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const response = await apiLogin(email, password);
+      const response = await apiLogin(email, password,'staff',location.pathname.startsWith('/rider')?'rider':'admin');
       const role = response.user?.role;
       if (!['admin', 'rider'].includes(role)) {
         throw new Error('This login is only for admin or rider accounts.');
@@ -38,7 +40,7 @@ export default function AdminLogin() {
 
       setRiderUser(response.user || null);
       setRiderToken(token);
-      navigate('/rider', { replace: true });
+      navigate(response.user?.mustChangePassword?'/rider/change-password':'/rider', { replace: true });
     } catch (err) {
       setError(err.message || 'Login failed. Check email and password.');
     } finally {
@@ -52,22 +54,23 @@ export default function AdminLogin() {
         <h1 className="m-0 text-3xl font-semibold tracking-tight text-[#173d2b]">Welcome back</h1>
         <p className="mb-8 mt-2 text-sm leading-6 text-[#687c71]">Sign in with your admin or rider account to continue.</p>
         <form onSubmit={handleSubmit}>
+          {location.state?.passwordChanged&&<p role="status" className="mb-4 text-sm text-emerald-800">Password changed. Sign in with your new password.</p>}
           <label className="mb-5 block text-sm font-medium text-[#294b3a]">
-            Email
+            Email or assigned username
             <input
-              type="email"
+              type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@belfiore.com"
+              placeholder="Administrator email or rider username"
               required
-              autoComplete="email"
+              autoComplete="username"
               className="mt-2 h-12 w-full rounded-xl border border-[#d7e2da] bg-white px-4 text-sm text-[#173d2b] outline-none transition placeholder:text-[#9aa9a1] focus:border-[#4b916d] focus:ring-4 focus:ring-[#4b916d]/10"
             />
           </label>
           <label className="mb-5 block text-sm font-medium text-[#294b3a]">
             Password
             <input
-              type="password"
+              type={showPassword?'text':'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
@@ -76,8 +79,9 @@ export default function AdminLogin() {
               className="mt-2 h-12 w-full rounded-xl border border-[#d7e2da] bg-white px-4 text-sm text-[#173d2b] outline-none transition placeholder:text-[#9aa9a1] focus:border-[#4b916d] focus:ring-4 focus:ring-[#4b916d]/10"
             />
           </label>
+          <div className="mb-5 -mt-2 flex items-center justify-between gap-3 text-xs text-emerald-800"><button type="button" aria-pressed={showPassword} onClick={()=>setShowPassword(v=>!v)} className="rounded px-1 py-2 underline">{showPassword?'Hide password':'Show password'}</button><Link className="rounded px-1 py-2 underline" to="/forgot-password">Forgot Password?</Link></div>
           {error && (
-            <p className="mb-4 rounded-xl border border-[#f1c7c1] bg-[#fff2f0] px-3.5 py-3 text-sm text-[#a33d35]">{error}</p>
+            <p role="alert" className="mb-4 rounded-xl border border-[#f1c7c1] bg-[#fff2f0] px-3.5 py-3 text-sm text-[#a33d35]">{error}</p>
           )}
           <button
             type="submit"
@@ -87,6 +91,7 @@ export default function AdminLogin() {
             {loading ? 'Signing in...' : 'Sign in securely'}
           </button>
         </form>
+        <p className="mt-4 text-xs text-[#687c71]">Riders: contact an authorized administrator for identity verification and password recovery. Email recovery is for administrators only.</p>
         <p className="mt-6 text-center text-xs leading-5 text-[#7b8e84]">Your role automatically determines which workspace opens after sign-in.</p>
       </div>
     </div>

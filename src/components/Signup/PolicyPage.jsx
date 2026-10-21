@@ -1,0 +1,2 @@
+import {Link} from 'react-router-dom';
+export default function PolicyPage({kind}){return <main className="mx-auto my-12 max-w-2xl rounded-3xl border border-emerald-100 bg-white p-8"><h1 className="text-2xl font-bold text-emerald-950">{kind}</h1><p className="my-4 text-gray-700">The approved Belfiore {kind.toLowerCase()} has not yet been published. This page does not contain an approved policy.</p><Link to="/contact" className="text-emerald-800 underline">Contact Belfiore</Link><Link to="/signup" className="ml-5 text-emerald-800 underline">Back to registration</Link></main>;}

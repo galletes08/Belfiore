@@ -1,3 +1,4 @@
+import NotificationBell from './NotificationBell';
 import { createElement, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
@@ -21,6 +22,7 @@ const TYPE_OPTIONS = [
   { value: 'delivery', label: 'Delivery' },
   { value: 'inventory', label: 'Inventory' },
   { value: 'account', label: 'Accounts' },
+  { value: 'security', label: 'Authentication Security' },
 ];
 
 const iconByType = { order: ShoppingCart, payment: CircleDollarSign, delivery: Truck, inventory: Package, account: UserRound };
@@ -35,7 +37,7 @@ const toneByType = {
 function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return date.toLocaleString('en-PH', { timeZone:'Asia/Manila',month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })+' PHT';
 }
 
 function formatAmount(value) {
@@ -92,13 +94,13 @@ export default function AdminLogs() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
+      <header className="space-y-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Operations & audit trail</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">System logs</h1>
+          <div className="mt-1 flex min-w-0 items-center justify-between gap-4"><div className="min-w-0"><h1 className="text-3xl font-bold tracking-tight text-slate-900">System logs</h1></div><div className="shrink-0"><NotificationBell /></div></div>
           <p className="mt-2 max-w-2xl text-sm text-slate-500">Monitor orders, payments, delivery updates, inventory changes, and customer activity from one timeline.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-end gap-2">
           <button type="button" onClick={() => downloadCsv(filteredLogs)} disabled={!filteredLogs.length} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"><Download size={16} /> Export CSV</button>
           <button type="button" onClick={loadLogs} disabled={loading} className="inline-flex items-center gap-2 rounded-xl bg-[#1f5a43] px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#163f2f] disabled:cursor-not-allowed disabled:opacity-60"><RefreshCw className={loading ? 'animate-spin' : ''} size={16} /> Refresh</button>
         </div>

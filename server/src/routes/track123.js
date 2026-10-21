@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../config/db.js';
+import {syncCourierOrder} from '../utils/courierTracking.js';
 import { extractTrack123WebhookUpdate, verifyTrack123WebhookRequest } from '../utils/track123.js';
 
 const router = Router();
@@ -15,28 +16,8 @@ router.post('/api/track123/webhook', async (req, res) => {
       return res.json({ received: true, ignored: true });
     }
 
-    await pool.query(
-      `
-      UPDATE orders
-      SET
-        tracking_code = COALESCE(NULLIF($2, ''), tracking_code),
-        tracking_courier_code = COALESCE(NULLIF($3, ''), tracking_courier_code),
-        tracking_status = COALESCE(NULLIF($4, ''), tracking_status),
-        track123_tracking_id = COALESCE(NULLIF($5, ''), track123_tracking_id),
-        track123_last_checkpoint_at = COALESCE($6::timestamptz, track123_last_checkpoint_at),
-        track123_last_synced_at = NOW(),
-        updated_at = NOW()
-      WHERE tracking_code = $1
-      `,
-      [
-        update.trackingNumber,
-        update.trackingNumber,
-        update.courierCode,
-        update.trackingStatus,
-        update.trackingId,
-        update.checkpointTime,
-      ]
-    );
+    const orders=await pool.query("SELECT id FROM orders WHERE tracking_code=$1 AND delivery_mode='logistics'",[update.trackingNumber]);
+    for(const order of orders.rows)await syncCourierOrder(Number(order.id));
 
     res.json({ received: true });
   } catch (error) {

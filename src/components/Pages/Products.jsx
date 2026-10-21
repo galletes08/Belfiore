@@ -13,18 +13,20 @@ import {
 } from "lucide-react";
 
 import { apiProducts, getImageUrl } from "../../api/client";
-import awardImage from "../../assets/Award.jpg";
-import blogImage from "../../assets/Blog.png";
-import plantsImage from "../../assets/Plants.jpg";
+import catalogHero from "../../assets/belfiore-catalog-hero.png";
+import "./catalogHero.css";
+import { LETTUCE_VARIETIES } from "../../utils/inventory";
 import { getWishlistIds, saveWishlistIds } from "../../utils/wishlist";
 
-const tagTabs = [
-  { key: "all", label: "All" },
-  { key: "white", label: "White Tags" },
-  { key: "green", label: "Green Tags" },
-  { key: "red", label: "Red Tags" },
-  { key: "aquaponics", label: "Aquaponics" }
+const categoryTabs = [
+ {key:'all',label:'All Products'},{key:'succulents',label:'Succulents'},
+ {key:'lettuce',label:'Lettuce'},{key:'gardening_supply',label:'Gardening Supplies'}
 ];
+const subcategoryTabs = {
+ succulents: ['white','green','red'].map(key=>({key,label:key[0].toUpperCase()+key.slice(1)+' Tags'})),
+ lettuce: LETTUCE_VARIETIES.map(({name})=>({key:name,label:name})),
+ gardening_supply: ['Plant Pots','Soil & Potting Mix','Plant Trays'].map(label=>({key:label,label}))
+};
 
 const sortOptions = [
   { value: "featured", label: "Featured" },
@@ -42,12 +44,6 @@ const badgeStyles = {
   aquaponics: "border-amber-200 bg-amber-50 text-amber-700"
 };
 
-const cardImages = [
-  plantsImage,
-  awardImage,
-  blogImage,
-  plantsImage
-];
 
 const AQUAPONICS_TAG = "aquaponics";
 const PRODUCTS_PER_PAGE = 15;
@@ -87,6 +83,7 @@ const normalizeTag = (tag, category) => {
     .trim()
     .toLowerCase();
 
+  if(normalizedTag==='gardening supplies')return 'gardening_supply';
   if (["white", "green", "red"].includes(normalizedTag)) {
     return normalizedTag;
   }
@@ -126,10 +123,7 @@ const getDisplayTag = (tag, category) => {
 };
 
 const getCustomerProductName = (item) => {
-  const category = String(item?.category || '').trim();
-  return category.toLowerCase() === 'aloe hybrids'
-    ? 'Aloe Hybrids'
-    : String(item?.name || 'Untitled product').trim();
+  return String(item?.name || 'Untitled product').trim();
 };
 
 const getCustomerProductDescription = (item) => {
@@ -143,13 +137,15 @@ export default function Products({ onAddToCart }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedTag = searchParams.get("tag");
-  const initialTag = tagTabs.some((tab) => tab.key === requestedTag) ? requestedTag : "all";
+  const legacyTag = ['white','green','red'].includes(requestedTag);
+  const initialTag = legacyTag ? 'succulents' : requestedTag === 'aquaponics' ? 'lettuce' : categoryTabs.some(tab=>tab.key===requestedTag) ? requestedTag : 'all';
 
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
   const [activeTag, setActiveTag] = useState(initialTag);
+  const [activeSubcategory, setActiveSubcategory] = useState(legacyTag ? requestedTag : 'all');
   const [searchValue, setSearchValue] = useState("");
   const [sortBy, setSortBy] = useState("featured");
   const [currentPage, setCurrentPage] = useState(1);
@@ -160,12 +156,17 @@ export default function Products({ onAddToCart }) {
     () => new Set(wishlistIds),
     [wishlistIds]
   );
+  // Count records that the current catalog can actually display, not stale saved IDs.
+  const catalogWishlistCount = useMemo(
+    () => products.filter(product => wishlistIdSet.has(String(product.id))).length,
+    [products, wishlistIdSet]
+  );
 
   useEffect(() => {
     let ignore = false;
 
-    const loadProducts = async () => {
-      setLoading(true);
+    const loadProducts = async (initial = false) => {
+      if (initial) setLoading(true);
       setLoadError("");
 
       try {
@@ -187,17 +188,22 @@ export default function Products({ onAddToCart }) {
       }
     };
 
-    loadProducts();
+    loadProducts(true);
+    const refresh = () => { if (!document.hidden) loadProducts(); };
+    const timer = setInterval(refresh, 30000);
+    document.addEventListener('visibilitychange', refresh);
 
     return () => {
       ignore = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
     };
   }, []);
 
   const filteredProducts = useMemo(() => {
     const keyword = searchValue.trim().toLowerCase();
 
-    const mappedProducts = products.map((item, index) => ({
+    const mappedProducts = products.map((item) => ({
       ...item,
       name: getCustomerProductName(item),
       note: getCustomerProductDescription(item),
@@ -205,11 +211,11 @@ export default function Products({ onAddToCart }) {
       tagKey: normalizeTag(item.tag, item.category),
       image:
         getImageUrl(item.imageUrl) ||
-        cardImages[index % cardImages.length]
+        '/product-placeholder.svg'
     }));
 
     const baseList = mappedProducts.filter((item) => {
-      if (item.stock <= 0) {
+      if (!showWishlistOnly&&item.stock <= 0&&item.inventoryType!=='GARDENING_SUPPLY') {
         return false;
       }
 
@@ -221,9 +227,13 @@ export default function Products({ onAddToCart }) {
       }
 
       const matchesTag =
-        activeTag === "all" || item.tagKey === activeTag;
+        activeTag === "all" || activeTag==='gardening_supply'&&item.inventoryType==='GARDENING_SUPPLY' || activeTag==='succulents'&&item.inventoryType==='succulent' || activeTag==='lettuce'&&item.inventoryType==='edible';
 
-      if (!matchesTag) {
+      const matchesSubcategory = activeSubcategory === 'all' ||
+        activeTag === 'succulents' && item.tagKey === activeSubcategory ||
+        activeTag === 'lettuce' && item.name === activeSubcategory ||
+        activeTag === 'gardening_supply' && item.category === activeSubcategory;
+      if (!matchesTag || !matchesSubcategory) {
         return false;
       }
 
@@ -233,6 +243,7 @@ export default function Products({ onAddToCart }) {
 
       const searchableText = [
         item.name,
+        item.productCode,
         item.tag,
         item.category,
         item.note
@@ -279,7 +290,7 @@ export default function Products({ onAddToCart }) {
     }
 
     return sortedList;
-  }, [activeTag, products, searchValue, showWishlistOnly, sortBy, wishlistIdSet]);
+  }, [activeTag, activeSubcategory, products, searchValue, showWishlistOnly, sortBy, wishlistIdSet]);
 
   const totalPages = Math.max(
     1,
@@ -329,22 +340,13 @@ export default function Products({ onAddToCart }) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeTag, searchValue, showWishlistOnly, sortBy]);
+  }, [activeTag, activeSubcategory, searchValue, showWishlistOnly, sortBy]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
-
-  const totalStock = filteredProducts.reduce(
-    (sum, item) => sum + item.stock,
-    0
-  );
-
-  const lowStock = filteredProducts.filter(
-    (item) => item.stock > 0 && item.stock <= 5
-  ).length;
 
   const filtersAreActive =
     activeTag !== "all" ||
@@ -354,6 +356,7 @@ export default function Products({ onAddToCart }) {
 
   const clearFilters = () => {
     setActiveTag("all");
+    setActiveSubcategory("all");
     setShowWishlistOnly(false);
     setSearchValue("");
     setSortBy("featured");
@@ -374,68 +377,20 @@ export default function Products({ onAddToCart }) {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      {/* Header */}
-      <header className="border-b border-emerald-200 bg-emerald-50">
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-7">
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
-                <Sprout size={14} aria-hidden="true" />
-                Plant catalog
-              </div>
-
-              <h1 className="mt-3 max-w-3xl text-2xl font-bold leading-tight tracking-tight text-slate-950 sm:text-3xl lg:text-4xl">
-                Find the right plant for your space.
-              </h1>
-
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-                Browse our white, green, red-tagged, and
-                aquaponics selections. Use the filters to
-                quickly find the best match for your space.
-              </p>
-            </div>
-
-            {/* Statistics */}
-            <dl className="grid grid-cols-3 divide-x divide-emerald-100 rounded-2xl border border-emerald-200 bg-white/80 px-2 py-3 shadow-sm sm:min-w-[390px]">
-              <div className="px-4">
-                <dt className="text-xs font-medium text-slate-500">
-                  Products
-                </dt>
-
-                <dd className="mt-1 text-xl font-bold text-slate-950">
-                  {loading
-                    ? "—"
-                    : filteredProducts.length}
-                </dd>
-              </div>
-
-              <div className="px-4">
-                <dt className="text-xs font-medium text-slate-500">
-                  In stock
-                </dt>
-
-                <dd className="mt-1 text-xl font-bold text-emerald-700">
-                  {loading ? "—" : totalStock}
-                </dd>
-              </div>
-
-              <div className="px-4">
-                <dt className="text-xs font-medium text-slate-500">
-                  Low stock
-                </dt>
-
-                <dd className="mt-1 text-xl font-bold text-amber-600">
-                  {loading ? "—" : lowStock}
-                </dd>
-              </div>
-            </dl>
+      <header className="catalog-hero border-b border-emerald-900" style={{ '--catalog-hero-image': `url("${catalogHero}")` }}>
+        <div className="mx-auto flex min-h-[190px] max-w-[1600px] items-center px-4 py-6 sm:min-h-[200px] sm:px-6 lg:px-8">
+          <div className="max-w-[34rem] md:w-[52%]">
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100">
+            <Sprout size={14} aria-hidden="true" /> Product catalog
+          </p>
+          <h1 className="mt-2 text-2xl font-bold leading-tight tracking-tight text-white lg:text-[28px]">Plants &amp; Gardening Essentials</h1>
+          <p className="mt-2 text-sm leading-6 text-white">Explore our succulents, fresh lettuce, and gardening supplies.</p>
           </div>
         </div>
       </header>
-
-      <main className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6 lg:px-8 lg:py-1">
+      <main className="mx-auto max-w-[1600px] px-4 py-4 sm:px-6 lg:px-8">
         {/* Filters */}
-        <section className="rounded-2xl border border-slate-300 bg-white p-4 shadow-sm sm:p-5">
+        <section className="rounded-2xl border border-slate-300 bg-white p-4 shadow-sm sm:p-4">
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto] lg:items-center lg:gap-4">
             {/* Search */}
             <label className="relative block lg:col-start-1">
@@ -504,8 +459,8 @@ export default function Products({ onAddToCart }) {
           </div>
 
           {/* Tag filters */}
-          <div className="mt-4 flex gap-2 overflow-x-auto border-t border-slate-100 pt-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {tagTabs.map((tab) => {
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {categoryTabs.map((tab) => {
               const isActive = activeTag === tab.key;
 
               return (
@@ -514,7 +469,7 @@ export default function Products({ onAddToCart }) {
                   type="button"
                   aria-pressed={isActive}
                   onClick={() =>
-                    setActiveTag(tab.key)
+                    { setActiveTag(tab.key); setActiveSubcategory('all'); }
                   }
                   className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-4 focus:ring-emerald-100 ${
                     isActive
@@ -530,7 +485,14 @@ export default function Products({ onAddToCart }) {
             <button
               type="button"
               aria-pressed={showWishlistOnly}
-              onClick={() => setShowWishlistOnly((current) => !current)}
+              onClick={() => {
+                if(!showWishlistOnly){
+                  setActiveTag('all');
+                  setActiveSubcategory('all');
+                  setSearchValue('');
+                }
+                setShowWishlistOnly(current=>!current);
+              }}
               className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-4 focus:ring-rose-100 ${
                 showWishlistOnly
                   ? "bg-rose-600 text-white shadow-sm"
@@ -542,13 +504,24 @@ export default function Products({ onAddToCart }) {
                 fill={showWishlistOnly ? "currentColor" : "none"}
                 aria-hidden="true"
               />
-              Wishlist ({wishlistIds.length})
+              Wishlist ({loading ? '…' : catalogWishlistCount})
             </button>
           </div>
+          {subcategoryTabs[activeTag] && (
+            <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Category options">
+              {[{key:'all',label:'All'},...subcategoryTabs[activeTag]].map(tab=>(
+                <button key={tab.key} type="button" aria-pressed={activeSubcategory===tab.key}
+                  onClick={()=>setActiveSubcategory(tab.key)}
+                  className={'min-h-10 rounded-lg border px-3 py-2 text-xs font-medium transition focus:outline-none focus:ring-4 focus:ring-emerald-100 '+(activeSubcategory===tab.key?'border-emerald-700 bg-emerald-50 text-emerald-900':'border-slate-200 text-slate-600 hover:border-emerald-300')}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* Product heading */}
-        <div className="mt-8 flex items-end justify-between gap-4">
+        <div className="mt-4 flex items-end justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
               Available collection
@@ -570,7 +543,7 @@ export default function Products({ onAddToCart }) {
         </div>
 
         {/* Product grid */}
-        <section className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <section className="mt-3 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {loading ? (
             Array.from({ length: 10 }).map(
               (_, index) => (
@@ -614,12 +587,13 @@ export default function Products({ onAddToCart }) {
               </div>
 
               <h3 className="mt-4 font-semibold text-slate-900">
-                No products found
+                {showWishlistOnly && catalogWishlistCount === 0 ? 'Your wishlist is empty' : 'No products found'}
               </h3>
 
               <p className="mt-2 text-sm text-slate-500">
-                Try another keyword or clear the active
-                filters.
+                {showWishlistOnly && catalogWishlistCount === 0
+                  ? 'Tap the heart on a product to save it here. Products no longer in the catalog are not counted.'
+                  : 'Try another keyword or clear the active filters.'}
               </p>
 
               {filtersAreActive && (
@@ -646,8 +620,8 @@ export default function Products({ onAddToCart }) {
 
               const isLowStock =
                 isAquaponics &&
-                product.stock > 0 &&
-                product.stock <= 5;
+                product.inventoryType === 'edible' && product.stock > 0 &&
+                product.stock <= product.lowStockThreshold;
 
               const isWishlisted = wishlistIdSet.has(
                 String(product.id)
@@ -670,6 +644,7 @@ export default function Products({ onAddToCart }) {
                   >
                     <img
                       src={product.image}
+                      onError={e => { if (!e.currentTarget.src.endsWith('/product-placeholder.svg')) e.currentTarget.src = '/product-placeholder.svg'; }}
                       alt={product.name}
                       loading="lazy"
                       className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
@@ -702,7 +677,7 @@ export default function Products({ onAddToCart }) {
                               : "bg-white/95 text-slate-700"
                         )}
                       >
-                        {isOutOfStock ? "Out of stock" : product.stock + " pcs available"}
+                        {product.inventoryType==='GARDENING_SUPPLY'?`${product.variants?.length||0} variants | ${product.status}`:isOutOfStock ? (product.inventoryType==='GARDENING_SUPPLY'?product.status:"Out of stock") : product.stock + (product.inventoryType === 'edible' ? " packs available · 400g each" : " individual plant available")}
                       </span>
                     ) : null}
                   </button>
@@ -713,6 +688,7 @@ export default function Products({ onAddToCart }) {
                       <h3 className="line-clamp-2 text-base font-bold leading-6 text-slate-950">
                         {product.name}
                       </h3>
+                      {product.inventoryType === 'succulent' && <p className="mt-1 font-mono text-xs text-slate-500">{product.productCode}</p>}
 
                       {product.note ? (
                         <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">{product.note}</p>
@@ -720,7 +696,7 @@ export default function Products({ onAddToCart }) {
                     </div>
 
                     <p className="mt-5 text-xl font-bold tracking-tight text-emerald-700">
-                      {formatPhp(numericPrice)}
+                      {product.inventoryType==='GARDENING_SUPPLY'?`From ${formatPhp(numericPrice)} / selling unit`:product.inventoryType==='edible' ? product.batches?.length ? `${formatPhp(product.batches[0].price)} · oldest eligible batch` : 'No eligible batches' : formatPhp(numericPrice)}
                     </p>
 
                     {/* Product actions */}
@@ -728,8 +704,8 @@ export default function Products({ onAddToCart }) {
                       <button
                         type="button"
                         disabled={isOutOfStock}
-                        onClick={() =>
-                          onAddToCart?.(product, 1)
+                        onClick={(event) =>
+                          ['edible','GARDENING_SUPPLY'].includes(product.inventoryType)?navigate(`/product/${product.id}`):onAddToCart?.(product, 1, event.currentTarget)
                         }
                         className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
                       >
@@ -740,7 +716,7 @@ export default function Products({ onAddToCart }) {
 
                         {isOutOfStock
                           ? "Unavailable"
-                          : "Add to cart"}
+                          : product.inventoryType==='GARDENING_SUPPLY'?"Choose variant":product.inventoryType==='edible'?"Choose batch":"Add to cart"}
                       </button>
 
                       <button

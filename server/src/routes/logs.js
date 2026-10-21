@@ -13,6 +13,11 @@ router.get('/api/admin/logs', async (req, res) => {
     const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 25), 500) : 250;
     const result = await pool.query(`
       WITH events AS (
+        SELECT 'auth-'||s.id AS event_id,'security' AS event_type,s.action,'Authentication' AS entity,
+          COALESCE(s.user_id::text,'Unknown') AS entity_id,COALESCE('Admin #'||s.actor_user_id::text,s.role,'Unknown') AS actor,
+          s.action||CASE WHEN s.details?'verificationReference' THEN ' · Verification reference: '||(s.details->>'verificationReference') ELSE '' END AS description,COALESCE(s.details->>'result','Recorded') AS status,s.created_at AS occurred_at,NULL::float AS amount
+        FROM auth_security_events s
+        UNION ALL
         SELECT
           'order-created-' || o.id AS event_id,
           'order' AS event_type,
@@ -94,12 +99,14 @@ router.get('/api/admin/logs', async (req, res) => {
         UNION ALL
 
         SELECT
-          'inventory-' || p.id || '-' || EXTRACT(EPOCH FROM COALESCE(p.updated_at, p.created_at)),
-          'inventory', 'Inventory updated', 'Product', p.id::text,
-          'System', 'Inventory record updated for ' || p.name,
-          CASE WHEN COALESCE(p.stock, 0) <= 5 THEN 'Low stock' ELSE 'In stock' END,
-          COALESCE(p.updated_at, p.created_at), NULL::float
-        FROM products p
+          'inventory-' || m.id,
+          'inventory', m.action, 'Product', m.product_id::text,
+          m.actor, m.product_code || ' ' || m.product_name || ': ' || m.reason,
+          m.new_status, m.created_at, NULL::float
+        FROM inventory_movements m
+        UNION ALL
+        SELECT 'customer-admin-'||a.id,'account',a.action,'Customer',a.customer_id::text,
+          a.actor,a.reason,a.new_status,a.created_at,NULL::float FROM customer_account_activity a
       )
       SELECT event_id, event_type, action, entity, entity_id, actor, description, status, occurred_at, amount
       FROM events

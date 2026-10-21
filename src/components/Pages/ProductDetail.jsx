@@ -2,9 +2,6 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Minus, PackageCheck, Plus, ShoppingCart } from "lucide-react";
 import { apiProducts, getImageUrl } from "../../api/client";
-import awardImage from "../../assets/Award.jpg";
-import blogImage from "../../assets/Blog.png";
-import plantsImage from "../../assets/Plants.jpg";
 
 const badgeStyles = {
   white: "bg-gray-100 text-gray-700 ring-gray-200",
@@ -13,7 +10,6 @@ const badgeStyles = {
   aquaponics: "bg-amber-100 text-amber-700 ring-amber-200"
 };
 
-const productImages = [plantsImage, awardImage, blogImage];
 
 const formatPhp = (amount) =>
   new Intl.NumberFormat("en-PH", {
@@ -49,8 +45,7 @@ const getDisplayTag = (tag, category) => {
 };
 
 const getCustomerProductName = (item) => {
-  const category = String(item?.category || '').trim();
-  return category.toLowerCase() === 'aloe hybrids' ? 'Aloe Hybrids' : String(item?.name || 'Untitled product').trim();
+  return String(item?.name || 'Untitled product').trim();
 };
 
 const getCustomerProductDescription = (item) => {
@@ -69,12 +64,14 @@ export default function ProductDetail({ onAddToCart }) {
   const [loadError, setLoadError] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [addedMessage, setAddedMessage] = useState("");
+  const [selectedBatchId,setSelectedBatchId]=useState('');
+  const [selectedVariantId,setSelectedVariantId]=useState('');
 
   useEffect(() => {
     let ignore = false;
 
-    const loadProduct = async () => {
-      setLoading(true);
+    const loadProduct = async (initial = false) => {
+      if (initial) setLoading(true);
       setLoadError("");
       try {
         const data = await apiProducts();
@@ -91,10 +88,15 @@ export default function ProductDetail({ onAddToCart }) {
       }
     };
 
-    loadProduct();
+    loadProduct(true);
+    const refresh = () => { if (!document.hidden) loadProduct(); };
+    const timer = setInterval(refresh, 30000);
+    document.addEventListener('visibilitychange', refresh);
 
     return () => {
       ignore = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
     };
   }, [id]);
 
@@ -115,19 +117,26 @@ export default function ProductDetail({ onAddToCart }) {
     return <div className="p-10">Product not found</div>;
   }
 
-  const numericPrice = getPriceNumber(product.price);
-  const displayImage = getImageUrl(product.imageUrl) || productImages[(product.id - 1) % productImages.length];
+  const isSupply=product.inventoryType==='GARDENING_SUPPLY';
+  const selectedVariant=product.variants?.find(v=>String(v.id)===selectedVariantId)||product.variants?.find(v=>v.available_stock>0)||product.variants?.[0];
+  const availableStock=isSupply?(selectedVariant?.available_stock||0):product.stock;
+  const selectedBatch=product.batches?.find(b=>String(b.id)===selectedBatchId)||product.batches?.[0];
+  const numericPrice = getPriceNumber(isSupply?(selectedVariant?.price||0):product.inventoryType==='edible'&&selectedBatch?selectedBatch.price:product.price);
+  const displayImage = getImageUrl(isSupply&&selectedVariant?.image_url?selectedVariant.image_url:product.imageUrl) || '/product-placeholder.svg';
   const tagKey = normalizeTag(product.tag, product.category);
-  const isAquaponics = tagKey === AQUAPONICS_TAG;
-  const maxQuantity = isAquaponics ? Math.max(1, product.stock) : 1;
+  const isAquaponics = !isSupply&&tagKey === AQUAPONICS_TAG;
+  const maxQuantity = isSupply?Math.max(1,availableStock):isAquaponics ? Math.max(1, selectedBatch?.available_stock||0) : 1;
   const isOrderView = location.state?.from === "/orders";
   const customerProductName = getCustomerProductName(product);
   const customerProductDescription = getCustomerProductDescription(product);
   const backTarget = isOrderView ? "/orders" : "/products";
   const backLabel = isOrderView ? "Back to Orders" : "Back to Products";
 
-  const handleAddToCart = () => {
-    onAddToCart?.(product, quantity);
+  const handleAddToCart = (event) => {
+    if(isSupply){if(!selectedVariant||availableStock<1)return;const accepted=onAddToCart?.({...product,price:selectedVariant.price,stock:availableStock,variantId:selectedVariant.id,variantName:selectedVariant.name,variantSku:selectedVariant.sku,sellingUnit:selectedVariant.selling_unit,piecesPerUnit:selectedVariant.pieces_per_unit,weightKg:selectedVariant.weight_kg,imageUrl:selectedVariant.image_url||product.imageUrl},Math.min(quantity,maxQuantity),event.currentTarget);if(accepted===true)setAddedMessage('Added to cart');return;}
+    if(isAquaponics&&!selectedBatch) return;
+    const accepted=onAddToCart?.(isAquaponics?{...product,price:selectedBatch.price,stock:selectedBatch.available_stock,batchId:selectedBatch.id,batchCode:selectedBatch.batch_code}:product,Math.min(quantity,maxQuantity),event.currentTarget);
+    if(accepted!==true)return;
     setAddedMessage("Added to cart");
     setTimeout(() => setAddedMessage(""), 1500);
   };
@@ -158,6 +167,7 @@ export default function ProductDetail({ onAddToCart }) {
           <div className="overflow-hidden rounded-2xl border border-gray-200 bg-[linear-gradient(180deg,#eef7ef_0%,#f8fbf8_100%)] shadow-sm">
             <img
               src={displayImage}
+              onError={e => { if (!e.currentTarget.src.endsWith('/product-placeholder.svg')) e.currentTarget.src = '/product-placeholder.svg'; }}
               alt={product.name}
               className={`w-full object-cover ${isOrderView ? "h-[260px] sm:h-[320px] xl:h-[360px]" : "h-full min-h-[340px]"}`}
             />
@@ -169,13 +179,16 @@ export default function ProductDetail({ onAddToCart }) {
             </span>
 
             <h1 className="mt-3 text-3xl font-bold text-gray-900">{customerProductName}</h1>
+            {isSupply&&<label className="mt-4 block text-sm font-medium text-gray-700">Choose variant<select className="mt-2 w-full rounded-xl border border-gray-200 p-3" value={String(selectedVariant?.id||'')} onChange={e=>{setSelectedVariantId(e.target.value);setQuantity(1);}}>{product.variants?.map(v=><option key={v.id} value={v.id}>{v.name} | {formatPhp(v.price)} / {v.selling_unit} | {v.available_stock} available | {v.status}</option>)}</select><span className="mt-2 block text-xs">{selectedVariant?.sku} | {selectedVariant?.pieces_per_unit?`${selectedVariant.pieces_per_unit} pieces / ${selectedVariant.selling_unit}`:`${selectedVariant?.weight_kg||0} kg / bag`} | {availableStock} {selectedVariant?.selling_unit} available</span></label>}
+            {isAquaponics && <label className="mt-4 block text-sm font-medium text-gray-700">Select harvest batch and price (oldest eligible first)<select className="mt-2 w-full rounded-xl border border-gray-200 p-3" value={String(selectedBatch?.id||'')} onChange={e=>{setSelectedBatchId(e.target.value);setQuantity(1);}}>{product.batches?.map(b=><option key={b.id} value={b.id}>{b.batch_code} · {b.harvest_date} · {formatPhp(b.price)} / 400g pack · {b.available_stock} packs · {b.status}</option>)}{!selectedBatch&&<option value="">No eligible harvest batches</option>}</select></label>}
+            {product.inventoryType === 'succulent' && <p className="mt-1 font-mono text-sm text-gray-500">{product.productCode}</p>}
             {customerProductDescription ? <p className="mt-2 text-sm text-gray-600">{customerProductDescription}</p> : null}
 
             <div className={`${isOrderView ? "mt-5 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4" : "mt-5"}`}>
               <p className="text-3xl font-bold text-emerald-700">{formatPhp(numericPrice)}</p>
               {isAquaponics ? (
-                <p className={"mt-2 text-sm font-medium " + (product.stock <= 5 ? "text-rose-600" : "text-gray-600")}>
-                  Available stock: {product.stock} pcs
+                <p className={"mt-2 text-sm font-medium " + (product.inventoryType === 'edible' && product.stock <= product.lowStockThreshold ? "text-rose-600" : "text-gray-600")}>
+                  Available stock: {product.stock} {isAquaponics ? 'packs · 1 Pack = 400g' : 'individual plant'}
                 </p>
               ) : null}
             </div>
@@ -189,7 +202,7 @@ export default function ProductDetail({ onAddToCart }) {
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Availability</p>
                 <p className="mt-1 inline-flex items-center gap-2 text-sm font-medium text-gray-800">
                   <PackageCheck size={15} className="text-emerald-700" />
-                  {product.stock > 0 ? "Ready for checkout" : "Out of stock"}
+                  {isSupply?(availableStock>0?"Ready for checkout":selectedVariant?.status||product.status):product.stock > 0 ? "Ready for checkout" : "Out of stock"}
                 </p>
               </div>
             </div>
@@ -205,7 +218,7 @@ export default function ProductDetail({ onAddToCart }) {
               <>
                 <div className="mt-6">
                   <p className="mb-2 text-sm font-semibold text-gray-700">Quantity</p>
-                  {isAquaponics ? (
+                  {(isAquaponics||isSupply) ? (
                     <div className="inline-flex items-center rounded-lg border border-gray-300">
                       <button
                         onClick={() => setQuantity((previous) => Math.max(1, previous - 1))}
@@ -233,11 +246,11 @@ export default function ProductDetail({ onAddToCart }) {
                 <div className="mt-6 flex flex-wrap items-center gap-3">
                   <button
                     onClick={handleAddToCart}
-                    disabled={product.stock <= 0}
+                    disabled={availableStock <= 0 || (isAquaponics&&!selectedBatch)}
                     className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
                   >
                     <ShoppingCart size={16} />
-                    {product.stock > 0 ? "Add to Cart" : "Out of Stock"}
+                    {availableStock > 0 ? "Add to Cart" : "Out of Stock"}
                   </button>
                   {addedMessage && <p className="text-sm font-semibold text-emerald-700">{addedMessage}</p>}
                 </div>

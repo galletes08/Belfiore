@@ -9,7 +9,7 @@ export default function CustomerProtectedRoute({ children }) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
   
-  if (role && role !== 'customer') {
+  if (role !== 'customer') {
     return <Navigate to="/login" replace />;
   }
 

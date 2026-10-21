@@ -13,7 +13,8 @@ export default function VerifyEmail() {
     if (hasStartedVerification.current) return;
     hasStartedVerification.current = true;
 
-    const token = searchParams.get('token');
+    const token = new URLSearchParams(window.location.hash.slice(1)).get('token') || searchParams.get('token');
+    window.history.replaceState(null,'',window.location.pathname);
     if (!token) {
       Promise.resolve().then(() => {
         setStatus('error');
@@ -43,8 +44,8 @@ export default function VerifyEmail() {
           <h1 className="mt-5 text-2xl font-bold text-gray-900">{status === 'success' ? 'Email verified' : status === 'error' ? 'Verification failed' : 'Verifying email'}</h1>
           <p className="mt-3 text-sm leading-6 text-gray-600">{message}</p>
           {status !== 'loading' && (
-            <Link to={status === 'success' ? '/login' : '/signup'} className="mt-6 inline-block rounded-xl bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800">
-              {status === 'success' ? 'Continue to login' : 'Back to signup'}
+            <Link to={status === 'success' ? '/login' : '/verification-pending'} className="mt-6 inline-block rounded-xl bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800">
+              {status === 'success' ? 'Continue to login' : 'Request a new link'}
             </Link>
           )}
         </main>

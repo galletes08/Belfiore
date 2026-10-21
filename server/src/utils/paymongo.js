@@ -70,8 +70,8 @@ export async function createPayMongoCheckoutSession({
           ...items.map((item) => ({
             amount: toCentavos(item.unitPrice),
             currency: 'PHP',
-            description: item.productName,
-            name: item.productName,
+            description: item.productName+(item.batchCode?' — '+item.batchCode:''),
+            name: item.productName+(item.batchCode?' — '+item.batchCode:''),
             quantity: Number(item.qty),
           })),
           ...(Number(shippingFee) > 0 ? [{
@@ -90,6 +90,7 @@ export async function createPayMongoCheckoutSession({
   };
 
   const response = await fetch(`${PAYMONGO_API_URL}/checkout_sessions`, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -112,6 +113,7 @@ export async function createPayMongoCheckoutSession({
   return {
     checkoutUrl: data?.data?.attributes?.checkout_url || '',
     id: data?.data?.id || '',
+    paymentIntentId: data?.data?.attributes?.payment_intent?.id || null,
   };
 }
 
@@ -122,6 +124,7 @@ export async function retrievePayMongoCheckoutSession(checkoutSessionId) {
   }
 
   const response = await fetch(PAYMONGO_API_URL + '/checkout_sessions/' + encodeURIComponent(normalizedId), {
+    signal: AbortSignal.timeout(15000),
     headers: {
       Accept: 'application/json',
       Authorization: getAuthHeader(),
@@ -162,7 +165,7 @@ function safeEqual(left, right) {
 
 export function verifyPayMongoWebhookSignature(rawPayload, signatureHeader) {
   const webhookSecret = getWebhookSecret();
-  if (!webhookSecret) return true;
+  if (!webhookSecret) return false;
 
   const parsedSignature = parseSignatureHeader(signatureHeader);
   const timestamp = parsedSignature.t;
@@ -174,7 +177,8 @@ export function verifyPayMongoWebhookSignature(rawPayload, signatureHeader) {
     .update(signedPayload)
     .digest('hex');
 
-  const isMatch = safeEqual(parsedSignature.te, expectedSignature) || safeEqual(parsedSignature.li, expectedSignature);
+  const live = getSecretKey().startsWith('sk_live_');
+  const isMatch = safeEqual(live ? parsedSignature.li : parsedSignature.te, expectedSignature);
   if (!isMatch) return false;
 
   const maxAgeSeconds = 300;

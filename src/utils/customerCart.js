@@ -9,6 +9,7 @@ export function isLettuceProduct(product) {
   const name = String(product?.name || "").trim().toLowerCase();
 
   return (
+    product?.inventoryType === 'edible' ||
     category === "aquaponics" ||
     tag === "aquaponics" ||
     name.includes("lettuce")
@@ -27,7 +28,7 @@ function normalizeCart(items) {
     )
     .map((item) => {
       const allowsMultipleQuantity =
-        item.allowsMultipleQuantity === true || isLettuceProduct(item);
+        item.allowsMultipleQuantity === true || isLettuceProduct(item)||item.inventoryType==='GARDENING_SUPPLY';
       const requestedQuantity = Math.max(1, Number(item.qty) || 1);
       const availableStock = Number(item.stock);
       const quantity =

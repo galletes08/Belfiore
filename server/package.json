@@ -5,7 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "migrate:inventory": "node scripts/migrate-inventory.js",
+    "test:inventory": "node --test tests/*.test.js"
+  },
+  "overrides": {
+    "exceljs": { "uuid": "^11.1.1" }
   },
   "dependencies": {
     "@countrystatecity/countries": "^1.0.5",
@@ -13,10 +18,12 @@
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
+    "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "nodemailer": "^10.0.1",
+    "pdfkit": "^0.20.2",
     "pg": "^8.16.3"
   }
 }

@@ -12,6 +12,7 @@ dist
 .env
 server/.env
 server/uploads
+server/backups/
 dist-ssr
 *.local
 

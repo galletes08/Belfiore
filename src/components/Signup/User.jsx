@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AccountSidebar from "./AccountSidebar";
 import { CalendarDays, Camera, Mail, Phone, Save, ShieldCheck, UserRound } from "lucide-react";
-import { clearCustomerToken } from "../../api/client";
+import { clearCustomerToken, getCustomerUser, getImageUrl, apiCustomerAccount, cacheCustomerAccount, customerAccountStorageKey } from "../../api/client";
 
 const PROFILE_STORAGE_KEY = "customerProfile";
 
@@ -17,8 +17,9 @@ const initialProfile = {
 
 function loadStoredProfile() {
   try {
-    const rawProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
-    const parsedProfile = rawProfile ? JSON.parse(rawProfile) : {};
+    const rawProfile = localStorage.getItem(customerAccountStorageKey(PROFILE_STORAGE_KEY)) || localStorage.getItem(PROFILE_STORAGE_KEY);
+    let parsedProfile = rawProfile ? JSON.parse(rawProfile) : {};
+    if(parsedProfile.email?.toLowerCase()!==getCustomerUser()?.email?.toLowerCase())parsedProfile={};
 
     return {
       ...initialProfile,
@@ -35,7 +36,7 @@ function loadStoredProfile() {
   }
 }
 
-function TextField({ icon, label, type = "text", value, onChange, placeholder }) {
+function TextField({ icon, label, type = "text", value, onChange, placeholder, readOnly=false }) {
   return (
     <label className="block">
       <span className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-[#6c786f]">{label}</span>
@@ -43,6 +44,7 @@ function TextField({ icon, label, type = "text", value, onChange, placeholder })
         <span className="text-[#0f6b45]">{icon}</span>
         <input
           type={type}
+              readOnly={readOnly}
           value={value}
           onChange={onChange}
           placeholder={placeholder}
@@ -93,6 +95,17 @@ export default function UserAccountPage() {
   const [savedMessage, setSavedMessage] = useState("");
   const [imageError, setImageError] = useState("");
   const fileInputRef = useRef(null);
+  const [saving,setSaving]=useState(false);
+  useEffect(()=>{
+    let active=true;
+    apiCustomerAccount().then(data=>{
+      if(!active)return;const legacy=loadStoredProfile();
+      setProfile({...initialProfile,...data.profile,...(!data.profileStored?legacy:{}),email:data.profile.email});
+      cacheCustomerAccount({addresses:data.addresses,...(data.profileStored?{profile:data.profile}:{})});
+      if(!data.profileStored&&legacy.image)setSavedMessage('Browser-only profile found. Review and Save to link it to your account.');
+    }).catch(err=>{if(active)setImageError(err.message);});
+    return()=>{active=false;};
+  },[]);
 
   const handleLogout = () => {
     localStorage.removeItem("isLoggedIn");
@@ -135,8 +148,9 @@ export default function UserAccountPage() {
     reader.readAsDataURL(file);
   };
 
-  const handleSave = (event) => {
+  const handleSave = async (event) => {
     event.preventDefault();
+    if(saving)return;setSaving(true);setImageError('');
     const cleanName = profile.name.trim();
     const cleanEmail = profile.email.trim();
     const cleanPhone = profile.phone.trim();
@@ -147,20 +161,11 @@ export default function UserAccountPage() {
       phone: cleanPhone
     };
 
-    if (cleanName) {
-      localStorage.setItem("customerName", cleanName);
-    }
-    if (cleanEmail) {
-      localStorage.setItem("customerEmail", cleanEmail);
-    }
-    if (cleanPhone) {
-      localStorage.setItem("customerPhone", cleanPhone);
-    } else {
-      localStorage.removeItem("customerPhone");
-    }
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(nextProfile));
-    setProfile(nextProfile);
-    setSavedMessage("Profile saved.");
+    try {
+      const result=await apiCustomerAccount('profile','PATCH',nextProfile);
+      cacheCustomerAccount(result);setProfile({...initialProfile,...result.profile});setSavedMessage('Profile saved.');
+    }catch(err){setImageError(err.message);setSavedMessage('');}finally{setSaving(false);}
+
   };
 
   return (
@@ -199,6 +204,7 @@ export default function UserAccountPage() {
                 <TextField
                   icon={<Mail size={16} />}
                   label="Email"
+                  readOnly
                   type="email"
                   value={profile.email}
                   onChange={(event) => handleFieldChange("email", event.target.value)}
@@ -252,7 +258,7 @@ export default function UserAccountPage() {
 
               <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-[#eef2ea] pt-5">
                 <button
-                  type="submit"
+                  type="submit" disabled={saving}
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0f4d2e] px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-white shadow-sm transition hover:bg-[#173d2b]"
                 >
                   <Save size={15} />
@@ -266,7 +272,7 @@ export default function UserAccountPage() {
               <div className="rounded-[1.35rem] border border-[#e1e7dc] bg-[#f7f5f0] p-5 shadow-sm">
                 <div className="mx-auto h-32 w-32 overflow-hidden rounded-full border border-[#dce5d8] bg-white shadow-sm">
                   {profile.image ? (
-                    <img src={profile.image} alt="Profile" className="h-full w-full object-cover" />
+                    <img src={getImageUrl(profile.image)} alt="Profile" className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-[#9aa69a]">
                       <UserRound size={44} />

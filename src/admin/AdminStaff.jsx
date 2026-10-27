@@ -1,3 +1,4 @@
+import {STAFF_PROFILE_EVENT,STAFF_PROFILE_STORAGE} from '../utils/staffProfileSync';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {Eye,History,KeyRound,MoreHorizontal,Plus,Search,UserCheck,UserRoundX,Users,RefreshCw} from 'lucide-react';
 import {apiStaffManagement} from '../api/client';
@@ -37,6 +38,7 @@ export default function AdminStaff(){
   apiStaffManagement(`/${selectedId}/activity?page=${activityPage}`).then(data=>{if(active&&sequence===activityRequest.current)setActivity({rows:data.rows,page:data.page,loading:false,error:''});}).catch(e=>{if(active&&sequence===activityRequest.current)setActivity({rows:[],page:activityPage,loading:false,error:e.message});});
   return()=>{active=false;};
  },[mode,tab,selectedId,activityPage,activityRetry]);
+ useEffect(()=>{const update=()=>{if(!document.hidden&&!editing&&!busy)load();};const storage=e=>{if(e.key===STAFF_PROFILE_STORAGE)update();};window.addEventListener(STAFF_PROFILE_EVENT,update);window.addEventListener('storage',storage);window.addEventListener('focus',update);return()=>{window.removeEventListener(STAFF_PROFILE_EVENT,update);window.removeEventListener('storage',storage);window.removeEventListener('focus',update);};},[load,editing,busy]);
  const selected=staff.find(s=>s.id===selectedId),counts=staffDirectoryCounts(staff),rows=filterStaffDirectory(staff,{query,status,sort});
  const reset=()=>{setQuery('');setStatus('all');setSort('name-asc');};
  const close=()=>{if(sending.current)return;setMode('');setError('');};

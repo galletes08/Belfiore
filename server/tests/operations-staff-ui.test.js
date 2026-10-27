@@ -92,9 +92,9 @@ test('Staff UI renders restricted responsive navigation and mandatory password s
   });
   await t.test('Staff inventory matches Admin summary/table hierarchy with read-only prices and permitted stock actions',()=>{
    const html=renderStaff(createElement(Inventory,{products:inventoryFixture,refresh:()=>{},stockFormComponent:()=>null,activityComponent:()=>null}));
-   for(const text of ['Inventory Management','Total Products','Available Succulents','Available Lettuce Packs','Needs Attention','Inventory Alerts','Search products','Inventory filter','Product Code','Available Quantity','Stock In / Out','Add Product','per 400g pack'])assert.ok(html.includes(text),text);
+   for(const text of ['Inventory Management','Total Products','Available Succulents','Available Lettuce Packs','Needs Attention','Inventory Alerts','Search products','Inventory filter','Product Code','Available Quantity','Stock actions for','Add Product','per 400g pack'])assert.ok(html.includes(text),text);
    assert.match(html,/<table/);assert.match(html,/overflow-x-auto/);assert.match(html,/1 kg: 2 Bag/);assert.match(html,/2.5 kg: 9 Bag/);
-   for(const forbidden of ['Archive','Stock Correction','>Edit<'])assert.ok(!html.includes(forbidden));
+   for(const forbidden of ['Stock Correction','>Edit</button>','>Archive</button>','>Restore</button>'])assert.ok(!html.includes(forbidden));
    const unfinished=renderStaff(createElement(Inventory,{products:[{...inventoryFixture[2],can_initialize_stock:true,variants:[]}],refresh:()=>{},stockFormComponent:()=>null,activityComponent:()=>null}));assert.match(unfinished,/Configure New Supply/);
   });
   await t.test('Shared frontend login accepts all workforce roles and rejects cross-portal responses',async()=>{
@@ -120,7 +120,7 @@ test('Staff UI renders restricted responsive navigation and mandatory password s
   });
   await t.test('My Account shows real identity, names-only profile editing and separate password/security sections',()=>{
    const html=renderStaff(createElement(Account,{data:{id:26,first_name:'Operations',last_name:'Tester',username:'staff-test',email:null,status:'active',created_at:'2026-10-26T08:00:00Z'},refresh:()=>{},onSignOut:()=>{},signingOut:false}));
-   for(const text of ['My Account','Profile Information','Account Details','Change Password','Sign Out','Operations Tester','staff-test','Registration date','Last login','current-password','new-password'])assert.ok(html.includes(text),text);
+   for(const text of ['My Account','Profile Information','Account Details','Change Password','Change Photo','Operations Tester','staff-test','Registration date','Last login','current-password','new-password'])assert.ok(html.includes(text),text);
    assert.ok(!html.includes('name="role"'));assert.ok(!html.includes('name="status"'));assert.ok(!html.includes('/admin/'));assert.ok(!html.includes('Bank'));
   });
   const render=()=>renderToStaticMarkup(createElement(MemoryRouter,{initialEntries:['/staff/dashboard']},createElement(Portal)));

@@ -1,3 +1,4 @@
+import {staffInventoryProduct} from '../utils/inventoryPresentation';
 import Activities from './StaffActivity';
 import StaffLayout from './StaffLayout';
 import StaffDashboard from './StaffDashboard';
@@ -31,7 +32,7 @@ export default function StaffPortal(){
  const refresh=useCallback(async({quiet=false}={})=>{
   const sequence=++loadSequence.current;if(!quiet){setLoading(true);setError('');}
   try{
-   const path=section==='orders'?'orders/overview':section;
+   const path=section==='orders'?'orders/overview':section==='inventory'?'inventory/overview':section;
    const result=await staffApi('/api/staff/'+path+(path==='activity'?'?page='+page:''));
    if(sequence===loadSequence.current){setData(result);setError('');}
   }catch(e){if(sequence===loadSequence.current){if(!quiet)setData(null);setError(e.message);}}
@@ -49,7 +50,7 @@ export default function StaffPortal(){
   {loadedSection!==section||(!data&&loading)?<div role="status" className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">Loading operations...</div>:<>
    {section==='dashboard'&&data&&<StaffDashboard data={data} refresh={refresh} busy={loading}/>}
    {section==='orders'&&Array.isArray(data)&&<StaffOrders orders={data} refresh={refresh} onError={setError} shipmentsOnly={ordersView==='shipments'}/>}
-   {section==='inventory'&&Array.isArray(data)&&<StaffInventory products={data} refresh={refresh} stockFormComponent={StockForm}/>}
+   {section==='inventory'&&data?.products&&<StaffInventory overview={data} products={data.products.map(p=>staffInventoryProduct(p,data.initializableSupplyIds))} refresh={refresh} stockFormComponent={StockForm}/>}
    {section==='activity'&&data&&<><WorkspacePageHeader eyebrow="Personal Activity" title="My Activity" description="Your recorded account and operational actions."/><section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><Activities data={{rows:data.rows.slice(0,30)}}/><div className="mt-4 flex flex-wrap items-center gap-3"><button className={button} disabled={page===1} onClick={()=>setPage(p=>p-1)}>Previous</button><span className="text-xs text-slate-500">Page {page}</span><button className={button} disabled={data.rows.length<31} onClick={()=>setPage(p=>p+1)}>Next</button></div></section></>}
    {section==='profile'&&data&&<StaffAccount data={data} refresh={refresh} onSignOut={signOut} signingOut={signingOut}/>}
   </>}

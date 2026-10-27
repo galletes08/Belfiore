@@ -298,6 +298,18 @@ test('Operations Staff security and stock/packing integration',{skip:!process.en
    await pool.query('UPDATE orders SET updated_at=clock_timestamp() WHERE id=$1',[logistics]);assert.equal((await update(logistics,'Out for Delivery',current)).status,409,'stale Admin update is rejected');
    assert.equal((await update(logistics,'Out for Delivery',await version(logistics))).status,200);assert.equal((await pool.query('SELECT payment_status FROM orders WHERE id=$1',[logistics])).rows[0].payment_status,'Unpaid');
   });
+  await t.test('Admin and Staff inventory overviews share exact records, balances, variants and summaries with read-only Staff authorization',async()=>{
+   const admin=await req('/api/admin/inventory',{role:'admin'});assert.equal(admin.status,200,JSON.stringify(admin));
+   const before=(await pool.query('SELECT id,stock,reserved_stock,archived_at FROM products ORDER BY id')).rows;
+   const staff=await req('/api/staff/inventory/overview');assert.equal(staff.status,200,JSON.stringify(staff));
+   assert.deepEqual(staff.data.products,admin.data.products);assert.deepEqual(staff.data.summary,admin.data.summary);
+   assert.ok(Array.isArray(staff.data.initializableSupplyIds));
+   assert.deepEqual((await pool.query('SELECT id,stock,reserved_stock,archived_at FROM products ORDER BY id')).rows,before);
+   assert.equal((await req('/api/admin/inventory')).status,403);
+   for(const role of ['customer','rider'])assert.equal((await req('/api/staff/inventory/overview',{role})).status,403);
+   assert.equal((await req('/api/staff/inventory/overview',{token:''})).status,401);
+   assert.ok(!JSON.stringify(staff.data).includes('password_hash'));
+  });
   await t.test('STAFF-033..034,008,013 reset/deactivation revoke sessions and personal logs cannot be redirected to another user',async()=>{
    const own=await req('/api/staff/activity?userId='+accounts.admin);assert.equal(own.status,200);assert.ok(own.data.rows.some(r=>r.action==='Order Accepted'));assert.ok(own.data.rows.some(r=>r.action==='Stock In'));
    assert.equal((await req(`/api/admin/staff/${staffId}/activity`,{role:'admin'})).status,200);

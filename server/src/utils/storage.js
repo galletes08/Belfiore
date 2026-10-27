@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import fs from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
 
 const storageDriver = String(process.env.STORAGE_DRIVER || 'local').trim().toLowerCase();
 const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
@@ -9,6 +11,27 @@ const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '')
 const bucket = String(process.env.SUPABASE_STORAGE_BUCKET || 'belfiore-uploads').trim();
 
 export const usesSupabaseStorage = storageDriver === 'supabase';
+
+const staffKey=/^staff\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/;
+export function staffPhotoUrl(key){
+  if(!key||!staffKey.test(key))return '';
+  return usesSupabaseStorage?`${supabaseUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}/${key}`:`/uploads/${key}`;
+}
+export function createStaffAvatarStorage({root=fileURLToPath(new URL('../../uploads/',import.meta.url)),remote=usesSupabaseStorage}={}){
+ return {async save(buffer){
+  const key=`staff/${crypto.randomUUID()}.jpg`;
+  if(!remote){
+   await fs.mkdir(path.join(root,'staff'),{recursive:true});
+   await fs.writeFile(path.join(root,key),buffer,{flag:'wx',mode:0o600});
+  }else{
+   const headers={apikey:serviceRoleKey,'Content-Type':'image/jpeg','x-upsert':'false'};
+   if(serviceRoleKey.startsWith('eyJ'))headers.Authorization=`Bearer ${serviceRoleKey}`;
+   const response=await fetch(`${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}/${key}`,{method:'POST',headers,body:buffer,signal:AbortSignal.timeout(20000)});
+   if(!response.ok)throw new Error('Profile image storage unavailable');
+  }
+  return key;
+ }};
+}
 
 if (usesSupabaseStorage && (!supabaseUrl || !serviceRoleKey)) {
   throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required when STORAGE_DRIVER=supabase');

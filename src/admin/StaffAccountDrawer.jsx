@@ -1,8 +1,9 @@
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useRef} from 'react';
 import {X,ShieldCheck} from 'lucide-react';
-import {getImageUrl} from '../api/client';
+import StaffAvatar from '../components/StaffAvatar';
+export {StaffAvatar};
 import {STAFF_PERMISSIONS} from '../../shared/staffPermissions';
-import {staffInitials,staffName,staffTimestamp} from '../utils/staffDirectory';
+import {staffName,staffTimestamp} from '../utils/staffDirectory';
 import './orderDrawer.css';
 
 const field='min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-emerald-700';
@@ -13,10 +14,6 @@ const permissions={
 };
 
 export function StaffStatusBadge({status}){return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${status==='active'?'bg-emerald-50 text-emerald-800':'bg-slate-100 text-slate-600'}`}>{status==='active'?'Active':status==='disabled'?'Inactive':status}</span>;}
-export function StaffAvatar({staff}){
- const [failed,setFailed]=useState(false);
- return <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-emerald-50 text-xs font-bold text-emerald-900">{staff.profile_image_url&&!failed?<img src={getImageUrl(staff.profile_image_url)} alt="" className="h-full w-full object-cover" onError={()=>setFailed(true)}/>:staffInitials(staff)}</span>;
-}
 export function StaffDialog({titleId,onClose,busy,drawer=false,children}){
  const ref=useRef(null);
  useEffect(()=>{const dialog=ref.current,overflow=document.body.style.overflow;document.body.style.overflow='hidden';dialog.showModal();return()=>{dialog.close();document.body.style.overflow=overflow;};},[]);

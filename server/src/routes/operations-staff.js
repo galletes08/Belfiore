@@ -1,3 +1,5 @@
+import {registerStaffPhoto} from './staff-photo.js';
+import {staffPhotoUrl} from '../utils/storage.js';
 import {orderSummary} from '../../../shared/orderSummary.js';
 import {inventoryHistoryHandler} from './inventory-products.js';
 import {Router} from 'express';
@@ -15,9 +17,10 @@ import {registerLettuceStock} from './lettuce-stock.js';
 import {registerSupplyStock} from './gardening-supplies.js';
 
 const router=Router();
+registerStaffPhoto(router);
 const id=value=>{const n=Number(value);if(!Number.isSafeInteger(n)||n<1)throw inventoryError('Invalid record ID',400);return n;};
 const text=(value,max=120)=>typeof value==='string'?value.trim().slice(0,max):'';
-const ownProfile=`SELECT id,first_name,last_name,username,email,role,status,created_at,updated_at,last_login_at,must_change_password FROM users`;
+const ownProfile=`SELECT id,first_name,last_name,username,email,role,status,created_at,updated_at,last_login_at,must_change_password,staff_profile_image_path FROM users`;
 // Admin acceptance and shipping approval remain authoritative. Packing does not accept orders.
 export const eligibleOrderSql=`o.status='Preparing' AND o.admin_confirmed_at IS NOT NULL AND o.shipping_status='Confirmed'
  AND (o.payment_method='COD' OR (o.payment_method='ONLINE' AND o.payment_status='Paid'))
@@ -116,14 +119,14 @@ const stockAudit=async(c,req,data)=>{await activeActor(c,req);await staffEvent(c
 registerLettuceStock(router,stockPermission('lettuce'),operationsActor,{path:'/api/staff/inventory/:id/lettuce-stock',afterStock:stockAudit});
 registerSupplyStock(router,{admin:stockPermission('supplies'),actor:operationsActor,path:'/api/staff/supplies/:id/stock',afterStock:stockAudit});
 router.get('/api/staff/activity',requirePermission('activity.own.read'),route(req=>activity(req.operationsUser.userId,Math.max(1,Math.min(10000,Math.floor(Number(req.query.page))||1)),req.query.type==='stock')));
-router.get('/api/staff/profile',requirePermission('profile.own.update',{allowTemporary:true}),route(async req=>(await pool.query(`${ownProfile} WHERE id=$1`,[req.operationsUser.userId])).rows[0]));
+router.get('/api/staff/profile',requirePermission('profile.own.update',{allowTemporary:true}),route(async req=>{const p=(await pool.query(`${ownProfile} WHERE id=$1`,[req.operationsUser.userId])).rows[0];return {...p,profile_image_url:staffPhotoUrl(p.staff_profile_image_path)};}));
 router.patch('/api/staff/profile',requirePermission('profile.own.update'),route(req=>transaction(async c=>{
  await activeActor(c,req);const first=text(req.body.firstName),last=text(req.body.lastName);if(!first)throw inventoryError('Name is required',400);
- await c.query('UPDATE users SET first_name=$2,last_name=$3,updated_at=clock_timestamp() WHERE id=$1',[req.operationsUser.userId,first,last]);await staffEvent(c,req.operationsUser,'Profile Updated');return {message:'Profile saved'};
+ await c.query('UPDATE users SET first_name=$2,last_name=$3,updated_at=clock_timestamp() WHERE id=$1',[req.operationsUser.userId,first,last]);await staffEvent(c,req.operationsUser,'Profile Updated');const profile=(await c.query(`${ownProfile} WHERE id=$1`,[req.operationsUser.userId])).rows[0];return {message:'Profile saved',profile:{...profile,profile_image_url:staffPhotoUrl(profile.staff_profile_image_path)}};
 })));
 router.post('/api/staff/logout',requirePermission('profile.own.update',{allowTemporary:true}),route(req=>transaction(async c=>{await activeActor(c,req);await c.query('UPDATE users SET auth_version=auth_version+1 WHERE id=$1',[req.operationsUser.userId]);await staffEvent(c,req.operationsUser,'Logout');return {message:'Signed out'};})));
 
-router.get('/api/admin/staff',requirePermission('staff.manage'),route(async()=> (await pool.query(`${ownProfile} WHERE role='staff' ORDER BY id DESC`)).rows));
+router.get('/api/admin/staff',requirePermission('staff.manage'),route(async()=> (await pool.query(`${ownProfile} WHERE role='staff' ORDER BY id DESC`)).rows.map(p=>({...p,profile_image_url:staffPhotoUrl(p.staff_profile_image_path)}))));
 router.post('/api/admin/staff',requirePermission('staff.manage'),route(req=>transaction(async c=>{
  const b=req.body,first=text(b.firstName),last=text(b.lastName),username=text(b.username).toLowerCase(),email=text(b.email,254).toLowerCase()||null;
  const problem=newStaffPasswordError(b.password);if(problem)throw inventoryError(problem,400);

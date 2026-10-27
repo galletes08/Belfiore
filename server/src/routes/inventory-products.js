@@ -74,7 +74,7 @@ export function registerInventoryRoutes(router, { upload, ensureTypeId, mapProdu
       })));
     } catch (error) { res.status(500).json({ error: error.message }); }
   });
-  router.get('/api/admin/inventory', admin, async (_req, res) => {
+  const inventoryOverview=async (req, res) => {
     try {
       await refreshHarvest(pool);
       const result = await pool.query(`${PRODUCT_SELECT} ORDER BY p.id DESC`);
@@ -82,7 +82,8 @@ export function registerInventoryRoutes(router, { upload, ensureTypeId, mapProdu
       const products = await Promise.all(result.rows.map(async row=>supplyProduct(pool,{...mapProductRow(row),...(row.inventory_type==='edible'&&row.lettuce_stock_model==='batch'?{status:'Stock Reconciliation Required',inventoryReconciliationRequired:true}:{}),stock:row.inventory_type==='edible'&&row.lettuce_stock_model==='batch'?0:row.inventory_type==='edible'&&row.lettuce_stock_model!=='quantity'?batches.filter(b=>b.product_id===Number(row.id)).reduce((sum,b)=>sum+(row.archived_at?0:b.available_stock),0):Number(row.stock), batches:batches.filter(b=>b.product_id===Number(row.id)),
         physicalStock:row.inventory_type==='edible'&&row.lettuce_stock_model!=='quantity'?batches.filter(b=>b.product_id===Number(row.id)).reduce((sum,b)=>sum+b.physical_stock,0):mapProductRow(row).physicalStock })));
       const active = products.filter(p => !p.archivedAt);
-      res.json({ products, summary: {
+      const initializableSupplyIds=req.operationsUser?.role==='staff'?(await pool.query("SELECT DISTINCT product_id FROM staff_activity WHERE staff_id=$1 AND action='Product Added' AND product_id IS NOT NULL",[req.operationsUser.userId])).rows.map(row=>Number(row.product_id)):undefined;
+      res.json({ products, ...(initializableSupplyIds?{initializableSupplyIds}:{}), summary: {
         totalProducts: active.length,
         succulentUnits: active.filter(p => p.inventoryType === 'succulent' && p.status === 'Available').reduce((n, p) => n + p.stock, 0),
         ediblePacks: active.filter(p => p.inventoryType === 'edible').reduce((n, p) => n + p.stock, 0),
@@ -98,7 +99,9 @@ export function registerInventoryRoutes(router, { upload, ensureTypeId, mapProdu
         disposalBatches:batches.filter(b=>!b.archived_at&&b.status==='For Disposal'&&b.physical_stock>0).length,
       } });
     } catch (error) { res.status(500).json({ error: error.message }); }
-  });
+  };
+  router.get('/api/admin/inventory',admin,inventoryOverview);
+  router.get('/api/staff/inventory/overview',requirePermission('inventory.read'),inventoryOverview);
   router.get('/api/admin/inventory/history',admin,inventoryHistoryHandler);
 
   const create = (bulk) => async (req, res) => {

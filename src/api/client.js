@@ -1,3 +1,4 @@
+import {notifyOperationsChanged} from '../utils/operationsSync';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const STORAGE_KEYS = {
@@ -9,6 +10,10 @@ const STORAGE_KEYS = {
   riderUser: 'riderUser',
 };
 const CUSTOMER_SESSION_EVENT = 'belfiore-customer-session-changed';
+export async function apiStaffManagement(path='',body,method=body?'POST':'GET') {
+ const res=await fetch(`${API_URL}/api/admin/staff${path}`,{method,headers:{...getAuthHeader(),'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
+ const data=await res.json().catch(()=>({}));if(!res.ok)throw new Error(data.error||'Unable to manage staff');return data;
+}
 
 function notifyCustomerSessionChanged() {
   if (typeof window !== 'undefined') {
@@ -72,7 +77,7 @@ export async function apiLogin(email, password, workspace,loginContext) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Login failed');
-  const roles=workspace==='staff'?['admin','rider']:['customer'];
+  const roles=workspace==='staff'?['admin','rider','staff']:['customer'];
   if(!data.token||!roles.includes(data.user?.role)) {
     if(workspace!=='staff')clearCustomerToken();
     throw new Error('Invalid email or password.');
@@ -160,6 +165,7 @@ export async function apiCreateProduct(payload, options = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to create product');
+  notifyOperationsChanged();
   return data;
 }
 
@@ -176,7 +182,7 @@ function uploadProduct(path, payload, { requestKey, onProgress }) {
       let data;
       try { data = JSON.parse(xhr.responseText); }
       catch { return reject(new Error('Could not confirm the upload result. Retry this unchanged submission to safely retrieve the result.')); }
-      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      if (xhr.status >= 200 && xhr.status < 300) {notifyOperationsChanged();resolve(data);}
       else reject(Object.assign(new Error(data.error || 'Upload failed. No products were created.'), { confirmedFailure: [400, 409, 502].includes(xhr.status) }));
     };
     xhr.onerror = () => reject(new Error('Connection interrupted; the result could not be confirmed. Retry this unchanged submission to avoid duplicate products.'));
@@ -194,6 +200,7 @@ export async function apiCreateProductsBulk(payload, options = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to create products');
+  notifyOperationsChanged();
   return data;
 }
 
@@ -206,6 +213,7 @@ export async function apiUpdateProduct(id, payload) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to update product');
+  notifyOperationsChanged();
   return data;
 }
 
@@ -366,6 +374,7 @@ export async function apiUpdateOrder(id, payload) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to update order');
+  notifyOperationsChanged();
   return data;
 }
 
@@ -376,6 +385,7 @@ export async function apiConfirmOrder(id) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to confirm order');
+  notifyOperationsChanged();
   return data;
 }
 
@@ -578,6 +588,22 @@ export function setRiderToken(token) {
   localStorage.setItem(STORAGE_KEYS.riderToken, token);
 }
 
+// Each workspace owns its credentials. Signing in must not sign out another role.
+export function saveWorkforceSession({token, user} = {}) {
+  if (!token || !['admin', 'staff', 'rider'].includes(user?.role)) {
+    throw new Error('This login is only for workforce accounts.');
+  }
+  if (user.role === 'staff') {
+    localStorage.setItem('staffToken', token);
+  } else if (user.role === 'admin') {
+    setAdminUser(user);
+    setToken(token);
+  } else {
+    setRiderUser(user);
+    setRiderToken(token);
+  }
+}
+
 function setStoredValue(key, value) {
   localStorage.setItem(key, JSON.stringify(value || null));
 }
@@ -663,6 +689,7 @@ async function inventoryRequest(path, options = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Inventory request failed');
+  if(options.method&&options.method!=='GET')notifyOperationsChanged();
   return data;
 }
 export function apiInventory() { return inventoryRequest('/api/admin/inventory'); }
@@ -687,4 +714,9 @@ export function apiHarvestAction(id,batchId,action,payload,requestKey) {
 
 export async function apiResendVerification(email){const res=await fetch(API_URL+'/api/auth/resend-verification',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});const data=await res.json().catch(()=>({}));if(!res.ok)throw new Error(data.error||'Unable to resend verification');return data;}
 
-export async function apiSupply(path='',method='GET',body){const multipart=body instanceof FormData;const response=await fetch(API_URL+'/api/admin/supplies'+(path?'/'+path:''),{method,headers:{...getAuthHeader(),...(multipart?{}:{'Content-Type':'application/json'})},...(body?{body:multipart?body:JSON.stringify(body)}:{})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to update gardening supplies');return data;}
+export async function apiSupply(path='',method='GET',body){const multipart=body instanceof FormData;const response=await fetch(API_URL+'/api/admin/supplies'+(path?'/'+path:''),{method,headers:{...getAuthHeader(),...(multipart?{}:{'Content-Type':'application/json'})},...(body?{body:multipart?body:JSON.stringify(body)}:{})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to update gardening supplies');if(method!=='GET')notifyOperationsChanged();return data;}
+
+export async function apiLettuceStock(id,body,key){
+ const res=await fetch(API_URL+'/api/admin/inventory/'+id+'/lettuce-stock',{method:'POST',headers:{...getAuthHeader(),'Content-Type':'application/json','Idempotency-Key':key},body:JSON.stringify(body)});
+ const data=await res.json().catch(()=>({}));if(!res.ok){const error=new Error(data.error||'Unable to record lettuce stock.');error.affectedOrderIds=data.affectedOrderIds||[];throw error;}notifyOperationsChanged();return data;
+}

@@ -1,5 +1,6 @@
+import {WorkspaceNavLink} from './WorkspacePrimitives';
 import { useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useNavigate } from "react-router-dom";
 import {
   BarChart3,
   Bike,
@@ -58,16 +59,17 @@ const navigationGroups = [
     ],
   },
   {
-    label: "Delivery",
-    items: [
-      { to: "/admin/riders", label: "Riders", description: "Delivery team & accounts", icon: Bike },
-    ],
-  },
-  {
     label: "Analytics",
     items: [
       { to: "/admin/reports", label: "Reports", description: "Sales, inventory & deliveries", icon: BarChart3 },
       { to: "/admin/logs", label: "System logs", description: "Monitor every transaction", icon: ListChecks },
+    ],
+  },
+  {
+    label: "Team & Access",
+    items: [
+      { to: "/admin/riders", label: "Riders", description: "Delivery team & accounts", icon: Bike },
+      { to: "/admin/staff", label: "Staff", description: "Operations accounts & access", icon: Users },
     ],
   },
 ];
@@ -82,48 +84,7 @@ function AdminNavigation({ closeMenu }) {
           </h2>
 
           <div className="space-y-1.5">
-            {group.items.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  onClick={closeMenu}
-                  className={({ isActive }) =>
-                    `group relative flex min-h-[54px] items-center gap-3 rounded-xl px-2 py-2 no-underline transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 ${isActive
-                      ? "bg-gradient-to-r from-[#d8fff0] to-[#b9f4d9] text-[#062c22] shadow-[0_8px_24px_rgba(0,0,0,0.16)]"
-                      : "text-white/90 hover:bg-white/[0.07] hover:text-white"
-                    }`
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <span
-                        className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition ${isActive
-                          ? "border-emerald-900/10 bg-[#073b2d] text-emerald-100"
-                          : "border-white/[0.07] bg-white/[0.06] text-emerald-100 group-hover:bg-white/[0.1]"
-                        }`}
-                      >
-                        <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
-                      </span>
-
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[12px] font-semibold leading-4">{item.label}</span>
-                        <span className={`mt-0.5 block truncate text-[10px] leading-4 ${isActive ? "text-emerald-950/65" : "text-white/50"}`}>
-                          {item.description}
-                        </span>
-                      </span>
-
-                      {isActive ? (
-                        <span className="mr-1 h-2 w-2 shrink-0 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" aria-hidden="true" />
-                      ) : null}
-                    </>
-                  )}
-                </NavLink>
-              );
-            })}
+            {group.items.map(item=><WorkspaceNavLink key={item.to} {...item} onNavigate={closeMenu}/>)}
           </div>
         </section>
       ))}

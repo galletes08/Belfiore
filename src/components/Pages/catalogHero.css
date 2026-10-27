@@ -1,6 +1,6 @@
 .catalog-hero {
   background-color: #315e3c;
-  background-image: linear-gradient(90deg, rgba(17, 68, 41, 0.91) 0%, rgba(31, 83, 46, 0.8) 35%, rgba(53, 105, 54, 0.28) 62%, rgba(53, 105, 54, 0.02) 100%), var(--catalog-hero-image);
+  background-image: linear-gradient(90deg, rgba(17, 68, 41, 0.91) 0%, rgba(31, 83, 46, 0.8) 50%, rgba(53, 105, 54, 0.28) 75%, rgba(53, 105, 54, 0.02) 100%), var(--catalog-hero-image);
   background-size: cover;
   background-position: center right;
   background-repeat: no-repeat;

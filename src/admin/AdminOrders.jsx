@@ -1,8 +1,12 @@
+import {SummaryCard} from './WorkspacePrimitives';
+import {OPERATIONS_EVENT,OPERATIONS_STORAGE_KEY} from '../utils/operationsSync';
 import { useEffect, useMemo, useState } from 'react';
-import { ShoppingBag, AlertTriangle, Truck, CheckCircle, Search, Eye, MoreHorizontal, History, CreditCard } from 'lucide-react';
+import { ShoppingBag, AlertTriangle, Truck, CheckCircle, Search } from 'lucide-react';
 import OrderDetailsDrawer from './OrderDetailsDrawer';
+import OrdersTable from './OrdersTable';
+import OrderStatusSelect from './OrderStatusSelect';
 import NotificationBell from './NotificationBell';
-import InventoryActionMenu from './InventoryActionMenu';
+import OrderMoreMenu from './OrderMoreMenu';
 import { orderSummary, filterOrders } from '../utils/orderDisplay';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { apiAdminOrders, apiAdminRiders, apiConfirmCodRemittance, apiConfirmOrder, apiUpdateOrder, apiReadNotification } from '../api/client';
@@ -17,19 +21,7 @@ const STATUS_FILTERS = [
   { key: 'Delivered', label: 'Delivered' },
 ];
 
-const ORDER_STATUS_OPTIONS = ['Pending', 'Preparing', 'Cancellation Requested', 'Out for Delivery', 'Delivered', 'Cancelled'];
 const TRACKING_STATUS_OPTIONS = ['Pending', 'Preparing', 'Packed', 'In Transit', 'Out for Delivery', 'Delivered', 'Cancelled'];
-
-const badgeStyles = {
-  Pending: 'bg-amber-100 text-amber-800',
-  Preparing: 'bg-sky-100 text-sky-800',
-  'Out for Delivery': 'bg-violet-100 text-violet-800',
-  Delivered: 'bg-emerald-100 text-emerald-800',
-  Cancelled: 'bg-rose-100 text-rose-700',
-  'Cancellation Requested': 'bg-orange-100 text-orange-800',
-  Packed: 'bg-cyan-100 text-cyan-800',
-  'In Transit': 'bg-indigo-100 text-indigo-800',
-};
 
 const emptyForm = {
   status: 'Pending',
@@ -60,18 +52,6 @@ function formatDateTime(value) {
     hour: 'numeric',
     minute: '2-digit',
   });
-}
-
-function formatPhp(amount) {
-  return new Intl.NumberFormat('en-PH', {
-    style: 'currency',
-    currency: 'PHP',
-    minimumFractionDigits: 2,
-  }).format(Number(amount) || 0);
-}
-
-function badgeClass(value) {
-  return badgeStyles[value] || 'bg-gray-100 text-gray-700';
 }
 
 function buildDriverPortalUrl(token) {
@@ -160,9 +140,11 @@ export default function AdminOrders() {
       } finally { inFlight = false; }
     };
     const timer = window.setInterval(refresh, 15000);
+    const storage=e=>{if(e.key===OPERATIONS_STORAGE_KEY)refresh();};
+    window.addEventListener(OPERATIONS_EVENT,refresh);window.addEventListener('storage',storage);
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', refresh);
-    return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+    return () => { active = false; clearInterval(timer);window.removeEventListener(OPERATIONS_EVENT,refresh);window.removeEventListener('storage',storage); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
   }, [selectedOrder, form, saving, confirmingOrderId, remittingOrderId]);
 
   const counts = useMemo(() => {
@@ -286,7 +268,7 @@ export default function AdminOrders() {
 
       <section aria-label="Order summary" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[
         ['Total Orders',summary.total,'All recorded orders',ShoppingBag],['Pending Action',summary.pending,'Confirmation, cancellations or payment issues',AlertTriangle],['In Progress',summary.progress,'Preparing or on the way',Truck],['Delivered',summary.delivered,'Successfully completed deliveries',CheckCircle],
-      ].map(card=>{const [label,value,note]=card;const Icon=card[3];return <article key={label} className="flex gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Icon size={18} aria-hidden="true"/></span><div><h2 className="text-xs font-semibold text-slate-500">{label}</h2><p className="mt-1 text-2xl font-bold text-[#1f5a43]">{loading?'—':value}</p><p className="mt-1 text-xs text-slate-500">{note}</p></div></article>;})}</section>
+      ].map(([label,value,note,icon])=><SummaryCard key={label} label={label} value={loading?'Not loaded':value} note={note} icon={icon}/>)}</section>
       {error && !selectedOrder ? (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -334,13 +316,7 @@ export default function AdminOrders() {
       </div>
 
       <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        {loading ? <p className="p-8 text-center text-sm text-slate-500">Loading orders...</p> : filteredOrders.length===0 ? <p className="p-8 text-center text-sm text-slate-500">No orders match the selected filters.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500"><tr>{['Order ID','Customer','Total Amount','Order Status','Payment Status','Order Date','Actions'].map(label=><th key={label} className="px-4 py-3 font-semibold">{label}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">
-          {filteredOrders.slice((page-1)*20,page*20).map(order=><tr key={order.id} className="hover:bg-emerald-50/30"><td className="px-4 py-3 font-semibold text-slate-900">{order.orderCode}</td><td className="px-4 py-3"><p className="font-medium">{order.customerName}</p>{order.gmail&&<p className="mt-0.5 text-xs text-slate-500">{order.gmail}</p>}</td><td className="whitespace-nowrap px-4 py-3 font-semibold">{formatPhp(order.totalAmount)}</td><td className="px-4 py-3"><span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-xs ${badgeClass(order.status)}`}>{order.status}</span></td><td className="px-4 py-3"><span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-xs ${order.paymentStatus==='Paid'?'bg-emerald-50 text-emerald-800':['Refund Pending','Failed'].includes(order.paymentStatus)?'bg-amber-50 text-amber-800':'bg-slate-100 text-slate-600'}`}>{order.paymentMethod==='COD'&&['Unpaid','Pending'].includes(order.paymentStatus)?'Pending Collection':order.paymentStatus || 'Not recorded'}</span></td><td className="px-4 py-3 text-xs text-slate-500">{formatDateTime(order.createdAt)} PHT</td><td className="px-4 py-3"><div className="flex items-center gap-2 whitespace-nowrap"><button className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-emerald-800" onClick={()=>openEditor(order)}><Eye size={14} aria-hidden="true"/>View Details</button><InventoryActionMenu label="More" productName={order.orderCode} icon={MoreHorizontal} items={[
-            {label:'Payment details',icon:CreditCard,action:()=>openEditor(order,'Payment')},
-            {label:'Delivery & status',icon:Truck,action:()=>openEditor(order,'Delivery')},
-            {label:'Order history',icon:History,action:()=>openEditor(order,'History')},
-          ]}/></div></td></tr>)}
-        </tbody></table></div>}
+        {loading ? <p className="p-8 text-center text-sm text-slate-500">Loading orders...</p> : filteredOrders.length===0 ? <p className="p-8 text-center text-sm text-slate-500">No orders match the selected filters.</p> : <OrdersTable orders={filteredOrders.slice((page-1)*20,page*20)} onViewDetails={openEditor} renderActions={order=><OrderMoreMenu order={order} onOpen={openEditor}/>}/>}
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 p-3 text-xs text-slate-500"><span>{filteredOrders.length} orders | Page {page} of {pages}</span><div className="flex gap-2"><button disabled={loading||page===1} onClick={()=>setPage(p=>p-1)} className="min-h-9 rounded-lg border border-slate-200 px-3 disabled:opacity-40">Previous</button><button disabled={loading||page===pages} onClick={()=>setPage(p=>p+1)} className="min-h-9 rounded-lg border border-slate-200 px-3 disabled:opacity-40">Next</button></div></footer>
       </section>
 
@@ -355,20 +331,7 @@ export default function AdminOrders() {
                   <p className="mt-1 text-sm text-gray-500">{form.deliveryMode==='logistics'?'Courier statuses update automatically when carrier data is available. Enter the courier tracking number to begin.':'Manage rider assignment and the existing delivery workflow.'}</p>
                 </div>
 
-                <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-gray-700">Order Status</span>
-                  <select
-                    value={form.status}
-                    onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-[#1f5a43]"
-                  >
-                    {ORDER_STATUS_OPTIONS.map((option) => (
-                      <option key={option} value={option} disabled={['Delivered','Cancelled'].includes(selectedOrder.status) && option !== selectedOrder.status}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <OrderStatusSelect value={form.status} onChange={status=>setForm(current=>({...current,status}))} terminal={['Delivered','Cancelled'].includes(selectedOrder.status)}/>
 
                 {selectedOrder.status === 'Cancellation Requested' ? (
                   <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">

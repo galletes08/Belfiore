@@ -14,8 +14,8 @@ router.get('/api/admin/logs', async (req, res) => {
     const result = await pool.query(`
       WITH events AS (
         SELECT 'auth-'||s.id AS event_id,'security' AS event_type,s.action,'Authentication' AS entity,
-          COALESCE(s.user_id::text,'Unknown') AS entity_id,COALESCE('Admin #'||s.actor_user_id::text,s.role,'Unknown') AS actor,
-          s.action||CASE WHEN s.details?'verificationReference' THEN ' · Verification reference: '||(s.details->>'verificationReference') ELSE '' END AS description,COALESCE(s.details->>'result','Recorded') AS status,s.created_at AS occurred_at,NULL::float AS amount
+          COALESCE(s.user_id::text,'Unknown') AS entity_id,COALESCE((SELECT INITCAP(u.role) FROM users u WHERE u.id=s.actor_user_id)||' #'||s.actor_user_id::text,s.role,'Unknown') AS actor,
+          s.action||CASE WHEN s.action='Order Status Updated' THEN ' - '||COALESCE(s.details->>'reason','') ELSE '' END||CASE WHEN s.details?'verificationReference' THEN ' · Verification reference: '||(s.details->>'verificationReference') ELSE '' END AS description,COALESCE(s.details->>'result','Recorded') AS status,s.created_at AS occurred_at,NULL::float AS amount
         FROM auth_security_events s
         UNION ALL
         SELECT

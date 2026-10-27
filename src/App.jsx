@@ -4,6 +4,8 @@ import { Component, lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter as Router, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { CheckCircle2, X } from "lucide-react";
 import AdminProtectedRoute from "./admin/AdminProtectedRoute";
+const StaffPortal = lazy(() => import('./staff/StaffPortal'));
+const AdminStaff = lazy(() => import('./admin/AdminStaff'));
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footerlink/Footer";
 import NewVisitorSignup from "./components/NewVisitorSignup";
@@ -113,7 +115,7 @@ function App() {
 
   const handleAddToCart = (product, quantity = 1, source = null) => {
     if(product.inventoryType==='GARDENING_SUPPLY'&&(!product.variantId||product.stock<=0)){window.location.assign('/product/'+product.id);return false;}
-    if(isLettuceProduct(product)&&!product.batchId) {window.location.assign('/product/'+product.id);return false;}
+    if(isLettuceProduct(product)&&(product.lettuceStockModel!=='quantity'||product.batchId||Number(product.stock)<=0))return false;
     if (!hasAuthenticatedCustomer()) {
       window.location.assign("/login");
       return false;
@@ -127,6 +129,7 @@ function App() {
     const availableStock = Number(product.stock);
     const requestedQuantity = allowsMultipleQuantity ? safeQuantity : 1;
     const cartId=cartLineId(product);
+    if(cartItems.some(item=>String(item.id)===String(cartId)))return false;
     const cartQuantity =
       allowsMultipleQuantity && Number.isFinite(availableStock) && availableStock > 0
         ? Math.min(requestedQuantity, availableStock)
@@ -135,22 +138,7 @@ function App() {
     setCartItems((previous) => {
       const existingItem = previous.find((item) => item.id === cartId);
 
-      if (existingItem) {
-        return previous.map((item) =>
-          item.id === cartId
-            ? {
-                ...item,
-                price:productPrice,stock:product.stock,
-                qty: allowsMultipleQuantity
-                  ? Number.isFinite(availableStock) && availableStock > 0
-                    ? Math.min(item.qty + cartQuantity, availableStock)
-                    : item.qty + cartQuantity
-                  : 1,
-                allowsMultipleQuantity
-              }
-            : item
-        );
-      }
+      if (existingItem) return previous;
 
       return [
         ...previous,
@@ -249,8 +237,8 @@ function App() {
           <Route path="/signup" element={<Signup />} />
           <Route path="/verification-pending" element={<VerificationPending/>}/><Route path="/terms" element={<PolicyPage kind="Terms of Service"/>}/><Route path="/privacy" element={<PolicyPage kind="Privacy Notice"/>}/><Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/products" element={<Products onAddToCart={handleAddToCart} />} />
-          <Route path="/product/:id" element={<ProductDetail onAddToCart={handleAddToCart} />} />
+          <Route path="/products" element={<Products cartItems={cartItems} onAddToCart={handleAddToCart} />} />
+          <Route path="/product/:id" element={<ProductDetail cartItems={cartItems} onAddToCart={handleAddToCart} />} />
           <Route
             path="/checkout"
             element={
@@ -264,11 +252,13 @@ function App() {
           <Route path="/profile" element={<CustomerProtectedRoute><UserAccountPage /></CustomerProtectedRoute>} />
           <Route path="/account-details" element={<CustomerProtectedRoute><UserAccountPage /></CustomerProtectedRoute>} />
           <Route path="/addresses" element={<CustomerProtectedRoute><Addresses /></CustomerProtectedRoute>} />
-          <Route path="/banks-cards" element={<CustomerProtectedRoute><AccountSettings section="cards" /></CustomerProtectedRoute>} />
+          <Route path="/banks-cards" element={<CustomerProtectedRoute><Navigate to="/dashboard" replace /></CustomerProtectedRoute>} />
           <Route path="/change-password" element={<CustomerProtectedRoute><AccountSettings section="password" /></CustomerProtectedRoute>} />
         </Route>
 
         <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/staff/login" element={<AdminLogin />} />
+        <Route path="/staff/*" element={<StaffPortal />} />
         <Route path="/forgot-password" element={<PasswordRecovery />} />
         <Route path="/reset-password" element={<PasswordRecovery />} />
         <Route path="/rider/login" element={<AdminLogin />} />
@@ -297,6 +287,7 @@ function App() {
           <Route index element={<AdminDashboard />} />
           <Route path="orders" element={<AdminOrders />} />
           <Route path="riders" element={<AdminRiders />} />
+          <Route path="staff" element={<AdminStaff />} />
           <Route path="inventory" element={<AdminInventory />} />
           <Route path="customers" element={<AdminCustomers />} />
           <Route path="reports" element={<ReportsErrorBoundary><AdminReports /></ReportsErrorBoundary>} />

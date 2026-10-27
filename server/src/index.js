@@ -4,6 +4,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import authRoutes from './routes/auth.js';
+import operationsStaffRoutes from './routes/operations-staff.js';
 import customersRoutes from './routes/customers.js';
 import customerAccountRoutes from './routes/customer-account.js';
 import contactRoutes from './routes/contact.js';
@@ -68,6 +69,7 @@ app.get('/api/health/db', async (_req, res) => {
 });
 
 app.use(authRoutes);
+app.use(operationsStaffRoutes);
 app.use(contactRoutes);
 app.use(dashboardRoutes);
 app.use(reportsRoutes);

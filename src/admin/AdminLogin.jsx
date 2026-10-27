@@ -2,10 +2,7 @@ import { useState } from 'react';
 import { Link,useNavigate,useLocation } from 'react-router-dom';
 import {
   apiLogin,
-  setAdminUser,
-  setRiderToken,
-  setRiderUser,
-  setToken,
+  saveWorkforceSession,
 } from '../api/client';
 import { loadAdminPreferences } from '../utils/adminPreferences';
 
@@ -25,21 +22,21 @@ export default function AdminLogin() {
     try {
       const response = await apiLogin(email, password,'staff',location.pathname.startsWith('/rider')?'rider':'admin');
       const role = response.user?.role;
-      if (!['admin', 'rider'].includes(role)) {
-        throw new Error('This login is only for admin or rider accounts.');
+      if (!['admin', 'rider', 'staff'].includes(role)) {
+        throw new Error('This login is only for workforce accounts.');
       }
 
-      const { token } = response;
+      saveWorkforceSession(response);
+      if(role==='staff') {
+        navigate('/staff/dashboard',{replace:true});
+        return;
+      }
 
       if (role === 'admin') {
-        setAdminUser(response.user || null);
-        setToken(token);
         navigate(loadAdminPreferences().startPage, { replace: true });
         return;
       }
 
-      setRiderUser(response.user || null);
-      setRiderToken(token);
       navigate(response.user?.mustChangePassword?'/rider/change-password':'/rider', { replace: true });
     } catch (err) {
       setError(err.message || 'Login failed. Check email and password.');
@@ -52,7 +49,7 @@ export default function AdminLogin() {
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0f3225] px-4 py-10">
       <div className="relative w-full max-w-[440px] rounded-[2rem] border border-white/10 bg-[#fffef9] p-7 shadow-[0_30px_90px_rgba(0,0,0,0.35)] sm:p-10">
         <h1 className="m-0 text-3xl font-semibold tracking-tight text-[#173d2b]">Welcome back</h1>
-        <p className="mb-8 mt-2 text-sm leading-6 text-[#687c71]">Sign in with your admin or rider account to continue.</p>
+        <p className="mb-8 mt-2 text-sm leading-6 text-[#687c71]">Sign in with your administrator, operations staff or rider account.</p>
         <form onSubmit={handleSubmit}>
           {location.state?.passwordChanged&&<p role="status" className="mb-4 text-sm text-emerald-800">Password changed. Sign in with your new password.</p>}
           <label className="mb-5 block text-sm font-medium text-[#294b3a]">
@@ -61,7 +58,7 @@ export default function AdminLogin() {
               type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Administrator email or rider username"
+              placeholder="Administrator email or assigned username"
               required
               autoComplete="username"
               className="mt-2 h-12 w-full rounded-xl border border-[#d7e2da] bg-white px-4 text-sm text-[#173d2b] outline-none transition placeholder:text-[#9aa9a1] focus:border-[#4b916d] focus:ring-4 focus:ring-[#4b916d]/10"
@@ -91,7 +88,7 @@ export default function AdminLogin() {
             {loading ? 'Signing in...' : 'Sign in securely'}
           </button>
         </form>
-        <p className="mt-4 text-xs text-[#687c71]">Riders: contact an authorized administrator for identity verification and password recovery. Email recovery is for administrators only.</p>
+        <p className="mt-4 text-xs text-[#687c71]">Riders and operations staff: contact an authorized administrator for identity verification and password recovery. Email recovery is for administrators only.</p>
         <p className="mt-6 text-center text-xs leading-5 text-[#7b8e84]">Your role automatically determines which workspace opens after sign-in.</p>
       </div>
     </div>

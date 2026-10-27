@@ -7,7 +7,7 @@ export const LETTUCE_VARIETIES = [
   { name: 'Romaine (Tiberius RZ)', price: 130 },
   { name: 'Batavia (Ruby Sky RZ)', price: 140 },
 ];
-export const INVENTORY_ACTIONS = ['Stock Initialized','Variant Archived','Product Added', 'Product Updated', 'Stock In', 'Stock Out', 'Product Reserved',
+export const INVENTORY_ACTIONS = ['Initial Balance Migration','Stock Initialized','Variant Archived','Product Added', 'Product Updated', 'Stock In', 'Stock Out', 'Product Reserved',
   'Reservation Released', 'Product Sold', 'Product Archived', 'Product Restored', 'Inventory Adjustment','Harvest Batch Created','Condition Updated','Price Adjusted','Aging Alert','Automatically Placed On Hold','Marked For Disposal','Disposal Confirmed','Reservation Created','Batch Sold / Allocated'];
 export function displayProductName(product) {
   const name = product?.name || product?.productName || product?.product_name || 'Unnamed product';

@@ -58,6 +58,7 @@ function mapProductRow(row) {
     updatedAt: row.updated_at,
     productCode: row.product_code,
     inventoryType: row.inventory_type,
+    lettuceStockModel:row.lettuce_stock_model||null,
     supplyStockModel:row.supply_stock_model,
     packGrams: row.pack_grams,
     lowStockThreshold: row.low_stock_threshold,

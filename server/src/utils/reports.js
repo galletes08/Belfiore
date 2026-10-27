@@ -90,8 +90,7 @@ export async function loadReport(client, f, allRows=false) {
       AND c.completed_at>=($1::date::timestamp AT TIME ZONE 'Asia/Manila') AND c.completed_at<(($2::date+1)::timestamp AT TIME ZONE 'Asia/Manila')) AS completed,
     (SELECT COUNT(*)::int FROM orders o LEFT JOIN completion c ON c.order_id=o.id WHERE ${cohort} AND o.status='Delivered' AND c.completed_at IS NULL) AS undated_deliveries,
     (SELECT COALESCE(SUM(p.stock),0)::int FROM products p WHERE p.inventory_type='succulent' AND inventory_product_status(p)='Available' AND NOT p.legacy_quantity_review) AS plants,
-    (SELECT COALESCE(SUM(b.stock),0)::int FROM harvest_batches b JOIN products p ON p.id=b.product_id
-      WHERE p.archived_at IS NULL AND NOT p.legacy_quantity_review AND harvest_batch_sellable(b)) AS packs`))[0];
+    (SELECT COALESCE(SUM(CASE WHEN to_jsonb(p)->>'lettuce_stock_model'='quantity' THEN p.stock WHEN to_jsonb(p)->>'lettuce_stock_model'='batch' THEN 0 ELSE COALESCE((SELECT SUM(b.stock) FROM harvest_batches b WHERE b.product_id=p.id AND harvest_batch_sellable(b)),0) END),0)::int FROM products p WHERE p.inventory_type='edible' AND p.archived_at IS NULL AND NOT p.legacy_quantity_review) AS packs`))[0];
   const result={tab:f.tab,period:{from:f.from,to:f.to,timeZone:'Asia/Manila'},generatedAt:new Date(),summary,notes:REPORT_NOTES,tables:[],breakdowns:[],series:[]};
   const col=(key,label,type='text')=>({key,label,type});
   const orderCols=[col('order_code','Order'),col('customer','Customer'),col('created_at','Created (PHT)','date'),col('amount','Total (PHP)','money'),col('status','Current status'),col('payment_method','Payment method'),col('payment_status','Payment status'),col('method','Delivery method')];
@@ -136,10 +135,10 @@ export async function loadReport(client, f, allRows=false) {
       (oi.batch_id=b.id OR (oi.batch_id IS NULL AND oi.product_id=b.product_id AND b.legacy_import)) AND o.inventory_state IN ('committed','legacy') AND o.inventory_restored_at IS NULL AND o.status IN ('Pending','Preparing','Cancellation Requested')),0) AS physical
       FROM harvest_batches b), alerts AS (
       SELECT p.name AS product,p.product_code AS code,p.inventory_type AS type,b.batch_code AS batch,b.state AS issue,b.physical AS quantity,'400g packs' AS unit
-      FROM batches b JOIN products p ON p.id=b.product_id WHERE p.archived_at IS NULL AND b.state IN ('Aging','On Hold','Unverified','Unsellable','For Disposal') AND b.physical>0
+      FROM batches b JOIN products p ON p.id=b.product_id WHERE to_jsonb(p)->>'lettuce_stock_model' IS NULL AND p.archived_at IS NULL AND b.state IN ('Aging','On Hold','Unverified','Unsellable','For Disposal') AND b.physical>0
       UNION ALL SELECT p.name,p.product_code,p.inventory_type,'-',CASE WHEN s.available=0 THEN 'Out of Stock' ELSE 'Low Stock' END,s.available,
       CASE WHEN p.inventory_type='edible' THEN '400g packs' ELSE 'plants' END FROM products p CROSS JOIN LATERAL
-      (SELECT CASE WHEN p.inventory_type='edible' THEN COALESCE((SELECT SUM(b.stock) FROM harvest_batches b WHERE b.product_id=p.id AND harvest_batch_sellable(b)),0) ELSE p.stock END AS available) s
+      (SELECT CASE WHEN p.inventory_type='edible' AND to_jsonb(p)->>'lettuce_stock_model'='batch' THEN 0 WHEN p.inventory_type='edible' AND to_jsonb(p)->>'lettuce_stock_model' IS NULL THEN COALESCE((SELECT SUM(b.stock) FROM harvest_batches b WHERE b.product_id=p.id AND harvest_batch_sellable(b)),0) ELSE p.stock END AS available) s
       WHERE p.archived_at IS NULL AND p.inventory_type<>'GARDENING_SUPPLY' AND NOT p.legacy_quantity_review AND (p.inventory_type='edible' OR inventory_product_status(p) NOT IN ('Sold','Reserved'))
         AND (s.available=0 OR (p.inventory_type='edible' AND s.available<=p.low_stock_threshold))
       UNION ALL SELECT p.name,v.sku,p.inventory_type,v.name,CASE WHEN s.stock IS NULL THEN 'Awaiting Stock Entry' WHEN FLOOR(s.stock::numeric/v.stock_factor)=0 THEN 'Out of Stock' ELSE 'Low Stock' END,FLOOR(s.stock::numeric/v.stock_factor),v.selling_unit FROM supply_variants v JOIN products p ON p.id=v.product_id LEFT JOIN supply_stock_pools s ON s.id=v.pool_id WHERE p.archived_at IS NULL AND v.archived_at IS NULL AND (s.stock IS NULL OR FLOOR(s.stock::numeric/v.stock_factor)<=v.low_stock_threshold)

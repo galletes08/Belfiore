@@ -1,0 +1,41 @@
+.product-catalog .catalog-product-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.catalog-product-grid > *,
+.catalog-card-content { min-width: 0; }
+.catalog-card-content { overflow-wrap: anywhere; }
+.catalog-mobile-status { display: none; }
+
+@media (max-width: 767px) {
+  .product-catalog main { padding-inline: 12px; }
+  .product-catalog .catalog-card-content { padding: 10px; }
+  .product-catalog .catalog-card-content h3 { font-size: 14px; line-height: 20px; }
+  .product-catalog .catalog-card-content > div > p { line-height: 18px; }
+  .product-catalog .catalog-price { margin-top: 10px; font-size: 15px; line-height: 21px; }
+  .product-catalog .catalog-card-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 10px; gap: 6px; }
+  .product-catalog .catalog-card-actions > button:first-child { grid-column: 1 / -1; padding-inline: 6px; font-size: 12px; }
+  .product-catalog .catalog-card-actions > button { width: 100%; min-height: 44px; }
+  .product-catalog .catalog-tag { left: 6px; top: 6px; max-width: calc(100% - 12px); font-size: 9px; padding-inline: 6px; overflow-wrap: anywhere; }
+  .product-catalog .catalog-stock-badge { display: none; }
+  .product-catalog .catalog-mobile-status { display: block; }
+  .product-catalog .catalog-filter-row { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; padding-bottom: 6px; }
+  .product-catalog .catalog-filter-row > button { flex-shrink: 0; min-height: 44px; }
+  .product-catalog .catalog-hero > div { min-height: 176px; padding: 20px 16px; }
+  .product-catalog .catalog-hero h1 { overflow-wrap: break-word; }
+}
+@media (max-width: 339px) {
+  .product-catalog .catalog-product-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (min-width: 768px) {
+  .product-catalog .catalog-product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .product-catalog .catalog-card-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .product-catalog .catalog-card-actions > button:first-child { grid-column: 1 / -1; }
+  .product-catalog .catalog-card-actions > button { width: 100%; }
+}
+@media (min-width: 1024px) {
+  .product-catalog .catalog-product-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (min-width: 1440px) {
+  .product-catalog .catalog-product-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; }
+}

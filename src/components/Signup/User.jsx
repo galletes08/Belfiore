@@ -96,10 +96,13 @@ export default function UserAccountPage() {
   const [imageError, setImageError] = useState("");
   const fileInputRef = useRef(null);
   const [saving,setSaving]=useState(false);
+  const [loaded,setLoaded]=useState(false);
+  const [imageReading,setImageReading]=useState(false);
+  const savingRef=useRef(false);
   useEffect(()=>{
     let active=true;
     apiCustomerAccount().then(data=>{
-      if(!active)return;const legacy=loadStoredProfile();
+      if(!active)return;setLoaded(true);const legacy=loadStoredProfile();
       setProfile({...initialProfile,...data.profile,...(!data.profileStored?legacy:{}),email:data.profile.email});
       cacheCustomerAccount({addresses:data.addresses,...(data.profileStored?{profile:data.profile}:{})});
       if(!data.profileStored&&legacy.image)setSavedMessage('Browser-only profile found. Review and Save to link it to your account.');
@@ -113,6 +116,7 @@ export default function UserAccountPage() {
   };
 
   const handleFieldChange = (field, value) => {
+    setSavedMessage('');
     setProfile((previous) => ({
       ...previous,
       [field]: value
@@ -137,20 +141,24 @@ export default function UserAccountPage() {
       return;
     }
 
+    setImageReading(true);
     const reader = new FileReader();
-    reader.onloadend = () => {
+    reader.onload = () => {
       setProfile((previous) => ({
         ...previous,
         image: String(reader.result)
       }));
-      setImageError("");
+      setImageError("");setImageReading(false);
     };
+    reader.onerror=()=>{setImageError("Unable to read the selected image.");setImageReading(false);};
     reader.readAsDataURL(file);
   };
 
   const handleSave = async (event) => {
     event.preventDefault();
-    if(saving)return;setSaving(true);setImageError('');
+    if(savingRef.current||!loaded||imageReading)return;
+    if(!profile.name.trim()){setImageError('Enter your full name.');return;}
+    savingRef.current=true;setSaving(true);setImageError('');
     const cleanName = profile.name.trim();
     const cleanEmail = profile.email.trim();
     const cleanPhone = profile.phone.trim();
@@ -164,18 +172,19 @@ export default function UserAccountPage() {
     try {
       const result=await apiCustomerAccount('profile','PATCH',nextProfile);
       cacheCustomerAccount(result);setProfile({...initialProfile,...result.profile});setSavedMessage('Profile saved.');
-    }catch(err){setImageError(err.message);setSavedMessage('');}finally{setSaving(false);}
+    }catch(err){setImageError(err.message);setSavedMessage('');}finally{savingRef.current=false;setSaving(false);}
 
   };
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#f8faf6] font-['Montserrat'] text-[#24372d]">
-      <div className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-0 px-4 md:px-6 lg:grid-cols-[250px_minmax(0,1fr)]">
+      <div className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-0 px-4 md:px-6 lg:grid-cols-[230px_minmax(0,1fr)]">
         <AccountSidebar onLogout={handleLogout} />
 
-        <main className="min-w-0 space-y-6 py-6 lg:px-6">
+        <main className="min-w-0 space-y-4 py-4 lg:px-5">
           
 
+          <header><p className="text-xs font-semibold uppercase tracking-[.2em] text-slate-500">My Account</p><h1 className="mt-1 font-['Playfair_Display'] text-2xl text-emerald-950 sm:text-3xl">My Profile</h1><p className="mt-2 text-sm text-slate-600">Update your saved profile and photo.</p></header>
           <section className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_320px]">
             <form
               onSubmit={handleSave}
@@ -186,7 +195,7 @@ export default function UserAccountPage() {
                 <h2 className="mt-1 font-['Playfair_Display'] text-2xl leading-tight text-[#0f4d2e]">Account Information</h2>
               </div>
 
-              <div className="mt-6 grid gap-5 md:grid-cols-2">
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <TextField
                   icon={<UserRound size={16} />}
                   label="Username"
@@ -258,7 +267,7 @@ export default function UserAccountPage() {
 
               <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-[#eef2ea] pt-5">
                 <button
-                  type="submit" disabled={saving}
+                  type="submit" disabled={saving||!loaded||imageReading}
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0f4d2e] px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-white shadow-sm transition hover:bg-[#173d2b]"
                 >
                   <Save size={15} />

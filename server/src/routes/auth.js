@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { pool } from '../config/db.js';
 import {createCustomerRegistration} from './customer-registration.js';
 import { createStaffAuth,newStaffPasswordError } from '../utils/staffAuth.js';
+import {consumeCustomerPasswordAttempt} from '../utils/customerPasswordLimit.js';
 
 const router = Router();
 const staffSecurity=createStaffAuth();
@@ -74,6 +75,10 @@ router.patch('/api/auth/password', async (req, res) => {
       return res.status(401).json({ error: 'Your session is invalid or has expired' });
     }
 
+    if(['customer','staff'].includes(session.role)&&!await consumeCustomerPasswordAttempt(pool,session.userId)) {
+      res.set('Retry-After','900');
+      return res.status(429).json({error:'Too many password-change attempts. Please try again in 15 minutes.'});
+    }
     const currentPassword = String(req.body?.currentPassword || '');
     const newPassword = String(req.body?.newPassword || '');
 
@@ -83,7 +88,7 @@ router.patch('/api/auth/password', async (req, res) => {
     if (newPassword.length < 6) {
       return res.status(400).json({ error: 'New password must be at least 6 characters long' });
     }
-    if(['admin','rider'].includes(session.role)) {
+    if(['admin','rider','staff'].includes(session.role)) {
       const problem=newStaffPasswordError(newPassword);
       if(problem)return res.status(400).json({error:problem});
     }
@@ -113,11 +118,11 @@ router.patch('/api/auth/password', async (req, res) => {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
-    const staff=['admin','rider'].includes(session.role);
+    const staff=['admin','rider','staff'].includes(session.role);
     const passwordHash = await bcrypt.hash(newPassword, staff?12:10);
     const updates = ['password_hash = $1'];
-    if(['admin','rider'].includes(session.role))updates.push('auth_version = auth_version + 1');
-    if(session.role==='rider')updates.push('must_change_password = false');
+    if(['admin','rider','staff'].includes(session.role))updates.push('auth_version = auth_version + 1');
+    if(['rider','staff'].includes(session.role))updates.push('must_change_password = false');
     if (columns.has('password')) updates.push('password = NULL');
     if (columns.has('updated_at')) updates.push('updated_at = NOW()');
 

@@ -1,3 +1,4 @@
+import {ownsNewSupply,staffEvent} from '../utils/staffPermissions.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import {pool} from '../config/db.js';
@@ -51,12 +52,16 @@ export async function seedSupplies(c,actor='Administrator catalog import'){
  }
  return result;
 }
-export function registerSupplyRoutes(router,{admin,actor,upload,removeUploadedFiles}){
+async function newSupplySetup(c,req,p){
+ if(!await ownsNewSupply(c,req,p.id)||(await c.query('SELECT 1 FROM order_items WHERE product_id=$1 LIMIT 1',[p.id])).rowCount||(await c.query('SELECT 1 FROM supply_stock_pools WHERE product_id=$1 AND stock IS NOT NULL LIMIT 1',[p.id])).rowCount)throw inventoryError('Staff may configure only their newly created, unused supplies. Existing stock models and variants require administrator review.',403);
+}
+export function registerSupplyRoutes(router,{admin,actor,upload,removeUploadedFiles,creationAccess=admin}){
  const run=fn=>async(req,res)=>{const c=await pool.connect();try{await c.query('BEGIN');const result=await fn(c,req);await c.query('COMMIT');res.json(result);}catch(e){await c.query('ROLLBACK');if(req.file)removeUploadedFiles?.([req.file]);res.status(e.code==='23505'?409:e.status||500).json({error:e.code==='23505'?'Variant name or SKU already exists.':e.status?e.message:'Unable to update supplies. Please retry.'});}finally{c.release();}};
  router.post('/api/admin/supplies/import-catalog',admin,run((c,req)=>seedSupplies(c,actor(req))));
- router.post('/api/admin/supplies',admin,upload.single('image'),run(async(c,req)=>{
+ router.post('/api/admin/supplies',creationAccess,upload.single('image'),run(async(c,req)=>{
   const name=text(req.body.name),category=req.body.category;if(!categories.includes(category))throw inventoryError('Select a gardening category',400);
   const requestId=req.body.requestId;
+  if(req.inventoryUser.role==='staff'&&!requestId)throw inventoryError('A product creation request key is required.',400);
   if(requestId!=null&&(typeof requestId!=='string'||!/^[a-zA-Z0-9_-]{16,100}$/.test(requestId)))throw inventoryError('Invalid product creation request key',400);
   const key=requestId?`supply-create:${actor(req)}:${requestId}`:null;
   const description=String(req.body.description||'').slice(0,2000);
@@ -75,6 +80,7 @@ export function registerSupplyRoutes(router,{admin,actor,upload,removeUploadedFi
   await inventoryContext(c,{actor:actor(req),reason:'Gardening supply created without opening stock'});
   const image=req.file?await storeUploadedImage(req.file,'products'):null;
   const result=(await c.query(`INSERT INTO products(name,category,tag,description,inventory_type,stock,price,image_url) VALUES($1,$2,'Gardening Supplies',$3,$4,0,0,$5) RETURNING id`,[name,category,description,SUPPLY,image])).rows[0];
+  if(req.inventoryUser.role==='staff')await staffEvent(c,req.operationsUser,'Product Added',{productId:result.id,newValue:{name,type:SUPPLY},reason:'Staff-created gardening supply'});
   if(key)await c.query('INSERT INTO inventory_product_requests(request_key,actor,fingerprint,response) VALUES($1,$2,$3,$4::jsonb)',[key,actor(req),fingerprint,JSON.stringify(result)]);
   return result;
  }));
@@ -84,9 +90,20 @@ export function registerSupplyRoutes(router,{admin,actor,upload,removeUploadedFi
   const image=req.file?await storeUploadedImage(req.file,'products'):p.image_url;
   await c.query('UPDATE products SET name=$2,category=$3,description=$4,image_url=$5 WHERE id=$1',[p.id,text(req.body.name??p.name),category,String(req.body.description??p.description??'').slice(0,2000),image]);return {id:p.id};
  }));
- router.post('/api/admin/supplies/:id/variants',admin,run(async(c,req)=>{const p=await parent(c,req.params.id);if(p.archived_at)throw inventoryError('Restore the parent before adding variants');return addVariant(c,p,req.body);}));
- router.patch('/api/admin/supplies/:id/model',admin,run(async(c,req)=>{
+ router.post('/api/admin/supplies/:id/variants',creationAccess,run(async(c,req)=>{
+  const p=await parent(c,req.params.id);if(p.archived_at)throw inventoryError('Restore the parent before adding variants');
+  if(req.inventoryUser.role==='staff')await newSupplySetup(c,req,p);
+  if(req.inventoryUser.role==='staff'&&!req.body.requestId)throw inventoryError('A variant creation request key is required.',400);
+  const key=req.body.requestId?'supply-variant:'+req.inventoryUser.userId+':'+text(req.body.requestId,100):null;
+  const fingerprint=crypto.createHash('sha256').update(JSON.stringify({productId:p.id,...req.body})).digest('hex');
+  if(key){const old=(await c.query('SELECT * FROM inventory_product_requests WHERE request_key=$1',[key])).rows[0];if(old){if(old.fingerprint!==fingerprint)throw inventoryError('Request key belongs to another variant.');return old.response;}}
+  const result=await addVariant(c,p,req.body);
+  if(req.inventoryUser.role==='staff')await staffEvent(c,req.operationsUser,'Variant Added',{productId:p.id,newValue:{variantId:result.id,sku:req.body.sku}});
+  if(key)await c.query('INSERT INTO inventory_product_requests(request_key,actor,fingerprint,response) VALUES($1,$2,$3,$4)',[key,actor(req),fingerprint,result]);return result;
+ }));
+ router.patch('/api/admin/supplies/:id/model',creationAccess,run(async(c,req)=>{
   const p=await parent(c,req.params.id),model=req.body.model;
+  if(req.inventoryUser.role==='staff')await newSupplySetup(c,req,p);
   if(p.archived_at)throw inventoryError('Restore the parent first');
   if(!['prepacked','shared'].includes(model))throw inventoryError('Explicitly select a stock model',400);
   if(p.supply_stock_model===model)return {model};
@@ -96,7 +113,7 @@ export function registerSupplyRoutes(router,{admin,actor,upload,removeUploadedFi
   let shared=null;if(model==='shared')shared=(await c.query("INSERT INTO supply_stock_pools(product_id,unit) VALUES($1,'loose pieces') RETURNING id",[p.id])).rows[0].id;
   for(const variant of v){const poolId=shared||(await c.query('INSERT INTO supply_stock_pools(product_id,unit) VALUES($1,$2) RETURNING id',[p.id,variant.selling_unit])).rows[0].id;await c.query('UPDATE supply_variants SET pool_id=$2,stock_factor=$3 WHERE id=$1',[variant.id,poolId,model==='shared'?variant.pieces_per_unit:1]);}
   await inventoryContext(c,{actor:actor(req),reason:`Stock model explicitly configured: ${model}; no stock initialized`});
-  await c.query('UPDATE products SET supply_stock_model=$2 WHERE id=$1',[p.id,model]);return {model};
+  await c.query('UPDATE products SET supply_stock_model=$2 WHERE id=$1',[p.id,model]);if(req.inventoryUser.role==='staff')await staffEvent(c,req.operationsUser,'Stock Model Configured',{productId:p.id,newValue:{model}});return {model};
  }));
  router.patch('/api/admin/supplies/:id/variants/:variantId',admin,upload.single('image'),run(async(c,req)=>{
   const p=await parent(c,req.params.id),v=(await readSupplyVariants(c,p.id)).find(v=>v.id===id(req.params.variantId));if(!v)throw inventoryError('Variant not found',404);
@@ -116,19 +133,26 @@ export function registerSupplyRoutes(router,{admin,actor,upload,removeUploadedFi
   await c.query(`UPDATE supply_variants SET name=$2,price=$3,low_stock_threshold=$4,image_url=$5,archived_at=CASE WHEN $6 THEN COALESCE(archived_at,clock_timestamp()) ELSE NULL END WHERE id=$1`,[v.id,text(b.name??v.name),price,integer(b.lowStockThreshold??v.low_stock_threshold),image,archived]);
   await supplyMovement(c,{productId:p.id,variant:v,before:v.stock??0,after:v.stock??0,beforeReserved:v.pool_reserved??0,afterReserved:v.pool_reserved??0,action:archived?'Variant Archived':'Product Updated',reason:text(b.reason||'Variant metadata updated'),actor:actor(req)});return {id:v.id};
  }));
- router.post('/api/admin/supplies/:id/stock',admin,run(async(c,req)=>{
+ registerSupplyStock(router,{admin,actor});
+}
+export function registerSupplyStock(router,{admin,actor,path='/api/admin/supplies/:id/stock',afterStock}){
+ const run=fn=>async(req,res)=>{const c=await pool.connect();try{await c.query('BEGIN');const result=await fn(c,req);await c.query('COMMIT');res.json(result);}catch(e){await c.query('ROLLBACK');res.status(e.status||500).json({error:e.status?e.message:'Unable to record stock.'});}finally{c.release();}};
+ router.post(path,admin,run(async(c,req)=>{
+  if(req.inventoryUser.role==='staff'&&req.body.direction==='initial'){const p=await parent(c,req.params.id);if(!await ownsNewSupply(c,req,p.id)||(await c.query('SELECT 1 FROM order_items WHERE product_id=$1 LIMIT 1',[p.id])).rowCount)throw inventoryError('Opening stock requires a newly created Staff product.',403);}
+  if(req.inventoryUser.role==='staff'&&(!['initial','in','out'].includes(req.body.direction)||!(req.body.direction==='initial'?['Initial Stock']:req.body.direction==='in'?['Stock In']:['Damaged','Disposal / Spoiled']).includes(req.body.reason)||String(req.body.notes||'').trim().length<3))throw inventoryError('Staff may record normal Stock In or disposal/damage with a short note only.',403);
   const p=await parent(c,req.params.id),b=req.body,key=`${req.inventoryUser.userId}:${text(b.requestId,100)}`,hash=crypto.createHash('sha256').update(JSON.stringify(b)).digest('hex');
   const previous=(await c.query('SELECT * FROM supply_stock_requests WHERE request_key=$1',[key])).rows[0];if(previous){if(previous.payload_hash!==hash)throw inventoryError('Retry key already belongs to a different movement');return previous.response;}
   if(p.archived_at||p.supply_stock_model==='unconfigured')throw inventoryError('Restore the product and explicitly choose its stock model first');
   const v=(await readSupplyVariants(c,p.id)).find(v=>v.id===id(b.variantId));if(!v||v.archived_at||!v.pool_id)throw inventoryError('Select an active configured variant');
   if(!['initial','in','out'].includes(b.direction))throw inventoryError('Invalid stock direction',400);
-  const quantity=integer(b.quantity,b.direction==='initial'?0:1),amount=quantity*v.stock_factor;if(amount>2147483647)throw inventoryError('Stock conversion exceeds supported quantity',400);
+  const quantity=integer(b.quantity,b.direction==='initial'&&req.inventoryUser.role!=='staff'?0:1),amount=quantity*v.stock_factor;if(amount>2147483647)throw inventoryError('Stock conversion exceeds supported quantity',400);
   if(b.confirm!==true)throw inventoryError('Confirm verified physical stock and the selected unit',400);
   if(b.direction==='initial'?v.stock!=null:v.stock==null)throw inventoryError('Record opening stock once before normal stock movements');
-  const before=(await c.query('SELECT * FROM supply_stock_pools WHERE id=$1 FOR UPDATE',[v.pool_id])).rows[0],reason=text(b.reason,1000);
+  const before=(await c.query('SELECT * FROM supply_stock_pools WHERE id=$1 FOR UPDATE',[v.pool_id])).rows[0],reason=text(b.reason+(req.inventoryUser.role==='staff'?' - '+String(b.notes).trim():''),1000);
   const stock=b.direction==='initial'?amount:before.stock+(b.direction==='in'?amount:-amount);if(stock<0||stock>2147483647)throw inventoryError('Insufficient unreserved stock. Reserved and committed quantities are protected.');
   await c.query('UPDATE supply_stock_pools SET stock=$2 WHERE id=$1',[v.pool_id,stock]);
   await supplyMovement(c,{productId:p.id,variant:v,before:before.stock??0,after:stock,beforeReserved:before.reserved_stock,afterReserved:before.reserved_stock,action:b.direction==='initial'?'Stock Initialized':b.direction==='in'?'Stock In':'Stock Out',reason,actor:actor(req)});
+  if(afterStock)await afterStock(c,req,{productId:p.id,before:before.stock,after:stock,variantId:v.id,unit:before.unit,reason});
   const result={variantId:v.id,stock,unit:v.stock_unit};await c.query('INSERT INTO supply_stock_requests(request_key,payload_hash,response) VALUES($1,$2,$3::jsonb)',[key,hash,JSON.stringify(result)]);return result;
  }));
 }

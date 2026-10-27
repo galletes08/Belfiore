@@ -1,3 +1,5 @@
+import {requirePermission,staffEvent,operationsActor} from '../utils/staffPermissions.js';
+import {registerLettuceStock} from './lettuce-stock.js';
 import {registerSupplyRoutes} from './gardening-supplies.js';
 import {supplyProduct} from '../utils/supplies.js';
 import { pool } from '../config/db.js';
@@ -26,7 +28,8 @@ function admin(req, res, next) {
     next();
   } catch (error) { res.status(error.status || 401).json({ error: error.message }); }
 }
-function actor(req) { return `Admin ${req.inventoryUser.email || req.inventoryUser.id}`; }
+function creationAccess(req,res,next){try{if(verifyRequestToken(req).role==='staff')return requirePermission('products.create')(req,res,next);return admin(req,res,next);}catch(e){res.status(e.status||401).json({error:e.message});}}
+function actor(req) { if(req.inventoryUser.role==='staff')return operationsActor(req);return `Admin ${req.inventoryUser.email || req.inventoryUser.id}`; }
 function validId(value) {
   const id = Number(value);
   if (!Number.isSafeInteger(id) || id < 1) throw inventoryError('Invalid product ID', 400);
@@ -56,7 +59,8 @@ function productValues(body, current = null) {
 }
 
 export function registerInventoryRoutes(router, { upload, ensureTypeId, mapProductRow, removeUploadedFiles, storeImage = storeUploadedImage }) {
-  registerSupplyRoutes(router,{admin,actor,upload,removeUploadedFiles});
+  registerLettuceStock(router,admin,actor);
+  registerSupplyRoutes(router,{admin,actor,upload,removeUploadedFiles,creationAccess});
   registerHarvestRoutes(router,admin,actor);
   router.get('/api/products', async (_req, res) => {
     try {
@@ -64,8 +68,8 @@ export function registerInventoryRoutes(router, { upload, ensureTypeId, mapProdu
       const result = await pool.query(`${PRODUCT_SELECT} WHERE p.archived_at IS NULL AND NOT p.legacy_quantity_review ORDER BY p.id DESC`);
       const batches=await readHarvest(pool);
       res.json(await Promise.all(result.rows.map(async row=>{
-        const choices=batches.filter(b=>b.product_id===Number(row.id)&&b.available_stock>0);
-        return supplyProduct(pool,{...mapProductRow(row),stock:row.inventory_type==='edible'?choices.reduce((sum,b)=>sum+b.available_stock,0):Number(row.stock),
+        const choices=row.lettuce_stock_model==='quantity'?[]:batches.filter(b=>b.product_id===Number(row.id)&&b.available_stock>0);
+        return supplyProduct(pool,{...mapProductRow(row),...(row.inventory_type==='edible'&&row.lettuce_stock_model==='batch'?{inventoryReconciliationRequired:true,status:'Stock Reconciliation Required'}:{}),stock:row.inventory_type==='edible'&&row.lettuce_stock_model==='batch'?0:row.inventory_type==='edible'&&row.lettuce_stock_model!=='quantity'?choices.reduce((sum,b)=>sum+b.available_stock,0):Number(row.stock),
           batches:choices.map(b=>({id:b.id,batch_code:b.batch_code,harvest_date:b.harvest_date,age_days:b.age_days,status:b.status,price:b.price,available_stock:b.available_stock}))},true);
       })));
     } catch (error) { res.status(500).json({ error: error.message }); }
@@ -75,8 +79,8 @@ export function registerInventoryRoutes(router, { upload, ensureTypeId, mapProdu
       await refreshHarvest(pool);
       const result = await pool.query(`${PRODUCT_SELECT} ORDER BY p.id DESC`);
       const batches=await readHarvest(pool);
-      const products = await Promise.all(result.rows.map(async row=>supplyProduct(pool,{...mapProductRow(row),stock:row.inventory_type==='edible'?batches.filter(b=>b.product_id===Number(row.id)).reduce((sum,b)=>sum+(row.archived_at?0:b.available_stock),0):Number(row.stock), batches:batches.filter(b=>b.product_id===Number(row.id)),
-        physicalStock:row.inventory_type==='edible'?batches.filter(b=>b.product_id===Number(row.id)).reduce((sum,b)=>sum+b.physical_stock,0):mapProductRow(row).physicalStock })));
+      const products = await Promise.all(result.rows.map(async row=>supplyProduct(pool,{...mapProductRow(row),...(row.inventory_type==='edible'&&row.lettuce_stock_model==='batch'?{status:'Stock Reconciliation Required',inventoryReconciliationRequired:true}:{}),stock:row.inventory_type==='edible'&&row.lettuce_stock_model==='batch'?0:row.inventory_type==='edible'&&row.lettuce_stock_model!=='quantity'?batches.filter(b=>b.product_id===Number(row.id)).reduce((sum,b)=>sum+(row.archived_at?0:b.available_stock),0):Number(row.stock), batches:batches.filter(b=>b.product_id===Number(row.id)),
+        physicalStock:row.inventory_type==='edible'&&row.lettuce_stock_model!=='quantity'?batches.filter(b=>b.product_id===Number(row.id)).reduce((sum,b)=>sum+b.physical_stock,0):mapProductRow(row).physicalStock })));
       const active = products.filter(p => !p.archivedAt);
       res.json({ products, summary: {
         totalProducts: active.length,
@@ -95,71 +99,14 @@ export function registerInventoryRoutes(router, { upload, ensureTypeId, mapProdu
       } });
     } catch (error) { res.status(500).json({ error: error.message }); }
   });
-  router.get('/api/admin/inventory/history', admin, async (req, res) => {
-    try {
-      const page = req.query.page === undefined ? 1 : Number(req.query.page);
-      if (!Number.isSafeInteger(page) || page < 1 || page > 10000000) throw inventoryError('Invalid history page', 400);
-      const fromDate = String(req.query.fromDate || '');
-      const toDate = String(req.query.toDate || '');
-      for (const value of [fromDate, toDate]) {
-        if (value && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000') ||
-          !Number.isFinite(Date.parse(value + 'T00:00:00Z')) || new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) !== value)) {
-          throw inventoryError('Enter a valid date in YYYY-MM-DD format', 400);
-        }
-      }
-      if (fromDate && toDate && fromDate > toDate) throw inventoryError('From Date must be on or before To Date', 400);
-      const productId = req.query.productId ? validId(req.query.productId) : null;
-      const search = String(req.query.search || '').trim();
-      const action = String(req.query.action || '');
-      const actions = ['Stock Initialized','Variant Archived','Product Added', 'Product Updated', 'Stock In', 'Stock Out', 'Product Reserved', 'Reservation Released', 'Product Sold', 'Product Archived', 'Product Restored', 'Inventory Adjustment','Harvest Batch Created','Condition Updated','Price Adjusted','Aging Alert','Automatically Placed On Hold','Marked For Disposal','Disposal Confirmed','Reservation Created','Batch Sold / Allocated'];
-      if (action && !actions.includes(action)) throw inventoryError('Invalid activity type', 400);
-      const batchId=req.query.batchId?validId(req.query.batchId):null;
-      const values = [productId, `%${search}%`, action, fromDate || null, toDate || null,batchId];
-      const where = `WHERE ($1::bigint IS NULL OR product_id = $1) AND
-        (product_name ILIKE $2 OR product_code ILIKE $2 OR reason ILIKE $2 OR variant_name ILIKE $2) AND ($3 = '' OR action = $3)
-        AND ($4::date IS NULL OR created_at >= ($4::date::timestamp AT TIME ZONE 'Asia/Manila'))
-        AND ($5::date IS NULL OR created_at < (($5::date + 1)::timestamp AT TIME ZONE 'Asia/Manila'))`;
-      const batchWhere=where+' AND ($6::bigint IS NULL OR batch_id=$6)';
-      const count = await pool.query(`SELECT COUNT(*)::int AS count FROM inventory_movements ${batchWhere}`, values);
-      const rows = await pool.query(`SELECT *, COALESCE(previous_physical_stock,previous_quantity + COALESCE(previous_reserved,0)) AS previous_recorded_stock,
-        COALESCE(new_physical_stock,new_quantity + new_reserved) AS new_recorded_stock,
-        CASE WHEN action IN ('Stock In','Stock Out') THEN ABS(new_quantity-previous_quantity) END AS adjustment_quantity
-        FROM inventory_movements ${batchWhere} ORDER BY created_at DESC, id DESC LIMIT 50 OFFSET $7`, [...values, (page - 1) * 50]);
-      // Enrich only the current history page, using explicit order/product/batch relationships.
-      const transactions = rows.rows.length ? await pool.query(`SELECT m.id AS movement_id,
-        o.id AS order_id,o.customer_name,o.payment_method,o.payment_status,o.cod_status,o.status AS order_status,
-        r.status AS reservation_status,
-        COALESCE((SELECT jsonb_agg(jsonb_build_object('id',oi.id,'productName',oi.product_name,
-          'productCode',COALESCE(oi.product_code,m.product_code),'quantity',oi.qty,'unitPrice',oi.unit_price,
-          'lineTotal',oi.line_total,'inventoryType',oi.inventory_type,'batchId',oi.batch_id,'batchCode',oi.batch_code,'tag',oi.product_tag)
-          ORDER BY oi.id) FROM order_items oi WHERE oi.order_id=o.id AND oi.product_id=m.product_id
-          AND (m.batch_id IS NULL OR oi.batch_id=m.batch_id)), '[]'::jsonb) AS items
-        FROM inventory_movements m JOIN orders o ON o.id=m.order_id
-        LEFT JOIN inventory_reservations r ON r.order_id=o.id
-        WHERE m.id=ANY($1::bigint[]) AND m.action IN
-          ('Product Sold','Product Reserved','Reservation Released','Reservation Created','Batch Sold / Allocated','Stock In','Stock Out')`, [rows.rows.map(row=>row.id)]) : {rows:[]};
-      const transactionMap = new Map(transactions.rows.map(row=>[String(row.movement_id),row]));
-      for (const entry of rows.rows) {
-        // Actor labels may contain checkout emails; history needs the name, not contact data.
-        entry.actor = String(entry.actor || '').replace(/[^\s<>]+@[^\s<>]+/g, '[email hidden]');
-        const transaction = transactionMap.get(String(entry.id));
-        entry.transaction = transaction && transaction.items.length ? {
-          orderId:transaction.order_id, customerName:transaction.customer_name,
-          paymentMethod:transaction.payment_method, paymentStatus:transaction.payment_status,
-          codStatus:transaction.cod_status, orderStatus:transaction.order_status,
-          reservationStatus:transaction.reservation_status, items:transaction.items,
-        } : null;
-        entry.canViewOrder = Boolean(entry.transaction);
-      }
-      res.json({ entries: rows.rows, total: count.rows[0].count, page, pageSize: 50, timeZone: 'Asia/Manila' });
-    } catch (error) { res.status(error.status || 500).json({ error: error.message }); }
-  });
+  router.get('/api/admin/inventory/history',admin,inventoryHistoryHandler);
 
   const create = (bulk) => async (req, res) => {
     const files = bulk ? req.files || [] : req.file ? [req.file] : [];
     let client;
     try {
       const value = productValues(req.body);
+      if(req.inventoryUser.role==='staff'&&(req.body.status==='Archived'||!req.get('Idempotency-Key')))throw inventoryError('Staff creation requires an active product and request key.',400);
       const requestKey = String(req.get('Idempotency-Key') || '').trim();
       if (bulk && !requestKey) throw inventoryError('Upload request key is missing. Refresh Inventory and select the images again.', 400);
       if (requestKey && !/^[a-zA-Z0-9_-]{16,100}$/.test(requestKey)) throw inventoryError('Invalid upload request key', 400);
@@ -186,7 +133,7 @@ export function registerInventoryRoutes(router, { upload, ensureTypeId, mapProdu
       }
       // Serialize taxonomy creation; product stock operations remain independently concurrent.
       await client.query('SELECT pg_advisory_xact_lock(71600402)');
-      if(value.type==='edible'&&(await client.query("SELECT id FROM products WHERE inventory_type='edible' AND LOWER(BTRIM(name))=LOWER(BTRIM($1)) LIMIT 1",[value.name])).rows.length) throw inventoryError('This lettuce variety already has a main product listing. Add a harvest batch to that listing instead.');
+      if(value.type==='edible'&&(await client.query("SELECT id FROM products WHERE inventory_type='edible' AND LOWER(BTRIM(name))=LOWER(BTRIM($1)) LIMIT 1",[value.name])).rows.length) throw inventoryError('This lettuce variety already has a main product listing. Use Stock In on that listing instead.');
       const typeId = await ensureTypeId(client, value.category, value.tag);
       await inventoryContext(client, { actor: actor(req), reason: 'New inventory product' });
       const products = [];
@@ -196,11 +143,13 @@ export function registerInventoryRoutes(router, { upload, ensureTypeId, mapProdu
         catch { throw inventoryError(`Could not store image "${file.originalname}". No products were created. Please retry this batch.`, 502); }
         const result = await client.query(`INSERT INTO products(type_id, category, inventory_type, name, product_code,
           tag, price, stock, low_stock_threshold, description, image_url, archived_at)
-          VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,$7,$8,$9,$10,$11,CASE WHEN $12 THEN NOW() ELSE NULL END) RETURNING id`,
+          VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,$7,$8,$9,$10,$11,CASE WHEN $12 THEN NOW() ELSE NULL END) RETURNING *`,
         [typeId, value.category, value.type, value.name, value.code, value.tag, value.price, value.type==='edible'?0:value.stock,
           value.threshold, value.description, image, req.body.status === 'Archived']);
-        if(value.type==='edible'&&value.stock>0) await createHarvestBatch(client,{id:result.rows[0].id,price:value.price},{quantity:value.stock,harvestDate:req.body.harvestDate,allowUnverified:true,reason:'Initial inventory',notes:'Unknown harvest dates remain unverified'},actor(req));
+        if(value.type==='edible'&&value.stock>0&&result.rows[0].lettuce_stock_model==='quantity')throw inventoryError('Create the product with zero opening packs, then record confirmed quality-checked Stock In.',400);
+        if(value.type==='edible'&&value.stock>0&&result.rows[0].lettuce_stock_model!=='quantity') await createHarvestBatch(client,{id:result.rows[0].id,price:value.price},{quantity:value.stock,harvestDate:req.body.harvestDate,allowUnverified:true,reason:'Initial inventory',notes:'Unknown harvest dates remain unverified'},actor(req));
         const row = await client.query(`${PRODUCT_SELECT} WHERE p.id = $1`, [result.rows[0].id]);
+        if(req.inventoryUser.role==='staff')await staffEvent(client,req.operationsUser,'Product Added',{productId:result.rows[0].id,newValue:{name:value.name,type:value.type},reason:'Staff-created inventory product'});
         products.push({...mapProductRow(row.rows[0]),batches:await readHarvest(client,result.rows[0].id)});
       }
       const response = bulk ? { count: products.length, products } : products[0];
@@ -221,8 +170,8 @@ export function registerInventoryRoutes(router, { upload, ensureTypeId, mapProdu
         : 'Only image files can be uploaded.';
     res.status(400).json({ error: `${message} No products were created.`, count: 0 });
   });
-  router.post('/api/products/bulk', admin, uploadImages(upload.array('images', 50)), create(true));
-  router.post('/api/products', admin, uploadImages(upload.single('image')), create(false));
+  router.post('/api/products/bulk', creationAccess, uploadImages(upload.array('images', 50)), create(true));
+  router.post('/api/products', creationAccess, uploadImages(upload.single('image')), create(false));
   router.patch('/api/products/:id', admin, upload.single('image'), async (req, res) => {
     let client;
     try {
@@ -299,4 +248,68 @@ export function registerInventoryRoutes(router, { upload, ensureTypeId, mapProdu
   router.post('/api/admin/inventory/:id/restore', admin, listingAction(true));
   // Legacy endpoint remains a soft archive, subject to the same validations.
   router.delete('/api/products/:id', admin, listingAction(false));
+}
+
+export async function inventoryHistoryHandler(req,res) {
+    try {
+      const page = req.query.page === undefined ? 1 : Number(req.query.page);
+      if (!Number.isSafeInteger(page) || page < 1 || page > 10000000) throw inventoryError('Invalid history page', 400);
+      const fromDate = String(req.query.fromDate || '');
+      const toDate = String(req.query.toDate || '');
+      for (const value of [fromDate, toDate]) {
+        if (value && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000') ||
+          !Number.isFinite(Date.parse(value + 'T00:00:00Z')) || new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) !== value)) {
+          throw inventoryError('Enter a valid date in YYYY-MM-DD format', 400);
+        }
+      }
+      if (fromDate && toDate && fromDate > toDate) throw inventoryError('From Date must be on or before To Date', 400);
+      const productId = req.query.productId ? validId(req.query.productId) : null;
+      const search = String(req.query.search || '').trim();
+      const action = String(req.query.action || '');
+      const actions = ['Initial Balance Migration','Stock Initialized','Variant Archived','Product Added', 'Product Updated', 'Stock In', 'Stock Out', 'Product Reserved', 'Reservation Released', 'Product Sold', 'Product Archived', 'Product Restored', 'Inventory Adjustment','Harvest Batch Created','Condition Updated','Price Adjusted','Aging Alert','Automatically Placed On Hold','Marked For Disposal','Disposal Confirmed','Reservation Created','Batch Sold / Allocated'];
+      if (action && !actions.includes(action)) throw inventoryError('Invalid activity type', 400);
+      const batchId=req.query.batchId?validId(req.query.batchId):null;
+      const values = [productId, `%${search}%`, action, fromDate || null, toDate || null,batchId];
+      const where = `WHERE ($1::bigint IS NULL OR product_id = $1) AND
+        (product_name ILIKE $2 OR product_code ILIKE $2 OR reason ILIKE $2 OR variant_name ILIKE $2) AND ($3 = '' OR action = $3)
+        AND ($4::date IS NULL OR created_at >= ($4::date::timestamp AT TIME ZONE 'Asia/Manila'))
+        AND ($5::date IS NULL OR created_at < (($5::date + 1)::timestamp AT TIME ZONE 'Asia/Manila'))`;
+      const batchWhere=where+' AND ($6::bigint IS NULL OR batch_id=$6)';
+      const count = await pool.query(`SELECT COUNT(*)::int AS count FROM inventory_movements ${batchWhere}`, values);
+      const rows = await pool.query(`SELECT *, COALESCE(previous_physical_stock,previous_quantity + COALESCE(previous_reserved,0)) AS previous_recorded_stock,
+        COALESCE(new_physical_stock,new_quantity + new_reserved) AS new_recorded_stock,
+        CASE WHEN action IN ('Stock In','Stock Out') THEN ABS(new_quantity-previous_quantity) END AS adjustment_quantity
+        FROM inventory_movements ${batchWhere} ORDER BY created_at DESC, id DESC LIMIT 50 OFFSET $7`, [...values, (page - 1) * 50]);
+      if(req.inventoryUser.role==='staff')return res.json({entries:rows.rows.map(row=>{
+        const fields=['id','product_id','product_code','product_name','action','previous_quantity','new_quantity','previous_reserved','new_reserved','previous_status','new_status','adjustment_quantity','previous_recorded_stock','new_recorded_stock','reason','notes','created_at','order_id','variant_id','variant_name','stock_unit'];
+        return {...Object.fromEntries(fields.map(k=>[k,row[k]])),actor:String(row.actor||'').replace(/[^\s<>]+@[^\s<>]+/g,'[email hidden]')};
+      }),total:count.rows[0].count,page,pageSize:50,timeZone:'Asia/Manila'});
+      // Enrich only the current history page, using explicit order/product/batch relationships.
+      const transactions = rows.rows.length ? await pool.query(`SELECT m.id AS movement_id,
+        o.id AS order_id,o.customer_name,o.payment_method,o.payment_status,o.cod_status,o.status AS order_status,
+        r.status AS reservation_status,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('id',oi.id,'productName',oi.product_name,
+          'productCode',COALESCE(oi.product_code,m.product_code),'quantity',oi.qty,'unitPrice',oi.unit_price,
+          'lineTotal',oi.line_total,'inventoryType',oi.inventory_type,'batchId',oi.batch_id,'batchCode',oi.batch_code,'tag',oi.product_tag)
+          ORDER BY oi.id) FROM order_items oi WHERE oi.order_id=o.id AND oi.product_id=m.product_id
+          AND (m.batch_id IS NULL OR oi.batch_id=m.batch_id)), '[]'::jsonb) AS items
+        FROM inventory_movements m JOIN orders o ON o.id=m.order_id
+        LEFT JOIN inventory_reservations r ON r.order_id=o.id
+        WHERE m.id=ANY($1::bigint[]) AND m.action IN
+          ('Product Sold','Product Reserved','Reservation Released','Reservation Created','Batch Sold / Allocated','Stock In','Stock Out')`, [rows.rows.map(row=>row.id)]) : {rows:[]};
+      const transactionMap = new Map(transactions.rows.map(row=>[String(row.movement_id),row]));
+      for (const entry of rows.rows) {
+        // Actor labels may contain checkout emails; history needs the name, not contact data.
+        entry.actor = String(entry.actor || '').replace(/[^\s<>]+@[^\s<>]+/g, '[email hidden]');
+        const transaction = transactionMap.get(String(entry.id));
+        entry.transaction = transaction && transaction.items.length ? {
+          orderId:transaction.order_id, customerName:transaction.customer_name,
+          paymentMethod:transaction.payment_method, paymentStatus:transaction.payment_status,
+          codStatus:transaction.cod_status, orderStatus:transaction.order_status,
+          reservationStatus:transaction.reservation_status, items:transaction.items,
+        } : null;
+        entry.canViewOrder = Boolean(entry.transaction);
+      }
+      res.json({ entries: rows.rows, total: count.rows[0].count, page, pageSize: 50, timeZone: 'Asia/Manila' });
+    } catch (error) { res.status(error.status || 500).json({ error: error.message }); }
 }

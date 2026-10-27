@@ -92,6 +92,26 @@ test('PostgreSQL staff authentication, isolated SMTP recovery and revocation', {
     app.use((await import('../src/routes/reports.js')).default);
     const {checkRoleSeparation}=await import('./roleSeparationChecks.js');
     await checkRoleSeparation({t,pool,post,base,password,clear});
+    await t.test('Customer password changes verify current credentials, hash the replacement and persist a bounded attempt limit',async()=>{
+      await clear();
+      const original=(await pool.query('SELECT password_hash FROM users WHERE id=3')).rows[0].password_hash;
+      const token=jwt.sign({userId:3,email:'customer@example.test',role:'customer',sessionVersion:0},process.env.JWT_SECRET);
+      const change=async(currentPassword,newPassword)=>{
+        const response=await fetch(base+'/api/auth/password',{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({currentPassword,newPassword})});
+        return {status:response.status,body:await response.json()};
+      };
+      const staffBefore=(await pool.query("SELECT id,auth_version,admin_failed_attempts,rider_failed_attempts FROM users WHERE role IN ('admin','rider') ORDER BY id")).rows;
+      try{
+        for(let i=0;i<9;i++)assert.equal((await change('incorrect password','Updated customer password 2026')).status,401);
+        assert.equal((await change(password,'Updated customer password 2026')).status,200);
+        const changed=(await pool.query('SELECT password_hash,password FROM users WHERE id=3')).rows[0];
+        assert.ok(await bcrypt.compare('Updated customer password 2026',changed.password_hash));assert.equal(changed.password,null);
+        assert.equal((await change('Updated customer password 2026','Another customer password 2026')).status,429);
+        assert.deepEqual((await pool.query("SELECT id,auth_version,admin_failed_attempts,rider_failed_attempts FROM users WHERE role IN ('admin','rider') ORDER BY id")).rows,staffBefore);
+        await pool.query("UPDATE auth_security_buckets SET window_start=clock_timestamp()-INTERVAL '16 minutes' WHERE key='customer-password-change:3'");
+        assert.equal((await change('incorrect password','Another customer password 2026')).status,401);
+      }finally{await pool.query('UPDATE users SET password_hash=$1 WHERE id=3',[original]);await clear();}
+    });
     const {checkCustomerRegistration}=await import('./customerRegistrationChecks.js');
     await checkCustomerRegistration({t,pool,post,mails,setMailFailure:value=>{failMail=value;}});
     let oldAdmin,oldRider;

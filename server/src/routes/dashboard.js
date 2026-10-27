@@ -38,12 +38,12 @@ router.get('/api/admin/dashboard',async(req,res)=>{
     const years=(await client.query("SELECT DISTINCT EXTRACT(YEAR FROM created_at AT TIME ZONE 'Asia/Manila')::int AS year FROM orders ORDER BY year DESC")).rows.map(r=>r.year);
     const batches=await readHarvest(client);
     const raw=(await client.query(`SELECT id,name,product_code,inventory_type,stock,reserved_stock,archived_at,sold_at,legacy_quantity_review,
-      low_stock_threshold,supply_stock_model,inventory_product_status(products) AS status FROM products WHERE archived_at IS NULL`)).rows;
+      low_stock_threshold,supply_stock_model,to_jsonb(products)->>'lettuce_stock_model' AS lettuce_stock_model,inventory_product_status(products) AS status FROM products WHERE archived_at IS NULL`)).rows;
     const products=await Promise.all(raw.map(async p=>{
       const own=batches.filter(b=>b.product_id===Number(p.id));
-      const stock=p.inventory_type==='edible'?own.reduce((n,b)=>n+b.available_stock,0):p.stock;
-      return supplyProduct(client,{supplyStockModel:p.supply_stock_model,id:Number(p.id),name:p.name,productCode:p.product_code,inventoryType:p.inventory_type,stock,archivedAt:p.archived_at,soldAt:p.sold_at,
-        legacyQuantityReview:p.legacy_quantity_review,lowStockThreshold:p.low_stock_threshold,batches:own,
+      const stock=p.inventory_type==='edible'&&p.lettuce_stock_model==='batch'?0:p.inventory_type==='edible'&&p.lettuce_stock_model!=='quantity'?own.reduce((n,b)=>n+b.available_stock,0):p.stock;
+      return supplyProduct(client,{supplyStockModel:p.supply_stock_model,id:Number(p.id),name:p.name,productCode:p.product_code,inventoryType:p.inventory_type,lettuceStockModel:p.lettuce_stock_model,stock,archivedAt:p.archived_at,soldAt:p.sold_at,
+        legacyQuantityReview:p.legacy_quantity_review,lowStockThreshold:p.low_stock_threshold,batches:p.lettuce_stock_model==='quantity'?[]:own,
         status:p.inventory_type==='edible'&&!p.legacy_quantity_review?(stock===0?'Out of Stock':stock<=p.low_stock_threshold?'Low Stock':'Available'):p.status});
     }));
     const inventoryIssues=inventoryAttention(products).map(({product,batches,reasons,count})=>({

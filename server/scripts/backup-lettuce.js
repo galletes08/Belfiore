@@ -1,0 +1,17 @@
+import '../src/config/env.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {spawnSync} from 'node:child_process';
+const url=new URL(process.env.DATABASE_URL);
+const directory=path.resolve('.backups');await fs.mkdir(directory,{recursive:true});
+const label=process.argv.find(a=>a.startsWith('--label='))?.slice(8)||'lettuce-quantity';
+if(!/^[a-z0-9-]{1,60}$/.test(label))throw Error('Invalid backup label.');
+const target=path.join(directory,'before-'+label+'-'+new Date().toISOString().replace(/[:.]/g,'-')+'.dump');
+const env={...process.env,PGHOST:url.hostname,PGPORT:url.port||'5432',PGUSER:decodeURIComponent(url.username),PGPASSWORD:decodeURIComponent(url.password),PGDATABASE:decodeURIComponent(url.pathname.slice(1))};
+if(url.searchParams.get('sslmode'))env.PGSSLMODE=url.searchParams.get('sslmode');
+const bin='C:/Program Files/PostgreSQL/18/bin/';
+const dump=spawnSync(bin+'pg_dump.exe',['--format=custom','--file',target],{env,encoding:'utf8',windowsHide:true});
+if(dump.status!==0)throw Error('Database backup failed. Cutover must not proceed.');
+const verify=spawnSync(bin+'pg_restore.exe',['--list',target],{encoding:'utf8',windowsHide:true});
+if(verify.status!==0)throw Error('Backup archive validation failed. Cutover must not proceed.');
+console.log(JSON.stringify({backup:target,bytes:(await fs.stat(target)).size,verified:true}));

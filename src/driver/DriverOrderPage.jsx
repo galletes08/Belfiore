@@ -498,6 +498,9 @@ export default function DriverOrderPage() {
                   </div>
 
                   <div className="mt-4 space-y-2 border-t border-gray-100 pt-4 text-sm text-gray-600">
+                    <div className="flex items-center justify-between gap-3"><span>Items subtotal</span><span className="font-semibold text-gray-900">{formatPhp(order.subtotalAmount ?? order.items.reduce((sum,item)=>sum+Number(item.lineTotal||0),0))}</span></div>
+                    <div className="flex items-center justify-between gap-3"><span>Delivery fee</span><span className="font-semibold text-gray-900">{order.shippingFee == null ? 'Not yet confirmed' : formatPhp(order.shippingFee)}</span></div>
+                    <div className="flex items-center justify-between gap-3 border-t border-gray-100 py-3 text-base font-bold text-gray-900"><span>Order total</span><span>{formatPhp(order.totalAmount)}</span></div>
                     <p>Payment method: <span className="font-semibold text-gray-900">{order.paymentMethod}</span></p>
                     <p>Payment status: <span className="font-semibold text-gray-900">{order.paymentStatus}</span></p>
                     <p>Status: <span className="font-semibold text-gray-900">{order.status}</span></p>

@@ -1,0 +1,10 @@
+.staff-shell { color: #0f172a; overflow-wrap: break-word; }
+.staff-shell input:not([type=checkbox]):not([type=radio]), .staff-shell select, .staff-shell textarea { max-width: 100%; min-width: 0; }
+.staff-shell button:focus-visible, .staff-shell a:focus-visible { outline: 2px solid #10b981; outline-offset: 3px; }
+.staff-shell .staff-field { width: 100%; min-height: 44px; border: 1px solid #cbd5e1; border-radius: .75rem; background: white; padding: .625rem .75rem; font-size: .875rem; }
+.staff-shell .staff-field:focus { outline: 2px solid #a7f3d0; border-color: #047857; }
+.staff-shell .staff-primary { min-height: 44px; border-radius: .75rem; background: #1f5a43; padding: .625rem 1rem; color: white; font-size: .875rem; font-weight: 600; }
+.staff-shell .staff-primary:hover:enabled { background: #174b37; }
+.staff-shell .staff-primary:disabled { opacity: .5; cursor: wait; }
+@media (max-width: 359px) { .staff-shell [data-summary-grid] { grid-template-columns: minmax(0,1fr); } }
+@media (prefers-reduced-motion: reduce) { .staff-shell *, .staff-shell *::before, .staff-shell *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

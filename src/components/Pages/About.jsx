@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, HeartHandshake, Leaf, MapPin, ShieldCheck, Sprout, Truck } from "lucide-react";
-import awardImage from "../../assets/Award.jpg";
 import blogImage from "../../assets/Blog.png";
 import plantsImage from "../../assets/Plants.jpg";
 import aloeImage from "../../assets/aloe.jpg";
@@ -47,7 +46,7 @@ export default function About() {
       </section>
 
       <main className="mx-auto max-w-6xl space-y-16 px-6 py-14">
-        <section className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+        <section>
           <article className="rounded-3xl border border-emerald-100 bg-white p-7 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-700">Our Story</p>
             <h2 className="mt-3 text-2xl font-bold text-gray-900 md:text-3xl">From a home collection to a growing local shop</h2>
@@ -64,9 +63,6 @@ export default function About() {
             </div>
           </article>
 
-          <article className="overflow-hidden rounded-3xl border border-white bg-white shadow-sm">
-            <img src={awardImage} alt="Belfiore recognition and achievements" className="h-full min-h-[340px] w-full object-cover" />
-          </article>
         </section>
 
         <section>

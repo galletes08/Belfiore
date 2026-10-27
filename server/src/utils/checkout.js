@@ -20,11 +20,15 @@ export async function checkoutQuote(c,items,address) {
   for(const item of items){
     if(!Number.isSafeInteger(Number(item.id))||!Number.isInteger(Number(item.qty))||Number(item.qty)<1)throw Object.assign(new Error('Invalid cart quantities'),{status:400});
     const key=String(item.id)+':'+String(item.batchId||'')+':'+String(item.variantId||'');if(seen.has(key))throw Object.assign(new Error('Refresh duplicate cart entries'),{status:409});seen.add(key);
-    const p=(await c.query('SELECT price,inventory_type,archived_at,stock,reserved_stock,sold_at,legacy_quantity_review FROM products WHERE id=$1',[item.id])).rows[0];if(!p||p.archived_at||p.legacy_quantity_review)throw Object.assign(new Error('A product is unavailable'),{status:409});
+    const p=(await c.query("SELECT p.*,to_jsonb(p)->>'lettuce_stock_model' AS lettuce_stock_model FROM products p WHERE id=$1",[item.id])).rows[0];if(!p||p.archived_at||p.legacy_quantity_review)throw Object.assign(new Error('A product is unavailable'),{status:409});
     let price=Number(p.price);
     if(p.inventory_type===SUPPLY){if(item.batchId)throw Object.assign(new Error('Supplies do not use harvest batches'),{status:400});const v=await supplyChoice(c,item.id,item.variantId,Number(item.qty));price=v.price;}
     else if(item.variantId)throw Object.assign(new Error('Variant does not belong to this product type'),{status:400});
-    else if(p.inventory_type==='edible'){
+    else if(p.inventory_type==='edible'&&p.lettuce_stock_model==='quantity'){
+      if(item.batchId)throw Object.assign(new Error('Lettuce no longer uses batch selection. Remove this old cart line and add the product again.'),{status:409});
+      if(p.stock<Number(item.qty))throw Object.assign(new Error('Insufficient available lettuce packs'),{status:409});
+    }else if(p.inventory_type==='edible'){
+      if(p.lettuce_stock_model==='batch')throw Object.assign(new Error('Lettuce stock requires administrator reconciliation'),{status:409});
       if(!Number.isSafeInteger(Number(item.batchId))||Number(item.batchId)<1)throw Object.assign(new Error('Select a harvest batch'),{status:409});
       const b=(await c.query(`${BATCH_SELECT} WHERE b.id=$1 AND b.product_id=$2`,[item.batchId,item.id])).rows[0];if(!b||b.available_stock<Number(item.qty))throw Object.assign(new Error('Selected batch is unavailable or has insufficient packs'),{status:409});price=Number(b.price);
     }else if(item.batchId||Number(item.qty)!==1||p.sold_at||p.stock-p.reserved_stock<1)throw Object.assign(new Error('Selected plant is unavailable'),{status:409});

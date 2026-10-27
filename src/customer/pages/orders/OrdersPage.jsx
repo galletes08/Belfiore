@@ -1,3 +1,4 @@
+import {OPERATIONS_EVENT,OPERATIONS_STORAGE_KEY} from '../../../utils/operationsSync';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiCancelCustomerOrder, apiCustomerOrders, apiCustomerRiderLocation, getImageUrl } from '../../../api/client';
@@ -63,6 +64,7 @@ export default function OrdersPage() {
   useEffect(() => {
     let mounted = true;
 
+    let loadingOrders=false;
     async function loadOrders() {
       if (!orderIds.length) {
         setOrders([]);
@@ -70,6 +72,8 @@ export default function OrdersPage() {
         return;
       }
 
+      if(loadingOrders)return;
+      loadingOrders=true;
       setStatus('loading');
       try {
         const data = await apiCustomerOrders(orderIds);
@@ -99,14 +103,24 @@ export default function OrdersPage() {
         if (!mounted) return;
         setError(err.message || 'Failed to load your orders.');
         setStatus('error');
-      }
+      } finally {loadingOrders=false;}
     }
 
     loadOrders();
     const intervalId = window.setInterval(loadOrders, 15000);
+    const refreshVisible=()=>{if(!document.hidden)loadOrders();};
+    const storageChanged=event=>{if(event.key===OPERATIONS_STORAGE_KEY)refreshVisible();};
+    window.addEventListener(OPERATIONS_EVENT,refreshVisible);
+    window.addEventListener('storage',storageChanged);
+    window.addEventListener('focus',refreshVisible);
+    document.addEventListener('visibilitychange',refreshVisible);
     return () => {
       mounted = false;
       window.clearInterval(intervalId);
+      window.removeEventListener(OPERATIONS_EVENT,refreshVisible);
+      window.removeEventListener('storage',storageChanged);
+      window.removeEventListener('focus',refreshVisible);
+      document.removeEventListener('visibilitychange',refreshVisible);
     };
   }, [orderIds]);
 

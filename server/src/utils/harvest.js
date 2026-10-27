@@ -1,14 +1,14 @@
 import { inventoryError, inventoryContext } from './inventory.js';
 
 export const BATCH_SELECT = `SELECT b.*,b.harvest_date::text AS harvest_date,harvest_batch_age(b) AS age_days,harvest_batch_status(b) AS status,
-  CASE WHEN harvest_batch_sellable(b) AND p.archived_at IS NULL THEN b.stock ELSE 0 END AS available_stock,
+  CASE WHEN harvest_batch_sellable(b) AND p.archived_at IS NULL AND COALESCE(to_jsonb(p)->>'lettuce_stock_model','batch')<>'quantity' THEN b.stock ELSE 0 END AS available_stock,
   p.name AS product_name,p.product_code,p.archived_at,
   COALESCE((SELECT SUM(oi.qty) FROM order_items oi JOIN orders o ON o.id=oi.order_id
-    WHERE (oi.batch_id=b.id OR (oi.batch_id IS NULL AND oi.product_id=b.product_id AND b.legacy_import))
+    WHERE (oi.batch_id=b.id OR (oi.batch_id IS NULL AND oi.product_id=b.product_id AND b.legacy_import AND COALESCE(to_jsonb(p)->>'lettuce_stock_model','batch')<>'quantity'))
     AND o.inventory_state IN ('reserved','committed','legacy') AND o.inventory_restored_at IS NULL
     AND o.status NOT IN ('Cancelled','Delivered')),0)::int AS unresolved_allocations,
   COALESCE((SELECT SUM(oi.qty) FROM order_items oi JOIN orders o ON o.id=oi.order_id
-    WHERE (oi.batch_id=b.id OR (oi.batch_id IS NULL AND oi.product_id=b.product_id AND b.legacy_import))
+    WHERE (oi.batch_id=b.id OR (oi.batch_id IS NULL AND oi.product_id=b.product_id AND b.legacy_import AND COALESCE(to_jsonb(p)->>'lettuce_stock_model','batch')<>'quantity'))
     AND o.inventory_state IN ('committed','legacy') AND o.inventory_restored_at IS NULL
     AND o.status IN ('Pending','Preparing','Cancellation Requested')),0)::int AS allocated_stock
   FROM harvest_batches b JOIN products p ON p.id=b.product_id`;
@@ -34,7 +34,7 @@ export async function syncHarvestProduct(client, productId) {
   await client.query("SELECT set_config('inventory.skip_audit','true',true)");
   await client.query(`UPDATE products SET stock=COALESCE((SELECT SUM(stock) FROM harvest_batches b WHERE b.product_id=$1 AND harvest_batch_sellable(b)),0),
     reserved_stock=COALESCE((SELECT SUM(reserved_stock) FROM harvest_batches WHERE product_id=$1),0)
-    WHERE id=$1 AND inventory_type='edible' AND (stock,reserved_stock) IS DISTINCT FROM
+    WHERE id=$1 AND inventory_type='edible' AND COALESCE(to_jsonb(products)->>'lettuce_stock_model','batch')<>'quantity' AND (stock,reserved_stock) IS DISTINCT FROM
     (COALESCE((SELECT SUM(stock)::int FROM harvest_batches b WHERE b.product_id=$1 AND harvest_batch_sellable(b)),0),
      COALESCE((SELECT SUM(reserved_stock)::int FROM harvest_batches WHERE product_id=$1),0))`,[productId]);
   await client.query("SELECT set_config('inventory.skip_audit','false',true)");
@@ -72,6 +72,7 @@ export async function reserveBatchAllocation(client,item,orderId,online,actor) {
 }
 export async function changeBatchAllocation(client,item,orderId,release,reserved,reason,actor) {
   await client.query('SELECT id FROM products WHERE id=$1 FOR UPDATE',[item.product_id]);
+  if(!item.batch_id&&(await client.query("SELECT to_jsonb(p)->>'lettuce_stock_model' AS model FROM products p WHERE id=$1",[item.product_id])).rows[0]?.model==='quantity')return false;
   const id=item.batch_id||(await client.query('SELECT id FROM harvest_batches WHERE product_id=$1 AND legacy_import ORDER BY id LIMIT 1',[item.product_id])).rows[0]?.id;
   if(!id) return false;
   const before=(await client.query(`${BATCH_SELECT} WHERE b.id=$1 FOR UPDATE OF b`,[id])).rows[0];
@@ -96,7 +97,7 @@ export async function refreshHarvest(pool) {
   const client=await pool.connect();
   try {
     await client.query('BEGIN');
-    const products=(await client.query("SELECT id FROM products WHERE inventory_type='edible' ORDER BY id FOR UPDATE SKIP LOCKED")).rows;
+    const products=(await client.query("SELECT id FROM products WHERE inventory_type='edible' AND COALESCE(to_jsonb(products)->>'lettuce_stock_model','batch')<>'quantity' ORDER BY id FOR UPDATE SKIP LOCKED")).rows;
     for (const product of products) {
       const batches=(await client.query(`${BATCH_SELECT} WHERE b.product_id=$1 ORDER BY b.id FOR UPDATE OF b`,[product.id])).rows;
       for (const b of batches) {

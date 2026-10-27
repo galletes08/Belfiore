@@ -1,194 +1,34 @@
-import { Link } from "react-router-dom";
-import { CircleCheckBig, Clock3, MapPinned, Package, ReceiptText, Truck } from "lucide-react";
-import { clearCustomerToken } from "../../api/client";
-import { getStoredOrderIds } from "../../utils/customerOrders";
-import AccountSidebar from "./AccountSidebar";
-
-const orders = [
-  { id: "ORD-1001", date: "March 5, 2026", total: 1250, status: "Out for Delivery", courier: "Personal Rider" },
-  { id: "ORD-1002", date: "March 3, 2026", total: 2400, status: "In Transit", courier: "DHL" },
-  { id: "ORD-1003", date: "February 28, 2026", total: 980, status: "Delivered", courier: "LBC" }
-];
-
-const statusStyles = {
-  "Out for Delivery": "bg-violet-100 text-violet-800 ring-violet-200",
-  "In Transit": "bg-indigo-100 text-indigo-800 ring-indigo-200",
-  Delivered: "bg-emerald-100 text-emerald-800 ring-emerald-200"
-};
-
-const formatPhp = (amount) =>
-  new Intl.NumberFormat("en-PH", {
-    style: "currency",
-    currency: "PHP",
-    minimumFractionDigits: 0
-  }).format(amount);
-
-function StatCard({ icon, label, value, tone }) {
-  return (
-    <article className="rounded-2xl border border-[#e1e7dc] bg-white px-5 py-5 shadow-sm">
-      <div className={`mb-4 grid h-10 w-10 place-items-center rounded-xl ${tone}`}>
-        {icon}
-      </div>
-      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-[#6c786f]">{label}</p>
-      <p className="mt-2 text-2xl font-semibold leading-none text-[#173d2b]">{value}</p>
-    </article>
-  );
-}
-
-export default function UserDashboard() {
-  const hasOrders = getStoredOrderIds().length > 0;
-  const dashboardOrders = hasOrders ? orders : [];
-  const totalOrders = dashboardOrders.length;
-  const inTransit = dashboardOrders.filter((order) => order.status !== "Delivered").length;
-  const delivered = dashboardOrders.filter((order) => order.status === "Delivered").length;
-  const activeOrder = dashboardOrders.find((order) => order.status !== "Delivered") || dashboardOrders[0];
-  const dashboardStats = [
-    { label: "Total Orders", value: totalOrders, icon: <Package size={18} />, tone: "bg-[#e8f3ea] text-[#0f4d2e]" },
-    { label: "In Transit", value: inTransit, icon: <Truck size={18} />, tone: "bg-sky-50 text-sky-700" },
-    { label: "Delivered", value: delivered, icon: <CircleCheckBig size={18} />, tone: "bg-emerald-50 text-emerald-700" }
-  ];
-
-  const handleLogout = () => {
-    localStorage.removeItem("isLoggedIn");
-    clearCustomerToken();
-  };
-
-  return (
-    <div className="min-h-screen overflow-x-hidden bg-[#f8faf6] font-['Montserrat'] text-[#24372d]">
-      <div className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-0 px-4 md:px-6 lg:grid-cols-[250px_minmax(0,1fr)]">
-        <AccountSidebar onLogout={handleLogout} />
-
-        <main className="min-w-0 space-y-6 py-6 lg:px-6">
-          <section className="py-2">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-              <div className="max-w-2xl">
-                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#5e6f65]">Dashboard</p>
-                <h1 className="mt-3 font-['Playfair_Display'] text-3xl leading-tight text-[#0f4d2e] md:text-4xl">
-                  Welcome back, Plant Lover
-                </h1>
-                <p className="mt-3 text-sm leading-6 text-[#5e6f65]">
-                  A calm overview of your purchases, delivery activity, and latest tracking progress.
-                </p>
-              </div>
-
-              <Link
-                to="/orders"
-                className="inline-flex w-fit items-center justify-center gap-2 rounded-xl border border-[#b9d7c3] bg-white px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-[#0f6b45] shadow-sm transition hover:border-[#0f6b45] hover:bg-[#f1faf3]"
-              >
-                <ReceiptText size={15} />
-                View Orders
-              </Link>
-            </div>
-          </section>
-
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {dashboardStats.map((item) => (
-              <StatCard key={item.label} {...item} />
-            ))}
-          </section>
-
-{hasOrders ? (
-          <section className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-            <article className="rounded-[1.35rem] border border-[#e1e7dc] bg-white p-5 shadow-[0_18px_45px_rgba(15,77,46,0.06)] md:p-6">
-              <div className="mb-5 flex flex-col gap-3 border-b border-[#eef2ea] pb-5 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#6c786f]">Orders</p>
-                  <h2 className="mt-1 font-['Playfair_Display'] text-2xl leading-tight text-[#0f4d2e]">Recent Activity</h2>
-                </div>
-                <Link to="/orders" className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0f6b45] hover:text-[#173d2b]">
-                  View All
-                </Link>
-              </div>
-
-              <div className="space-y-3">
-                {dashboardOrders.map((order) => (
-                  <article
-                    key={order.id}
-                    className="grid gap-4 rounded-2xl border border-[#e8eee6] bg-[#fbfcf8] p-4 md:grid-cols-[1.25fr_0.75fr_0.8fr_auto] md:items-center"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#5e6f65]">{order.id}</p>
-                      <p className="mt-1 text-sm text-[#6c786f]">{order.date}</p>
-                      <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#0f6b45]">
-                        Delivery: {order.courier}
-                      </p>
-                    </div>
-
-                    <p className="text-sm font-semibold text-[#173d2b] md:text-center">{formatPhp(order.total)}</p>
-
-                    <span
-                      className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ring-1 md:mx-auto ${statusStyles[order.status]}`}
-                    >
-                      {order.status}
-                    </span>
-
-                    <Link
-                      to="/orders"
-                      className="inline-flex w-fit items-center justify-center rounded-xl border border-[#b9d7c3] bg-white px-3.5 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#0f6b45] transition hover:border-[#0f6b45] hover:bg-[#f1faf3]"
-                    >
-                      Track
-                    </Link>
-                  </article>
-                ))}
-              </div>
-            </article>
-
-            <article className="rounded-[1.35rem] border border-[#e1e7dc] bg-[#f7f5f0] p-5 shadow-sm md:p-6">
-              <div className="mb-5 flex items-center gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-white text-[#0f4d2e] shadow-sm">
-                  <MapPinned size={18} />
-                </span>
-                <div>
-                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#6c786f]">Delivery</p>
-                  <h2 className="font-['Playfair_Display'] text-xl leading-tight text-[#0f4d2e]">Latest Tracking</h2>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-[#e1e7dc] bg-white p-4">
-                <div className="relative h-48 overflow-hidden rounded-2xl border border-[#e8eee6] bg-[#fbfcf8]">
-                  <div className="absolute left-8 top-9 h-3 w-3 rounded-full bg-[#0f4d2e] ring-8 ring-[#d9ebdc]" />
-                  <div className="absolute right-10 bottom-10 h-3 w-3 rounded-full bg-sky-600 ring-8 ring-sky-100" />
-                  <div className="absolute left-11 top-12 h-[2px] w-[70%] origin-left rotate-[22deg] bg-[#b9d7c3]" />
-                  <p className="absolute bottom-3 left-3 rounded-xl bg-white/90 px-3 py-2 text-xs font-semibold text-[#405145] shadow-sm">
-                    Courier: {activeOrder.courier}
-                  </p>
-                </div>
-
-                <div className="mt-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#6c786f]">Latest Update</p>
-                  <p className="mt-2 text-base font-semibold text-[#173d2b]">
-                    {activeOrder.id} is {activeOrder.status.toLowerCase()}
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-[#5e6f65]">Estimated arrival: Today, 3:00 PM - 6:00 PM</p>
-                </div>
-
-                <div className="mt-4 space-y-3 text-sm text-[#405145]">
-                  <p className="flex items-center gap-2">
-                    <CircleCheckBig size={15} className="text-emerald-700" />
-                    Package prepared at warehouse
-                  </p>
-                  <p className="flex items-center gap-2">
-                    <Truck size={15} className="text-emerald-700" />
-                    In transit to local hub
-                  </p>
-                  <p className="flex items-center gap-2 font-semibold text-[#0f6b45]">
-                    <Clock3 size={15} />
-                    Out for delivery
-                  </p>
-                </div>
-              </div>
-            </article>
-          </section>
-          ) : (
-            <section className="rounded-[1.35rem] border border-dashed border-[#c7d8c7] bg-white p-10 text-center shadow-sm">
-              <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[#e8f3ea] text-[#0f4d2e]"><Package size={21} /></span>
-              <h2 className="mt-4 font-['Playfair_Display'] text-2xl leading-tight text-[#0f4d2e]">No purchases yet</h2>
-              <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#5e6f65]">Your order activity and delivery tracking will appear here after your first checkout.</p>
-              <Link to="/products" className="mt-6 inline-flex rounded-xl bg-[#0f4d2e] px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-[#173d2b]">Browse Products</Link>
-            </section>
-          )}
-        </main>
-      </div>
-    </div>
-  );
+import {createElement,useEffect,useState} from 'react';
+import {Link} from 'react-router-dom';
+import {Package,Truck,CircleCheckBig,ArrowRight} from 'lucide-react';
+import {apiCustomerOrders,apiCustomerAccount,clearCustomerToken,getImageUrl} from '../../api/client';
+import AccountSidebar from './AccountSidebar';
+import {summarizeCustomerOrders} from '../../utils/customerDashboard';
+const money=value=>new Intl.NumberFormat('en-PH',{style:'currency',currency:'PHP'}).format(Number(value)||0);
+const date=value=>value?new Date(value).toLocaleString('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium',timeStyle:'short'}):'Date unavailable';
+export default function UserDashboard(){
+ const [orders,setOrders]=useState([]),[profile,setProfile]=useState(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[profileError,setProfileError]=useState('');
+ useEffect(()=>{let active=true;
+  Promise.allSettled([apiCustomerOrders([]),apiCustomerAccount()]).then(([o,p])=>{if(!active)return;if(o.status==='fulfilled')setOrders(Array.isArray(o.value)?o.value:[]);else setError(o.reason.message||'Unable to load orders.');if(p.status==='fulfilled')setProfile(p.value.profile);else setProfileError(p.reason.message||'Account information unavailable.');setLoading(false);});
+  return()=>{active=false;};
+ },[]);
+ const summary=summarizeCustomerOrders(orders),latest=summary.latest;
+ const stats=[['Total Orders',summary.total,Package],['In Transit',summary.inTransit,Truck],['Delivered',summary.delivered,CircleCheckBig]];
+ const orderLink=latest?'/orders?orderId='+latest.id:'/orders';
+ return <div className="min-h-screen bg-[#f8faf6] font-['Montserrat'] text-[#24372d]"><div className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-0 px-4 md:px-6 lg:grid-cols-[230px_minmax(0,1fr)]">
+  <AccountSidebar onLogout={clearCustomerToken}/>
+  <main className="min-w-0 space-y-4 py-4 lg:px-5">
+   <header><p className="text-xs font-semibold uppercase tracking-[.2em] text-slate-500">Dashboard</p><h1 className="mt-1 font-['Playfair_Display'] text-2xl text-emerald-950 sm:text-3xl">Welcome back, {profile?.name?.trim()||'Belfiore Customer'}</h1><p className="mt-2 text-sm text-slate-600">A quick overview of your orders, deliveries, and latest updates.</p></header>
+   <section aria-label="Order statistics" className="grid grid-cols-2 gap-3 sm:grid-cols-3">{stats.map(([label,value,Icon])=><article key={label} className="min-w-0 rounded-xl border border-[#e1e7dc] bg-white p-3 shadow-sm sm:p-4"><span className="inline-flex rounded-lg bg-emerald-50 p-2 text-emerald-800">{createElement(Icon,{size:18})}</span><p className="mt-2 text-xs text-slate-600">{label}</p><p className="mt-1 text-2xl font-semibold text-emerald-950">{loading||error?'?':value}</p></article>)}</section>
+   {error&&<p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+   <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+    <section className="min-w-0 rounded-xl border border-[#e1e7dc] bg-white p-4 shadow-sm"><h2 className="font-semibold text-emerald-950">Latest Order</h2>{loading?<p role="status" className="py-5 text-sm text-slate-500">Loading your orders?</p>:error?null:latest?<>
+     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold">{latest.orderCode||'ORD-'+String(latest.id).padStart(3,'0')}</span><span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-900">{latest.status}</span></div><p className="mt-2 text-xs text-slate-500">{date(latest.createdAt)}</p>
+     <div className="mt-4 flex items-center gap-3"><img className="h-16 w-16 shrink-0 rounded-lg object-cover" src={getImageUrl(latest.items?.[0]?.imageUrl)||'/product-placeholder.svg'} alt=""/><div className="min-w-0"><p className="line-clamp-2 text-sm font-semibold">{latest.items?.[0]?.productName||'Order items'}</p><p className="mt-1 text-xs text-slate-500">{latest.items?.length||0} item lines</p><p className="mt-1 font-semibold text-emerald-900">{money(latest.totalAmount)}</p></div></div>
+     <div className="mt-4 flex flex-wrap gap-2"><Link to={orderLink} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-900 px-3 text-sm font-semibold text-white">View Order Details<ArrowRight size={15}/></Link>{!['Delivered','Cancelled'].includes(latest.status)&&<Link to={orderLink} className="inline-flex min-h-11 items-center rounded-lg border border-emerald-200 px-3 text-sm text-emerald-900">Track Delivery</Link>}</div>
+    </>:<div className="py-6 text-sm text-slate-600"><p>No purchases yet. Your latest order will appear here.</p><Link to="/products" className="mt-3 inline-flex min-h-11 items-center font-semibold text-emerald-800 underline">Browse Products</Link></div>}</section>
+    <section className="min-w-0 rounded-xl border border-[#e1e7dc] bg-white p-4 shadow-sm"><h2 className="font-semibold text-emerald-950">Account Information</h2>{profileError?<p role="alert" className="mt-3 text-sm text-red-700">{profileError}</p>:<div className="mt-3 space-y-2 break-words text-sm"><p>{profile?.name||'Name not yet saved'}</p><p className="text-slate-600">{profile?.email||'Loading account?'}</p>{profile?.phone&&<p className="text-slate-600">{profile.phone}</p>}</div>}<Link to="/profile" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-emerald-800 underline">Edit Profile</Link><nav aria-label="Account shortcuts" className="mt-3 grid gap-2 border-t border-slate-100 pt-3">{[['/orders','My Purchases'],['/addresses','Addresses'],['/change-password','Account Security']].map(([to,label])=><Link key={to} to={to} className="flex min-h-11 items-center justify-between rounded-lg bg-[#f4f7f1] px-3 text-sm text-emerald-950">{label}<ArrowRight size={14}/></Link>)}</nav></section>
+   </div>
+  </main>
+ </div></div>;
 }

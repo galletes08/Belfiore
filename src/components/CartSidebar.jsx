@@ -252,7 +252,7 @@ export default function CartSidebar({
                           <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-slate-900">
                             {item.name}
                           </h3>
-                          {item.batchCode && <p className="font-mono text-xs text-slate-500">{item.batchCode}</p>}
+                          {item.inventoryType==='edible'&&item.batchId&&<p className="mt-1 text-xs text-amber-800">Previous lettuce stock entry. Remove this item and add the lettuce again before checkout.</p>}
 
                           <p className="mt-1 text-xs text-slate-500">
                             {formatPhp(item.price)} {item.allowsMultipleQuantity ? 'per 400g pack' : 'per individual plant'}

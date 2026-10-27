@@ -1,3 +1,4 @@
+import {OPERATIONS_EVENT,OPERATIONS_STORAGE_KEY} from '../../utils/operationsSync';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { CircleCheckBig, Clock3, MapPinned, Package, ReceiptText, Search, Truck, X } from 'lucide-react';
@@ -6,6 +7,7 @@ import TrackingMap from '../TrackingMap';
 import { getStoredOrderIds } from '../../utils/customerOrders';
 import AccountSidebar from './AccountSidebar';
 import { printInvoice } from '../../utils/invoice';
+import { canShowCustomerInvoice } from '../../utils/orderDisplay';
 
 const statusConfig = {
   Pending: { label: 'Pending', badgeClass: 'bg-amber-100 text-amber-800 ring-amber-200' },
@@ -16,15 +18,7 @@ const statusConfig = {
   Cancelled: { label: 'Cancelled', badgeClass: 'bg-rose-100 text-rose-700 ring-rose-200' },
 };
 
-const trackingConfig = {
-  Pending: 'bg-amber-100 text-amber-800',
-  Preparing: 'bg-sky-100 text-sky-800',
-  Packed: 'bg-cyan-100 text-cyan-800',
-  'In Transit': 'bg-indigo-100 text-indigo-800',
-  'Out for Delivery': 'bg-violet-100 text-violet-800',
-  Delivered: 'bg-emerald-100 text-emerald-800',
-  Cancelled: 'bg-rose-100 text-rose-700',
-};
+
 
 const paymentConfig = {
   Pending: 'bg-amber-100 text-amber-800 ring-amber-200',
@@ -77,26 +71,13 @@ function formatDate(value) {
   });
 }
 
-function badgeClass(value) {
-  return trackingConfig[value] || 'bg-stone-100 text-stone-700';
-}
+
 
 function paymentBadgeClass(value) {
   return paymentConfig[value] || 'bg-stone-100 text-stone-700 ring-stone-200';
 }
 
-function codBadgeClass(value) {
-  if (value === 'Remitted' || value === 'Collected') {
-    return 'bg-emerald-100 text-emerald-800 ring-emerald-200';
-  }
-  if (value === 'Cancelled') {
-    return 'bg-rose-100 text-rose-700 ring-rose-200';
-  }
-  if (value === 'Remittance Pending') {
-    return 'bg-orange-100 text-orange-800 ring-orange-200';
-  }
-  return 'bg-amber-100 text-amber-800 ring-amber-200';
-}
+
 
 function isLogisticsOrder(order) {
   return order?.deliveryMode === 'logistics';
@@ -118,6 +99,8 @@ function compareNewestOrders(a, b) {
 }
 
 function buildDriverNote(order) {
+  if (order.status==='Delivered') return 'Delivery completed. Recorded locations are historical, not live tracking.';
+  if (order.status==='Cancelled') return 'Delivery cancelled; live tracking is inactive.';
   if (isLogisticsOrder(order)) {
     return 'This order is tracked through logistics status updates only.';
   }
@@ -244,6 +227,8 @@ export default function Order() {
   const paymongoParams = new URLSearchParams(location.search);
   const paymongoStatus = paymongoParams.get('paymongo');
   const paymongoOrderId = Number(paymongoParams.get('orderId'));
+  const [expandedOrder,setExpandedOrder]=useState(()=>{const id=Number(new URLSearchParams(location.search).get('orderId'));return Number.isSafeInteger(id)&&id>0?id:null;});
+  const [mapOrder,setMapOrder]=useState(null);
   const [paymentVerification, setPaymentVerification] = useState('idle');
 
   useEffect(() => {
@@ -286,7 +271,10 @@ export default function Order() {
   useEffect(() => {
     let isMounted = true;
 
+    let loadingOrders=false;
     async function loadOrders() {
+      if(loadingOrders)return;
+      loadingOrders=true;
       try {
         const data = await apiCustomerOrders(orderIds);
         if (!isMounted) return;
@@ -298,15 +286,25 @@ export default function Order() {
         if (!isMounted) return;
         setStatus('error');
         setError(err.message || 'Failed to load your orders.');
-      }
+      } finally {loadingOrders=false;}
     }
 
     loadOrders();
     const intervalId = window.setInterval(loadOrders, 15000);
+    const refreshVisible=()=>{if(!document.hidden)loadOrders();};
+    const storageChanged=event=>{if(event.key===OPERATIONS_STORAGE_KEY)refreshVisible();};
+    window.addEventListener(OPERATIONS_EVENT,refreshVisible);
+    window.addEventListener('storage',storageChanged);
+    window.addEventListener('focus',refreshVisible);
+    document.addEventListener('visibilitychange',refreshVisible);
 
     return () => {
       isMounted = false;
       window.clearInterval(intervalId);
+      window.removeEventListener(OPERATIONS_EVENT,refreshVisible);
+      window.removeEventListener('storage',storageChanged);
+      window.removeEventListener('focus',refreshVisible);
+      document.removeEventListener('visibilitychange',refreshVisible);
     };
   }, [orderIds]);
 
@@ -347,6 +345,7 @@ export default function Order() {
   };
 
   const handlePrintInvoice = (order) => {
+    if (!canShowCustomerInvoice(order)) return;
     printInvoice({
       invoiceNumber: createInvoiceNumber(order),
       orderId: order.orderCode || `ORD-${String(order.id).padStart(3, '0')}`,
@@ -385,10 +384,10 @@ export default function Order() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#f8faf6] font-['Montserrat'] text-[#24372d]">
-      <div className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-0 px-4 md:px-6 lg:grid-cols-[250px_minmax(0,1fr)]">
+      <div className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-0 px-4 md:px-6 lg:grid-cols-[220px_minmax(0,1fr)]">
         <AccountSidebar onLogout={handleLogout} />
 
-        <main className="min-w-0 space-y-6 py-6 lg:px-6">
+        <main className="min-w-0 space-y-3 py-3 lg:px-5 lg:py-4">
           {paymongoStatus === 'success' ? (
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm leading-6 text-emerald-800">
               {paymentVerification === 'paid'
@@ -411,16 +410,16 @@ export default function Order() {
           <section className="py-2">
             <div className="max-w-2xl">
               <p className="font-['Montserrat'] text-xs font-semibold uppercase tracking-[0.35em] text-[#5e6f65]">Purchase Center</p>
-              <h1 className="mt-3 font-['Playfair_Display'] text-3xl leading-tight text-[#0f4d2e] md:text-4xl">My Purchases</h1>
-              <p className="mt-3 text-sm leading-7 text-[#5e6f65] md:text-base">
-                Find and sort every purchase by payment, shipping, delivery, and refund status.
+              <h1 className="mt-1 font-['Playfair_Display'] text-2xl leading-tight text-[#0f4d2e] md:text-4xl">My Purchases</h1>
+              <p className="mt-1 text-sm leading-6 text-[#5e6f65] md:text-base">
+                Find and sort your purchases by payment, shipping, delivery, and refund status.
               </p>
             </div>
           </section>
 
           <section className="overflow-hidden rounded-[1.35rem] border border-[#e1e7dc] bg-white shadow-sm">
             <div className="flex overflow-x-auto border-b border-[#e7ece4] px-2">
-              {purchaseTabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`shrink-0 border-b-2 px-4 py-4 text-sm font-medium transition sm:px-5 ${activeTab === tab.id ? 'border-[#f04b2f] text-[#e44227]' : 'border-transparent text-[#405145] hover:text-[#0f4d2e]'}`}>{tab.label}</button>)}
+              {purchaseTabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-medium transition sm:px-5 ${activeTab === tab.id ? 'border-[#f04b2f] text-[#e44227]' : 'border-transparent text-[#405145] hover:text-[#0f4d2e]'}`}>{tab.label}</button>)}
             </div>
             <div className="p-4"><label className="flex items-center gap-3 rounded-xl bg-[#f1f3f0] px-4 py-3 text-sm text-[#405145] focus-within:ring-2 focus-within:ring-[#b9d7c3]"><Search size={20} className="shrink-0 text-[#7b867d]" /><input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search by product name or Order ID" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[#7b867d]" /></label></div>
           </section>
@@ -450,7 +449,7 @@ export default function Order() {
           {status === 'success'
             ? filteredOrders.map((order) => {
               const orderStatus = statusConfig[order.status] || statusConfig.Pending;
-              const trackingStatus = order.trackingStatus || 'Pending';
+
               const paymentStatus = order.paymentStatus || 'Pending';
               const logisticsOnly = isLogisticsOrder(order);
               const logisticsData = logisticsUpdatesByOrder[order.id];
@@ -465,8 +464,8 @@ export default function Order() {
                     : null;
 
               return (
-                <article key={order.id} className="rounded-[1.35rem] border border-[#e1e7dc] bg-white p-5 shadow-[0_18px_45px_rgba(15,77,46,0.06)] md:p-6">
-                  <div className="flex flex-col gap-5 border-b border-[#eef2ea] pb-5 xl:flex-row xl:items-start xl:justify-between">
+                <article key={order.id} className="rounded-[1.35rem] border border-[#e1e7dc] bg-white p-3 shadow-sm sm:p-4">
+                  <div className="flex flex-col gap-3 border-b border-[#eef2ea] pb-3 xl:flex-row xl:items-start xl:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-['Montserrat'] text-xs font-semibold uppercase tracking-[0.28em] text-[#5e6f65]">{getOrderCode(order)}</p>
@@ -486,28 +485,20 @@ export default function Order() {
                         <span className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ring-1 ${paymentBadgeClass(paymentStatus)}`}>
                           Payment: {paymentStatus}
                         </span>
-                        <span className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${badgeClass(trackingStatus)}`}>
-                          Delivery: {trackingStatus}
-                        </span>
-                        {order.paymentMethod === 'COD' ? (
-                          <span className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ring-1 ${codBadgeClass(order.codStatus)}`}>
-                            COD: {order.codStatus || 'Awaiting Payment'}
-                          </span>
-                        ) : null}
                       </div>
                       <div className="flex flex-wrap items-center gap-3 sm:justify-end">
                         <div className="sm:text-right">
                           <p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-[#6c786f]">Total</p>
                           <p className="text-lg font-semibold text-[#173d2b]">{formatPhp(order.totalAmount)}</p>
                         </div>
-                        <button
+                        {canShowCustomerInvoice(order) ? <button
                           type="button"
                           onClick={() => handlePrintInvoice(order)}
                           className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#b9d7c3] bg-white px-3.5 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-[#0f6b45] shadow-sm transition hover:border-[#0f6b45] hover:bg-[#f1faf3]"
                         >
                           <ReceiptText size={15} />
                           Invoice
-                        </button>
+                        </button> : null}
                         {['Pending', 'Preparing'].includes(order.status) ? (
                           <button
                             type="button"
@@ -525,11 +516,18 @@ export default function Order() {
                     </div>
                   </div>
 
+                  <div className="mt-3 flex min-w-0 items-center gap-3">
+                    {orderItems[0] && <><img src={resolveItemImage(orderItems[0])||'/product-placeholder.svg'} alt="" className="h-14 w-14 shrink-0 rounded-lg object-cover"/><div className="min-w-0 flex-1"><p className="line-clamp-2 text-sm font-semibold">{orderItems[0].productName}</p><p className="text-xs text-slate-500">{orderItems.reduce((n,item)=>n+Number(item.qty),0)} items{orderItems.length>1?' across '+orderItems.length+' lines':''}</p></div></>}
+                    <button type="button" aria-expanded={expandedOrder===order.id} aria-controls={'purchase-details-'+order.id} onClick={()=>{setExpandedOrder(expandedOrder===order.id?null:order.id);setMapOrder(null);}} className="min-h-11 shrink-0 rounded-lg border border-emerald-200 px-3 text-sm font-semibold text-emerald-900 focus-visible:outline-2">{expandedOrder===order.id?'Hide Details':'View Details'}</button>
+                  </div>
+                  {(order.cancelReason || ['Refund Pending','Failed','Unpaid'].includes(paymentStatus)||order.codStatus==='Remittance Pending'||order.inventoryReconciliationReason||['Failed','Returned','Delivery Failed','Exception'].includes(order.trackingStatus)) && <p role="status" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">{order.cancelReason || order.inventoryReconciliationReason || (['Failed','Returned','Delivery Failed','Exception'].includes(order.trackingStatus)?'Delivery: '+order.trackingStatus:null) || (order.codStatus==='Remittance Pending'?'Courier COD remittance pending; payment remains '+paymentStatus+'.':'Payment: '+paymentStatus+'.')}</p>}
+                  {expandedOrder===order.id && <div id={'purchase-details-'+order.id}>
+                  <h3 className="mt-3 text-sm font-semibold">Payment Details ? {order.paymentMethod} ? {paymentStatus}</h3>
                   {order.adminConfirmedAt ? (
                     <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-900">
-                      <p className="font-semibold">Checkout confirmed by admin</p>
+                      <p className="font-semibold">Order confirmed</p>
                       <p className="mt-1">
-                        Your order has been confirmed and is now being prepared.
+                        Your order was confirmed by the administrator.
                         {' '}Confirmed {formatDate(order.adminConfirmedAt)}.
                       </p>
                     </div>
@@ -562,8 +560,8 @@ export default function Order() {
                     </div>
                   ) : null}
 
-                  <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
-                    <div className="space-y-5">
+                  <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                    <div className="space-y-3">
                       <div className="rounded-2xl border border-[#e8eee6] bg-[#fbfcf8] p-5">
                         <h3 className="font-['Playfair_Display'] text-xl text-[#0f4d2e]">Delivery Details</h3>
                         <div className="mt-4 grid gap-5 md:grid-cols-2">
@@ -637,34 +635,22 @@ export default function Order() {
                         </span>
                         <div>
                           <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-[#6c786f]">Tracking</p>
-                          <h3 className="font-['Playfair_Display'] text-xl text-[#0f4d2e]">{logisticsOnly ? 'Carrier Updates' : 'Live Map'}</h3>
+                          <h3 className="font-['Playfair_Display'] text-xl text-[#0f4d2e]">{logisticsOnly ? 'Carrier Updates' : 'Delivery Tracking'}</h3>
                         </div>
                       </div>
 
-                      {logisticsOnly ? null : customerPosition || driverPosition ? (
-                        <TrackingMap
-                          className="border-[#e1e7dc] shadow-sm"
-                          customerPosition={customerPosition}
-                          driverPosition={driverPosition}
-                          customerLabel={`${order.customerName} delivery pin`}
-                          driverLabel={order.courierName ? `${order.courierName} current location` : 'Rider current location'}
-                        />
-                      ) : (
-                        <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed border-[#cbd5c6] bg-white/80 text-center text-sm leading-6 text-[#5e6f65]">
-                          <div className="max-w-xs">
-                            <p className="font-semibold text-[#173d2b]">Tracking map is not ready yet</p>
-                            <p className="mt-2">
-                              Save a checkout GPS pin and wait for the rider to accept the order and share a location.
-                            </p>
-                          </div>
-                        </div>
-                      )}
+                      {!logisticsOnly && <div className="text-sm text-[#5e6f65]">
+                        <p>{order.status==='Delivered'?'Delivery completed.':order.status==='Cancelled'?'Delivery cancelled.':order.status==='Out for Delivery'?'Your order is out for delivery.':'Delivery progress: '+orderStatus.label+'.'}</p>
+                        {order.status==='Delivered' && <p className="mt-1">Last recorded status update: {formatDate(order.statusUpdatedAt)}</p>}
+                        {order.status==='Out for Delivery' && driverPosition ? <><button type="button" aria-expanded={mapOrder===order.id} onClick={()=>setMapOrder(mapOrder===order.id?null:order.id)} className="mt-2 min-h-11 rounded-lg border border-emerald-200 px-3 font-semibold text-emerald-900">{mapOrder===order.id?'Hide Live Map':'View Live Map'}</button>{mapOrder===order.id && <TrackingMap mapHeightClass="h-[280px]" customerPosition={customerPosition} driverPosition={driverPosition} customerLabel="Delivery address" driverLabel="Rider location"/>}</> : order.status==='Out for Delivery' ? <p className="mt-2">Live rider location is currently unavailable.</p> : null}
+                        {order.status==='Delivered' && (customerPosition||driverPosition) && <details className="mt-2" onToggle={event=>setMapOrder(event.currentTarget.open?order.id:null)}><summary className="cursor-pointer py-3 font-semibold text-emerald-900">View recorded delivery locations</summary><p className="mb-2 text-xs">Last recorded pins only; no historical route is available here.</p>{mapOrder===order.id && <TrackingMap mapHeightClass="h-[280px]" customerPosition={customerPosition} driverPosition={driverPosition}/>}</details>}
+                      </div>}
 
                       <div className={`${logisticsOnly ? '' : 'mt-4'} grid gap-3 md:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3`}>
                         <TrackingSummaryCard
                           icon={<Truck size={15} />}
                           label={logisticsOnly ? 'Mode' : 'Rider'}
-                          value={logisticsOnly ? 'Logistics only' : order.driverAcceptedAt ? 'Accepted order' : 'Waiting for acceptance'}
+                          value={logisticsOnly ? 'Logistics only' : order.status==='Delivered'?'Delivery completed':order.status==='Cancelled'?'Inactive':order.driverAcceptedAt ? 'Accepted order' : 'Waiting for acceptance'}
                         />
                         <TrackingSummaryCard
                           icon={<Clock3 size={15} />}
@@ -681,7 +667,7 @@ export default function Order() {
 
                       {logisticsOnly ? (
                         <div className="mt-4">
-                          <LogisticsUpdatesPanel order={order} logisticsData={logisticsData} />
+                          <details><summary className="cursor-pointer py-3 text-sm font-semibold text-emerald-900">View Delivery History</summary><LogisticsUpdatesPanel order={order} logisticsData={logisticsData} /></details>
                         </div>
                       ) : null}
 
@@ -697,6 +683,7 @@ export default function Order() {
 
                     </div>
                   </div>
+                  </div>}
                 </article>
               );
             })

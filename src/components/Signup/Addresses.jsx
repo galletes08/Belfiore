@@ -405,14 +405,14 @@ export default function Addresses() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#f8faf6] font-['Montserrat'] text-[#24372d]">
-      <div className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-0 px-4 md:px-6 lg:grid-cols-[250px_minmax(0,1fr)]">
+      <div className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-0 px-4 md:px-6 lg:grid-cols-[230px_minmax(0,1fr)]">
         <AccountSidebar onLogout={logout} />
-        <main className="min-w-0 py-6 lg:px-6">
+        <main className="min-w-0 py-4 lg:px-5">
           <section className="rounded-[1.35rem] border border-[#e1e7dc] bg-white shadow-[0_18px_45px_rgba(15,77,46,0.06)]">
             <div className="flex flex-col gap-4 border-b border-[#eef2ea] p-5 md:flex-row md:items-center md:justify-between md:p-6">
               <div>
                 <p className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#6c786f]">Delivery details</p>
-                <h1 className="mt-1 font-['Playfair_Display'] text-3xl leading-tight text-[#0f4d2e] md:text-4xl">My Addresses</h1>
+                <h1 className="mt-1 font-['Playfair_Display'] text-2xl leading-tight text-[#0f4d2e] sm:text-3xl">My Addresses</h1>
               </div>
               <button onClick={openNew} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0f6b45] px-5 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-[#0f4d2e]"><Plus size={18} />Add Address</button>
             </div>
@@ -433,8 +433,8 @@ export default function Addresses() {
                 </div>
               ) : (
                 <div className="divide-y divide-[#e5ebe2]">
-                  {addresses.map((address) => (
-                    <article key={address.id} className="py-6 first:pt-0 last:pb-0">
+                  {[...addresses].sort((a,b)=>Number(b.isDefault)-Number(a.isDefault)).map((address) => (
+                    <article key={address.id} className="py-4 first:pt-0 last:pb-0">
                       <div className="flex flex-col gap-4 sm:flex-row sm:justify-between">
                         <div>
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -448,8 +448,8 @@ export default function Addresses() {
                           {hasValidMapPin(address) ? <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-[#e8f3ea] px-3 py-1 text-xs font-medium text-[#0f6b45]"><MapPin size={12} />Exact location saved</p> : null}
                         </div>
                         <div className="flex shrink-0 items-start gap-3 text-sm">
-                          <button onClick={() => openEdit(address)} className="inline-flex items-center gap-1 text-[#0f6b45]"><Pencil size={15} />Edit</button>
-                          <button onClick={() => remove(address.id)} className="inline-flex items-center gap-1 text-red-600"><Trash2 size={15} />Remove Address</button>
+                          <button onClick={() => openEdit(address)} className="inline-flex min-h-11 items-center gap-1 text-[#0f6b45]"><Pencil size={15} />Edit</button>
+                          <button onClick={() => remove(address.id)} className="inline-flex min-h-11 items-center gap-1 text-red-600"><Trash2 size={15} />Remove Address</button>
                         </div>
                       </div>
                       {!address.isDefault ? <button onClick={() => mutateAddress('addresses/'+encodeURIComponent(address.id),'PATCH',{isDefault:true})} className="mt-4 rounded-lg border border-[#cbd5cb] bg-white px-3 py-2 text-sm font-medium text-[#173d2b] transition hover:border-[#0f6b45] hover:text-[#0f6b45]">Set as default</button> : null}

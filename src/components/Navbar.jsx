@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { Menu, ShoppingCart, User, X } from "lucide-react";
+import MobileNavigation from "./MobileNavigation";
+import "./customerNavigation.css";
 import CartSidebar from "./CartSidebar";
 import logoImage from "../assets/Logo.png";
 import { getCustomerUser, hasCustomerToken } from "../api/client";
@@ -86,48 +88,34 @@ export default function Navbar({
     navigate("/checkout");
   };
 
-  useEffect(() => {
-    if (!isMenuOpen) return undefined;
-
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape") setIsMenuOpen(false);
-    };
-
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [isMenuOpen]);
-
   return (
     <header className="sticky top-0 z-[1000] border-b border-[#dfe9dc] bg-white/95 font-['Montserrat'] shadow-[0_12px_30px_rgba(15,77,46,0.04)] backdrop-blur">
-      <div className="overflow-hidden bg-[#0f4d2e] px-4 py-1.5">
-        <div className="announcement-loop" aria-label="Free shipping notice">
-          <p className="announcement-loop-text">{ANNOUNCEMENT_TEXT}</p>
-          <p className="announcement-loop-text" aria-hidden="true">
-            {ANNOUNCEMENT_TEXT}
-          </p>
+      <div className="customer-promo bg-[#0f4d2e] px-3 py-2 text-center text-white">
+        <div className="customer-ticker" aria-hidden="true">
+          <span>{ANNOUNCEMENT_TEXT}</span><span>{ANNOUNCEMENT_TEXT}</span>
         </div>
+        <p className="customer-ticker-static">{ANNOUNCEMENT_TEXT}</p>
       </div>
-
-      <nav className="mx-auto max-w-[1500px] px-4 py-3 md:px-8 md:py-4">
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-          <Link to="/" className="flex items-center gap-3 rounded-2xl pr-2" onClick={handleMenuClose}>
-            <span className="grid h-14 w-14 place-items-center overflow-hidden rounded-full bg-[#f1faf3] md:h-16 md:w-16">
+      <nav className="customer-navigation mx-auto max-w-[1500px] px-3 py-3 lg:px-8 lg:py-4">
+        <div className="flex items-center justify-between gap-2 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:gap-4">
+          <Link to="/" className="customer-brand flex min-w-0 items-center gap-2 rounded-2xl lg:gap-3" onClick={handleMenuClose}>
+            <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full bg-[#f1faf3] xl:h-16 xl:w-16">
               <img src={logoImage} alt="Belfiore Succulents PH logo" className="h-full w-full object-cover" />
             </span>
-            <div className="hidden sm:block">
-              <p className="text-xs font-semibold uppercase tracking-[0.32em] text-[#0f6b45] md:text-sm">Belfiore</p>
-              <p className="mt-1 font-['Playfair_Display'] text-xl font-semibold leading-none text-[#173d2b] md:text-2xl">Succulents PH</p>
+            <div className="min-w-0">
+              <p className="whitespace-nowrap text-sm font-semibold tracking-[0.08em] text-[#0f6b45] lg:uppercase xl:tracking-[0.32em]">Belfiore</p>
+              <p className="hidden whitespace-nowrap xl:block mt-1 font-['Playfair_Display'] text-2xl font-semibold leading-none text-[#173d2b]">Succulents PH</p>
             </div>
           </Link>
 
-          <div className="hidden items-center justify-center gap-2 md:flex">
+          <div className="hidden flex-1 items-center justify-center gap-1 lg:flex">
             <NavigationLinks />
           </div>
 
-          <div className="flex items-center justify-end gap-1 sm:gap-2">
+          <div className="flex shrink-0 items-center justify-end gap-0.5 sm:gap-2 lg:justify-self-end">
             <Link
               to={userRoute}
-              className="grid h-10 w-10 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 md:h-11 md:w-11"
+              className="grid h-11 w-11 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 md:h-11 md:w-11"
               aria-label={userLabel}
               onClick={handleMenuClose}
             >
@@ -137,7 +125,7 @@ export default function Navbar({
             {isLoggedIn && (
               <button
                 onClick={handleCartClick}
-                className="relative grid h-10 w-10 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 md:h-11 md:w-11"
+                className="relative grid h-11 w-11 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 md:h-11 md:w-11"
                 aria-label="Open cart"
                 data-cart-target
               >
@@ -152,7 +140,7 @@ export default function Navbar({
 
             <button
               onClick={() => setIsMenuOpen((previous) => !previous)}
-              className="grid h-10 w-10 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 md:hidden"
+              className="grid h-11 w-11 place-items-center rounded-full text-[#10213b] transition hover:bg-[#f1faf3] hover:text-[#0f6b45] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 lg:hidden"
               aria-label={isMenuOpen ? "Close navigation menu" : "Open navigation menu"}
               aria-expanded={isMenuOpen}
               aria-controls="mobile-navigation"
@@ -162,24 +150,9 @@ export default function Navbar({
           </div>
         </div>
 
-        {isMenuOpen && (
-          <div id="mobile-navigation" className="mt-3 rounded-2xl border border-[#dfe9dc] bg-white p-3 shadow-[0_18px_45px_rgba(15,77,46,0.08)] md:hidden">
-            <div className="grid gap-1">
-              <NavigationLinks mobile onNavigate={handleMenuClose} />
-            </div>
-
-            <div className="mt-3 border-t border-[#eef2ea] pt-3">
-              <Link
-                to={userRoute}
-                onClick={handleMenuClose}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#0f4d2e] px-3 py-2.5 text-sm font-semibold text-white"
-              >
-                <User size={16} />
-                {userLabel}
-              </Link>
-            </div>
-          </div>
-        )}
+        {isMenuOpen && <MobileNavigation onClose={handleMenuClose} isLoggedIn={isLoggedIn}>
+          <NavigationLinks mobile onNavigate={handleMenuClose} />
+        </MobileNavigation>}
 
         {isLoggedIn && cartOpen && (
           <CartSidebar

@@ -1027,6 +1027,8 @@ test('PostgreSQL inventory and existing order integration', { skip: !process.env
       assert.equal((await request('/api/admin/logs','GET',undefined,'rider')).status,403);
       assert.equal((await request('/api/admin/logs','GET',undefined,'customer')).status,403);
     });
+    const {checkLettuceQuantity}=await import('./lettuceQuantityChecks.js');
+    await checkLettuceQuantity({t,pool,request,create,checkout,base,token,originalFetch,webhook,expireReservations});
   } finally {
     globalThis.fetch = originalFetch;
     if (server) await new Promise(resolve => server.close(resolve));

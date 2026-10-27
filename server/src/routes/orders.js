@@ -1,3 +1,8 @@
+import {staffEvent} from '../utils/staffPermissions.js';
+import {riderManagementSelect,riderAvailability} from '../utils/riderManagement.js';
+import {ORDER_STATUSES} from '../../../shared/orderStatus.js';
+import {attachOrderPreparation} from '../utils/orderPreparation.js';
+import {acceptOrder} from '../utils/orderAcceptance.js';
 import {SUPPLY,supplyChoice} from '../utils/supplies.js';
 import { randomUUID,createHash } from 'node:crypto';
 import { Router } from 'express';
@@ -35,7 +40,6 @@ const deliveryProofUpload = multer({
 });
 let ensureOrdersAdminColumnsPromise;
 
-const ORDER_STATUSES = ['Pending', 'Preparing', 'Cancellation Requested', 'Out for Delivery', 'Delivered', 'Cancelled'];
 const TRACKING_STATUSES = ['Pending', 'Preparing', 'Packed', 'In Transit', 'Out for Delivery', 'Delivered', 'Cancelled'];
 const PAYMENT_STATUSES = ['Pending', 'Paid', 'Unpaid', 'Failed', 'Refund Pending', 'Refunded'];
 const DELIVERY_MODES = ['rider', 'logistics'];
@@ -158,7 +162,7 @@ function deriveTrackingStatus(orderStatus) {
   }
 }
 
-function deriveCodStatus(row) {
+export function deriveCodStatus(row) {
   if (row.payment_method !== 'COD') return 'Not Applicable';
   if (row.cod_status && row.cod_status !== 'Not Applicable') return row.cod_status;
   if (row.payment_status === 'Paid') {
@@ -318,7 +322,8 @@ async function fetchOrderById(orderId, options = {}) {
   );
 
   if (!result.rows.length) return null;
-  return formatOrderRow(result.rows[0], options);
+  const order=formatOrderRow(result.rows[0],options);
+  return options.includeDriverAccessToken?(await attachOrderPreparation(queryClient,[order]))[0]:order;
 }
 
 async function cancelOrderAndRestoreInventory(client, orderId, { reason, cancelledBy }) {
@@ -474,7 +479,7 @@ router.post('/api/orders', (req,res,next)=>{
     const productIds = [...new Set(requestedItems.map(item=>item.productId))];
     const productsResult = await client.query(
       `
-      SELECT id, name, tag, category, price, stock, image_url, inventory_type, product_code, archived_at, legacy_quantity_review, sold_at
+      SELECT id, name, tag, category, price, stock, image_url, inventory_type, product_code, archived_at, legacy_quantity_review, sold_at, to_jsonb(products)->>'lettuce_stock_model' AS lettuce_stock_model
       FROM products
       WHERE id = ANY($1::bigint[])
       `,
@@ -501,7 +506,12 @@ router.post('/api/orders', (req,res,next)=>{
         variant=await supplyChoice(client,productId,requested.variantId,qty);unitPrice=variant.price;
         if(requested.expectedUnitPrice==null||Number(requested.expectedUnitPrice)!==unitPrice)return res.status(409).json({error:'Supply price changed. Review the selected variant price.'});
       } else if(requested.variantId)return res.status(400).json({error:'This product does not use supply variants'});
-      else if(product.inventory_type==='edible') {
+      else if(product.inventory_type==='edible'&&product.lettuce_stock_model==='quantity') {
+        if(requested.batchId)return res.status(409).json({error:'Lettuce no longer uses batch selection. Remove the old cart entry and add the lettuce again.'});
+        if(stock<qty)return res.status(409).json({error:'Insufficient available lettuce packs. Refresh your cart.'});
+        if(requested.expectedUnitPrice==null||Number(requested.expectedUnitPrice)!==unitPrice)return res.status(409).json({error:'Lettuce price changed. Review your cart.'});
+      }else if(product.inventory_type==='edible') {
+        if(product.lettuce_stock_model==='batch')return res.status(409).json({error:'Lettuce stock requires administrator reconciliation before new orders.'});
         if(!Number.isSafeInteger(requested.batchId)||requested.batchId<=0) return res.status(409).json({error:'Select a harvest batch and its price before checkout.'});
         batch=(await client.query(`${BATCH_SELECT} WHERE b.id=$1 AND b.product_id=$2`,[requested.batchId,productId])).rows[0];
         if(!batch||batch.available_stock<qty) return res.status(409).json({error:'Selected batch is unavailable, held, or has insufficient packs. Refresh checkout.'});
@@ -842,7 +852,7 @@ router.get('/api/admin/orders', async (req, res) => {
       ORDER BY o.created_at DESC
     `);
 
-    res.json(result.rows.map((row) => formatOrderRow(row, { includeDriverAccessToken: true })));
+    res.json(await attachOrderPreparation(pool,result.rows.map(row=>formatOrderRow(row,{includeDriverAccessToken:true}))));
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to load orders' });
   }
@@ -907,34 +917,7 @@ router.post('/api/admin/orders/:id/confirm', async (req, res) => {
       return res.status(400).json({ error: 'Invalid order id' });
     }
 
-    const result = await pool.query(
-      `
-      UPDATE orders
-      SET
-        status = 'Preparing',
-        tracking_status = 'Preparing',
-        admin_confirmed_at = COALESCE(admin_confirmed_at, NOW()),
-        status_updated_at = NOW(),
-        updated_at = NOW()
-      WHERE id = $1 AND status = 'Pending' AND (payment_method <> 'ONLINE' OR payment_status = 'Paid')
-        AND harvest_order_sellable(id)
-      RETURNING id
-      `,
-      [orderId]
-    );
-
-    if (!result.rows.length) {
-      const existingResult = await pool.query(
-        'SELECT status FROM orders WHERE id = $1 LIMIT 1',
-        [orderId]
-      );
-      if (!existingResult.rows.length) {
-        return res.status(404).json({ error: 'Order not found' });
-      }
-      return res.status(409).json({
-        error: `Only Pending orders with confirmed online payment can be prepared. Current status: ${existingResult.rows[0].status}`,
-      });
-    }
+    await acceptOrder(pool,orderId);
 
     const updatedOrder = await fetchOrderById(orderId, { includeDriverAccessToken: true });
     return res.json(updatedOrder);
@@ -1023,11 +1006,12 @@ router.get('/api/admin/orders/:id/delivery-history',async(req,res)=>{
   }catch(error){res.status(error.status||500).json({error:error.message||'Unable to load delivery history'});}
 });
 
-router.patch('/api/admin/orders/:id', async (req, res) => {
+export async function updateOrderHandler(req,res) {
   let deliveryClient;
   try {
-    const authUser = verifyRequestToken(req);
-    if (authUser.role !== 'admin') {
+    const authUser = req.operationsUser || verifyRequestToken(req);
+    const staffAssignment=authUser.role==='staff'&&(req.staffRiderAssignment===true||req.staffDeliveryUpdate===true);
+    if (authUser.role !== 'admin'&&!staffAssignment) {
       return res.status(403).json({ error: 'Admin access only' });
     }
     await ensureOrderAdminColumns();
@@ -1122,8 +1106,8 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
 
     const existingResult = await pool.query(
       `
-      SELECT rider_id, courier_name, driver_phone, driver_access_token, driver_assigned_at,
-             status, payment_method, payment_status, cod_status, tracking_status, admin_confirmed_at
+      SELECT rider_id, delivery_mode,tracking_code,courier_name, driver_phone, driver_access_token, driver_assigned_at,
+             status, payment_method, payment_status, cod_status, tracking_status, admin_confirmed_at,updated_at,updated_at::text AS update_version
       FROM orders
       WHERE id = $1
       LIMIT 1
@@ -1136,6 +1120,7 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
     }
 
     const existing = existingResult.rows[0];
+    if(staffAssignment&&existing.update_version!==req.assignmentVersion)return res.status(409).json({error:'Order changed. Refresh before assigning rider.'});
     if (['Delivered','Cancelled'].includes(existing.status) && status !== existing.status) {
       return res.status(409).json({error:'This order is already completed or cancelled. Refresh its details; normal editing cannot reopen it.'});
     }
@@ -1187,7 +1172,17 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
     if(deliveryNotes.length>1000)return res.status(400).json({error:'Delivery notes must be at most 1000 characters'});
     deliveryClient=await pool.connect();
     await deliveryClient.query('BEGIN');
-    await deliveryClient.query("SELECT set_config('delivery.actor',$1,true),set_config('delivery.notes',$2,true)",[`Admin #${authUser.userId}`,deliveryNotes]);
+    if(staffAssignment){
+      await deliveryClient.query('SELECT id FROM orders WHERE id=$1 FOR UPDATE',[orderId]);
+      if(!(await deliveryClient.query("SELECT id FROM users WHERE id=$1 AND role='staff' AND status='active' AND auth_version=$2 FOR SHARE",[authUser.userId,Number(authUser.sessionVersion||0)])).rowCount)throw Object.assign(new Error('Session revoked'),{status:401});
+      if(finalRiderId){
+      await deliveryClient.query('SELECT id FROM riders WHERE id=$1 FOR UPDATE',[finalRiderId]);
+      await deliveryClient.query('SELECT id FROM users WHERE id=(SELECT user_id FROM riders WHERE id=$1) FOR SHARE',[finalRiderId]);
+      const target=(await deliveryClient.query(riderManagementSelect+' WHERE r.id=$1',[finalRiderId])).rows[0];
+      if(!target||!target.account_enabled||target.must_change_password||target.rider_security_locked||!target.is_available||(Number(existing.rider_id)!==finalRiderId&&riderAvailability(target)!=='Available'))throw Object.assign(new Error('Selected rider is unavailable or requires administrator review.'),{status:409});
+      }
+    }
+    await deliveryClient.query("SELECT set_config('delivery.actor',$1,true),set_config('delivery.notes',$2,true)",[`${staffAssignment?'Staff':'Admin'} #${authUser.userId}`,deliveryNotes]);
 
     const updateResult = await deliveryClient.query(
       `
@@ -1195,6 +1190,7 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
       SET
         status = $2,
         payment_status = CASE
+          WHEN $16::boolean THEN payment_status
           WHEN payment_method = 'ONLINE' THEN payment_status
           WHEN payment_method = 'COD'
             AND $4 = 'logistics'
@@ -1203,6 +1199,7 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
           ELSE COALESCE(NULLIF($3, ''), payment_status)
         END,
         cod_status = CASE
+          WHEN $16::boolean THEN cod_status
           WHEN payment_method = 'COD'
             AND $4 = 'logistics'
             AND $12 = 'Delivered'
@@ -1245,7 +1242,7 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
         END,
         status_updated_at = NOW(),
         updated_at = NOW()
-      WHERE id = $1 AND status <> 'Cancelled' AND status=$14 AND tracking_status IS NOT DISTINCT FROM $13
+      WHERE id = $1 AND updated_at IS NOT DISTINCT FROM $15::timestamptz AND status <> 'Cancelled' AND status=$14 AND tracking_status IS NOT DISTINCT FROM $13
         AND (status <> 'Delivered' OR ($2 = 'Delivered' AND $12 = 'Delivered'))
         AND (payment_method <> 'ONLINE' OR payment_status = 'Paid' OR $2 IN ('Pending', 'Cancellation Requested'))
         AND ($2 NOT IN ('Preparing','Out for Delivery','Delivered') OR harvest_order_sellable(id))
@@ -1266,19 +1263,24 @@ router.patch('/api/admin/orders/:id', async (req, res) => {
         finalTrackingStatus,
         existing.tracking_status,
         existing.status,
+        existing.update_version,
+        staffAssignment,
       ]
     );
 
     if (!updateResult.rows.length) {await deliveryClient.query('ROLLBACK');return res.status(409).json({ error: 'Order state changed; refresh before updating fulfillment' });}
+    if(staffAssignment)await staffEvent(deliveryClient,authUser,req.staffDeliveryUpdate?'Delivery Details Updated':'Rider Assigned',{orderId,oldValue:{riderId:existing.rider_id,status:existing.status,deliveryMode:existing.delivery_mode,courier:existing.courier_name,trackingCode:existing.tracking_code},newValue:{riderId:finalRiderId,status:finalStatus,deliveryMode,courier:resolvedRiderName,trackingCode},reason:req.staffDeliveryUpdate?'Staff delivery update':'Staff rider assignment'});
     await deliveryClient.query('COMMIT');
     if(deliveryMode==='logistics'&&trackingCode)syncCourierOrder(orderId).catch(()=>console.error('Courier tracking retry pending for order',orderId));
+    if(staffAssignment)return res.json({id:orderId,message:req.staffDeliveryUpdate?'Delivery details saved.':'Rider assignment saved.'});
     const updatedOrder = await fetchOrderById(orderId, { includeDriverAccessToken: true });
     res.json(updatedOrder);
   } catch (error) {
     if(deliveryClient)await deliveryClient.query('ROLLBACK').catch(()=>{});
     res.status(error.code==='P0001'?409:error.status||500).json({ error: error.message || 'Failed to update order' });
   } finally {deliveryClient?.release();}
-});
+}
+router.patch('/api/admin/orders/:id',updateOrderHandler);
 
 router.get('/api/driver/orders/:token', async (req, res) => {
   try {

@@ -38,6 +38,7 @@ export function registerHarvestRoutes(router,admin,actor) {
       }
       const product=(await client.query('SELECT * FROM products WHERE id=$1 FOR UPDATE',[productId])).rows[0];
       if(!product||product.inventory_type!=='edible') throw inventoryError('An edible product is required',400);
+      if(product.lettuce_stock_model==='quantity')throw inventoryError('Historical batches are read-only. Use product Stock In / Stock Out.',409);
       if(product.archived_at) throw inventoryError('Restore the product listing before managing its batches');
       const physicalBefore=(await readHarvest(client,productId)).reduce((sum,b)=>sum+b.physical_stock,0);
       let batch;

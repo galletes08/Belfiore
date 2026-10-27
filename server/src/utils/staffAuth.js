@@ -79,7 +79,7 @@ export function createStaffAuth({db=pool,mail=sendAuthEmail}={}) {
     const restrictionMessage=riderCopy?RIDER_RESTRICTED:RESTRICTED;
     const usernameIdentifier=staffPortal&&!email.includes('@');
     // Resolve persisted role, never a role supplied by the browser.
-    const preview=(await db.query(`SELECT id,role,email,username FROM users WHERE ((role='rider' AND (LOWER(username)=$1 OR (legacy_email_login AND LOWER(BTRIM(email))=$1))) OR (role<>'rider' AND LOWER(BTRIM(email))=$1)) LIMIT 1`,[email])).rows[0];
+    const preview=(await db.query(`SELECT id,role,email,username FROM users WHERE ((role='rider' AND (LOWER(username)=$1 OR (legacy_email_login AND LOWER(BTRIM(email))=$1))) OR (role='staff' AND (LOWER(username)=$1 OR LOWER(BTRIM(email))=$1)) OR (role NOT IN ('rider','staff') AND LOWER(BTRIM(email))=$1)) LIMIT 1`,[email])).rows[0];
     const subject=key('login',canonical(preview?.email)||(preview?'user:'+preview.id:email));
     const policy=authPolicy();
     const c=await db.connect();let alert=null;
@@ -88,7 +88,7 @@ export function createStaffAuth({db=pool,mail=sendAuthEmail}={}) {
       if(!await consume(c,key('login-ip',ip),policy.loginIpLimit)) {
         await event(c,'Login IP Restricted',subject,ip);await c.query('COMMIT');await respond(429,{error:restrictionMessage});return true;
       }
-      if(preview && (staffPortal ? !['admin','rider'].includes(preview.role) : preview.role!=='customer')) {
+      if(preview && (staffPortal ? !['admin','rider','staff'].includes(preview.role) : preview.role!=='customer')) {
         // Wrong-portal requests consume IP limits, not account password-failure counts.
         await bcrypt.compare(String(req.body?.password||'').slice(0,1024),dummyHash);
         await event(c,'Login Portal Rejected',subject,ip,null,{workspace:staffPortal?'staff':'customer'});
@@ -97,7 +97,7 @@ export function createStaffAuth({db=pool,mail=sendAuthEmail}={}) {
       const b=await bucket(c,subject,true);
       const user=(await c.query(`SELECT id,first_name,last_name,email,username,role,status,password,password_hash,auth_version,must_change_password,
         rider_failed_attempts,rider_security_locked,rider_login_after_unlock_pending,admin_failed_attempts,admin_restricted_until,admin_lock_incident,
-        admin_restricted_until<=clock_timestamp() AS admin_restriction_expired FROM users WHERE ((role='rider' AND (LOWER(username)=$1 OR (legacy_email_login AND LOWER(BTRIM(email))=$1))) OR (role<>'rider' AND LOWER(BTRIM(email))=$1)) LIMIT 1 FOR UPDATE`,[email])).rows[0];
+        admin_restricted_until<=clock_timestamp() AS admin_restriction_expired FROM users WHERE ((role='rider' AND (LOWER(username)=$1 OR (legacy_email_login AND LOWER(BTRIM(email))=$1))) OR (role='staff' AND (LOWER(username)=$1 OR LOWER(BTRIM(email))=$1)) OR (role NOT IN ('rider','staff') AND LOWER(BTRIM(email))=$1)) LIMIT 1 FOR UPDATE`,[email])).rows[0];
       if(user?.role==='admin'&&user.admin_restriction_expired) {
         await c.query('UPDATE users SET admin_failed_attempts=0,admin_restricted_until=NULL,admin_lock_incident=NULL WHERE id=$1',[user.id]);
         await c.query('UPDATE auth_security_buckets SET count=0,blocked_until=NULL,window_start=clock_timestamp() WHERE key=$1',[subject]);
@@ -125,10 +125,11 @@ export function createStaffAuth({db=pool,mail=sendAuthEmail}={}) {
       if(user?.role==='rider'&&user.rider_security_locked) {
         await event(c,'Rider Locked Login Rejected',subject,ip,user);await c.query('COMMIT');await respond(429,{error:restrictionMessage});return true;
       }
-      const allowed=user&&(staffPortal?['admin','rider'].includes(user.role):user.role==='customer')&&user.status==='active'&&matches&&password.length>0&&password.length<=1024&&email.length<=254;
+      const allowed=user&&(staffPortal?['admin','rider','staff'].includes(user.role):user.role==='customer')&&user.status==='active'&&matches&&password.length>0&&password.length<=1024&&email.length<=254;
       if(allowed) {
         await c.query('UPDATE auth_security_buckets SET count=0,blocked_until=NULL,window_start=clock_timestamp() WHERE key=$1',[subject]);
         await event(c,'Login Successful',subject,ip,user);
+        if(user.role==='staff')await c.query('UPDATE users SET last_login_at=clock_timestamp() WHERE id=$1',[user.id]);
         if(user.role==='rider') {
           if(user.rider_login_after_unlock_pending)await event(c,'Successful Login After Unlock',subject,ip,user);
           await c.query('UPDATE users SET rider_failed_attempts=0,rider_login_after_unlock_pending=false WHERE id=$1',[user.id]);
@@ -139,7 +140,7 @@ export function createStaffAuth({db=pool,mail=sendAuthEmail}={}) {
       }
       const failure=(await c.query(`UPDATE auth_security_buckets SET count=count+1,
         blocked_until=CASE WHEN count+1>=${policy.maxFailures} THEN clock_timestamp()+make_interval(mins => ${policy.restrictionMinutes}) ELSE NULL END WHERE key=$1 RETURNING count`,[subject])).rows[0];
-      await event(c,'Login Failed',subject,ip,user&&['admin','rider'].includes(user.role)?user:null);
+      await event(c,'Login Failed',subject,ip,user&&['admin','rider','staff'].includes(user.role)?user:null);
       if(!user&&usernameIdentifier&&failure.count>=policy.maxFailures)await c.query('UPDATE auth_security_buckets SET rider_lock_shadow=true WHERE key=$1',[subject]);
       let adminRestricted=false;
       if(user?.role==='admin') {
@@ -170,11 +171,11 @@ export function createStaffAuth({db=pool,mail=sendAuthEmail}={}) {
         if(riderLocked)await event(c,'Rider Account Security Locked',subject,ip,user);
       }
       if(user?.role!=='admin'&&(riderLocked||failure.count>=policy.maxFailures)) {
-        await event(c,'Suspicious Login Attempts',subject,ip,user&&['admin','rider'].includes(user.role)?user:null);
+        await event(c,'Suspicious Login Attempts',subject,ip,user&&['admin','rider','staff'].includes(user.role)?user:null);
         const delivery=await emailReadiness(c);
         const claimed=delivery.alertsReady?await c.query("UPDATE auth_security_buckets SET alert_sent_at=clock_timestamp() WHERE key=$1 AND (alert_sent_at IS NULL OR alert_sent_at<clock_timestamp()-INTERVAL '1 hour') RETURNING key",[subject]):{rowCount:0};
-        if(!delivery.alertsReady)await event(c,delivery.enabled&&!delivery.configured?'Security Alert Email Not Configured':'Security Alert Email Disabled',subject,ip,user&&['admin','rider'].includes(user.role)?user:null);
-        if(claimed.rowCount&&user?.email&&['admin','rider'].includes(user.role)&&user.status==='active')alert={user,subject,ip};
+        if(!delivery.alertsReady)await event(c,delivery.enabled&&!delivery.configured?'Security Alert Email Not Configured':'Security Alert Email Disabled',subject,ip,user&&['admin','rider','staff'].includes(user.role)?user:null);
+        if(claimed.rowCount&&user?.email&&['admin','rider','staff'].includes(user.role)&&user.status==='active')alert={user,subject,ip};
       }
       await c.query('COMMIT');
       if(adminRestricted)adminAlerts.kick();

@@ -1,12 +1,4 @@
-export function orderSummary(orders) {
-  const unique = [...new Map(orders.map(order => [order.id, order])).values()];
-  return {
-    total: unique.length,
-    pending: unique.filter(o => ['Pending','Cancellation Requested'].includes(o.status) || o.paymentStatus === 'Refund Pending' || o.codStatus === 'Remittance Pending' || Boolean(o.inventoryReconciliationReason)).length,
-    progress: unique.filter(o => !['Delivered','Cancelled'].includes(o.status) && (['Preparing','Out for Delivery'].includes(o.status) || ['Packed','In Transit','Out for Delivery'].includes(o.trackingStatus))).length,
-    delivered: unique.filter(o => o.status === 'Delivered').length,
-  };
-}
+export {orderSummary} from '../../shared/orderSummary.js';
 
 export function manilaDate(value) {
   const date = new Date(value);
@@ -29,7 +21,7 @@ export function orderTimeline(order) {
   // Snapshots are not a complete audit log; do not infer missing intermediate states.
   return [
     ['Order Placed',order.createdAt,'Customer','Checkout recorded'],
-    ['Order Confirmed',order.adminConfirmedAt,'Administrator','Confirmation recorded'],
+    ['Order Confirmed',order.adminConfirmedAt,'Belfiore Team','Confirmation recorded'],
     ['Online Payment Verified',order.paymongoPaidAt,'Payment system','Verified payment timestamp'],
     ['Rider Assigned',order.driverAssignedAt,'Not recorded','Rider assignment timestamp'],
     ['Rider Accepted',order.driverAcceptedAt,'Assigned rider','Rider acceptance recorded'],
@@ -37,4 +29,8 @@ export function orderTimeline(order) {
     ['Cancelled',order.cancelledAt,order.cancelledBy || 'Not recorded',order.cancelReason],
     [order.status,order.statusUpdatedAt,'Not recorded','Latest recorded status snapshot; earlier transitions are not available'],
   ].filter(([,time])=>time && !Number.isNaN(Date.parse(time))).sort((a,b)=>Date.parse(a[1])-Date.parse(b[1]));
+}
+// Payment alone is not administrator acceptance of the order request.
+export function canShowCustomerInvoice(order) {
+  return Boolean(order?.adminConfirmedAt) && Number.isFinite(Date.parse(order.adminConfirmedAt));
 }

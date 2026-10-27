@@ -1,0 +1,27 @@
+import {useEffect,useRef,useState} from 'react';
+import GardeningSupplies from '../admin/GardeningSupplies';
+import {newInventoryForm} from '../utils/inventory';
+import {staffApi} from './staffApi';
+
+const field='w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm';
+export default function StaffProductCreate({refresh,onClose,initialSupplyId,onBusyChange,embedded=false}){
+ const [type,setType]=useState(initialSupplyId?'GARDENING_SUPPLY':'succulent'),[form,setForm]=useState(newInventoryForm),[error,setError]=useState(''),[busy,setBusy]=useState(false),[supply,setSupply]=useState(null);
+ const guard=useRef(false),key=useRef(crypto.randomUUID()),variantKeys=useRef(new Map());
+ const setWorking=value=>{setBusy(value);onBusyChange?.(value);};
+ useEffect(()=>{if(initialSupplyId)staffApi(`/api/staff/supplies/${initialSupplyId}/setup`).then(setSupply).catch(e=>setError(e.message));},[initialSupplyId]);
+ const change=(name,value)=>{key.current=crypto.randomUUID();setForm(f=>({...f,[name]:value,...(name==='files'&&value.length>1?{productCode:''}:{})}));};
+ async function loadSupply(id=supply?.id){if(id)setSupply(await staffApi(`/api/staff/supplies/${id}/setup`));await refresh();}
+ async function supplyRequest(path,method,body){
+  if(method==='POST'&&path.endsWith('/variants')){const signature=JSON.stringify({path,...body});if(!variantKeys.current.has(signature))variantKeys.current.set(signature,crypto.randomUUID());body={...body,requestId:variantKeys.current.get(signature)};}
+  return staffApi('/api/admin/supplies/'+path,body,method);
+ }
+ return <section data-operations-editing className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">{!embedded&&<header className="mb-4 flex justify-between gap-3"><h2 className="text-lg font-semibold">Add Product</h2><button type="button" disabled={busy} className="min-h-11 rounded-lg border px-3 text-sm" onClick={onClose}>Close</button></header>}<label className="mb-4 block text-sm">Product Type<select className={field} disabled={busy||Boolean(supply)||Boolean(initialSupplyId)} value={type} onChange={e=>{setType(e.target.value);setForm(newInventoryForm(e.target.value));key.current=crypto.randomUUID();setError('');}}><option value="succulent">Succulent</option><option value="edible">Lettuce</option><option value="GARDENING_SUPPLY">Gardening Supply</option></select></label>
+ {type==='GARDENING_SUPPLY'?<>{initialSupplyId&&!supply?<p>{error?'Close and retry loading this product.':'Loading product setup...'}</p>:<GardeningSupplies key={supply?.id||'new'} product={supply} creationOnly supplyRequest={supplyRequest} onChanged={()=>loadSupply()} onCreated={async p=>setSupply(await staffApi(`/api/staff/supplies/${p.id}/setup`))} onClose={onClose} onBusyChange={setWorking}/>}{supply&&<p className="mt-3 text-sm text-emerald-800">Add all variants and confirm the physical stock model, then close this panel. Use Stock In / Out to record verified opening stock. No warehouse quantity has been inferred.</p>}</>:<form className="grid gap-3 sm:grid-cols-2" onSubmit={async e=>{e.preventDefault();if(guard.current)return;guard.current=true;setWorking(true);setError('');try{
+  const data=new FormData();for(const name of ['inventoryType','name','productCode','tag','price','lowStockThreshold','description','status'])data.append(name,String(form[name]??''));data.append('stock',type==='succulent'?'1':'0');
+  const bulk=type==='succulent'&&form.files.length>1;for(const file of form.files)data.append(bulk?'images':'image',file);
+  await staffApi(bulk?'/api/products/bulk':'/api/products',data,'POST',{'Idempotency-Key':key.current});await refresh();onClose();
+ }catch(e){setError(e.message);}finally{guard.current=false;setWorking(false);}}}>
+ <label>Product name<input className={field} required value={form.name} onChange={e=>change('name',e.target.value)}/></label><label>Unique product code<input className={field} placeholder="Auto-generated when blank" value={form.productCode} disabled={form.files.length>1} onChange={e=>change('productCode',e.target.value)}/></label>
+ {type==='succulent'&&<label>Tag category<select className={field} value={form.tag} onChange={e=>change('tag',e.target.value)}>{['White','Green','Red'].map(t=><option key={t}>{t}</option>)}</select></label>}<label>Selling price (PHP){type==='edible'?' per 400g pack':''}<input className={field} type="number" min="0" step="0.01" required value={form.price} onChange={e=>change('price',e.target.value)}/></label><label>Low stock threshold<input className={field} type="number" min="0" step="1" required value={form.lowStockThreshold} onChange={e=>change('lowStockThreshold',e.target.value)}/></label><label>Product image<input className={field} type="file" accept="image/*" multiple={type==='succulent'} onChange={e=>change('files',Array.from(e.target.files||[]))}/></label><label className="sm:col-span-2">Description<textarea className={field} value={form.description} onChange={e=>change('description',e.target.value)}/></label><p className="text-sm text-slate-600 sm:col-span-2">{type==='succulent'?'Each image creates a separately coded individual plant with quantity one.':'Lettuce is sold per 400g pack. New products start with zero packs; record quality-approved harvest through Stock In.'}</p><button className="min-h-11 rounded-lg bg-[#1f5a43] px-4 text-sm font-semibold text-white disabled:opacity-50" disabled={busy}>{busy?'Saving...':'Add Product'}</button>
+ </form>}{error&&<p role="alert" className="mt-3 rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}</section>;
+}

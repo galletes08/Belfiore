@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { orderSummary, filterOrders, manilaDate, orderTimeline } from '../../src/utils/orderDisplay.js';
+import { orderSummary, filterOrders, manilaDate, orderTimeline, canShowCustomerInvoice } from '../../src/utils/orderDisplay.js';
+
+test('Customer invoice requires recorded admin acceptance independently of payment or current status',()=>{
+  for (const status of ['Pending','Preparing','Delivered','Cancelled']) {
+    assert.equal(canShowCustomerInvoice({status,paymentStatus:'Paid'}),false);
+  }
+  assert.equal(canShowCustomerInvoice({adminConfirmedAt:'invalid'}),false);
+  assert.equal(canShowCustomerInvoice(null),false);
+  assert.equal(canShowCustomerInvoice({status:'Preparing',paymentStatus:'Unpaid',adminConfirmedAt:'2026-10-26T01:00:00Z'}),true);
+  assert.equal(canShowCustomerInvoice({status:'Delivered',paymentStatus:'Paid',adminConfirmedAt:'2026-10-26T01:00:00Z'}),true);
+});
 
 test('Order summary counts distinct actionable orders and excludes terminal orders from progress',()=>{
   const orders=[{id:1,status:'Pending',paymentStatus:'Unpaid'},{id:2,status:'Cancellation Requested',paymentStatus:'Refund Pending'},

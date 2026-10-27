@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowRight,
@@ -8,14 +8,15 @@ import {
   Search,
   ShoppingCart,
   SlidersHorizontal,
-  Sprout,
-  X
+  Sprout
 } from "lucide-react";
 
 import { apiProducts, getImageUrl } from "../../api/client";
 import catalogHero from "../../assets/belfiore-catalog-hero.png";
 import "./catalogHero.css";
-import { LETTUCE_VARIETIES } from "../../utils/inventory";
+import "./catalogMobile.css";
+import "./catalogCategories.css";
+import CatalogCategories from "./CatalogCategories";
 import { getWishlistIds, saveWishlistIds } from "../../utils/wishlist";
 
 const categoryTabs = [
@@ -24,8 +25,6 @@ const categoryTabs = [
 ];
 const subcategoryTabs = {
  succulents: ['white','green','red'].map(key=>({key,label:key[0].toUpperCase()+key.slice(1)+' Tags'})),
- lettuce: LETTUCE_VARIETIES.map(({name})=>({key:name,label:name})),
- gardening_supply: ['Plant Pots','Soil & Potting Mix','Plant Trays'].map(label=>({key:label,label}))
 };
 
 const sortOptions = [
@@ -46,7 +45,6 @@ const badgeStyles = {
 
 
 const AQUAPONICS_TAG = "aquaponics";
-const PRODUCTS_PER_PAGE = 15;
 const MAX_VISIBLE_PAGE_BUTTONS = 5;
 
 const formatPhp = (amount) =>
@@ -133,7 +131,7 @@ const getCustomerProductDescription = (item) => {
   return description;
 };
 
-export default function Products({ onAddToCart }) {
+export default function Products({ onAddToCart, cartItems = [] }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedTag = searchParams.get("tag");
@@ -149,6 +147,32 @@ export default function Products({ onAddToCart }) {
   const [searchValue, setSearchValue] = useState("");
   const [sortBy, setSortBy] = useState("featured");
   const [currentPage, setCurrentPage] = useState(1);
+  const [productsPerPage,setProductsPerPage]=useState(16);
+  useEffect(()=>{
+    const desktop=window.matchMedia('(min-width: 1440px)');
+    const laptop=window.matchMedia('(min-width: 1024px)');
+    const tablet=window.matchMedia('(min-width: 768px)');
+    const update=()=>setProductsPerPage(desktop.matches?20:laptop.matches?16:tablet.matches?18:16);
+    const queries=[desktop,laptop,tablet];
+    update();queries.forEach(query=>query.addEventListener('change',update));
+    return()=>queries.forEach(query=>query.removeEventListener('change',update));
+  },[]);
+  const resultsHeading=useRef(null);
+  const paginationScroll=useRef(false);
+  const changePage=(page)=>{
+    if(page===currentPage)return;
+    paginationScroll.current=true;
+    setCurrentPage(page);
+  };
+  useLayoutEffect(()=>{
+    if(!paginationScroll.current||!resultsHeading.current)return;
+    paginationScroll.current=false;
+    const heading=resultsHeading.current;
+    const header=document.querySelector('.customer-navigation')?.closest('header');
+    const offset=header?.getBoundingClientRect().height||0;
+    heading.focus({preventScroll:true});
+    window.scrollTo({top:Math.max(0,window.scrollY+heading.getBoundingClientRect().top-offset-12),behavior:'instant'});
+  },[currentPage]);
   const [showWishlistOnly, setShowWishlistOnly] = useState(false);
   const [wishlistIds, setWishlistIds] = useState(getWishlistIds);
 
@@ -215,7 +239,7 @@ export default function Products({ onAddToCart }) {
     }));
 
     const baseList = mappedProducts.filter((item) => {
-      if (!showWishlistOnly&&item.stock <= 0&&item.inventoryType!=='GARDENING_SUPPLY') {
+      if (!showWishlistOnly&&item.stock <= 0&&item.inventoryType==='succulent') {
         return false;
       }
 
@@ -231,8 +255,8 @@ export default function Products({ onAddToCart }) {
 
       const matchesSubcategory = activeSubcategory === 'all' ||
         activeTag === 'succulents' && item.tagKey === activeSubcategory ||
-        activeTag === 'lettuce' && item.name === activeSubcategory ||
-        activeTag === 'gardening_supply' && item.category === activeSubcategory;
+        activeTag === 'lettuce' ||
+        activeTag === 'gardening_supply';
       if (!matchesTag || !matchesSubcategory) {
         return false;
       }
@@ -295,19 +319,19 @@ export default function Products({ onAddToCart }) {
   const totalPages = Math.max(
     1,
     Math.ceil(
-      filteredProducts.length / PRODUCTS_PER_PAGE
+      filteredProducts.length / productsPerPage
     )
   );
 
   const paginatedProducts = useMemo(() => {
     const startIndex =
-      (currentPage - 1) * PRODUCTS_PER_PAGE;
+      (currentPage - 1) * productsPerPage;
 
     return filteredProducts.slice(
       startIndex,
-      startIndex + PRODUCTS_PER_PAGE
+      startIndex + productsPerPage
     );
-  }, [currentPage, filteredProducts]);
+  }, [currentPage, filteredProducts, productsPerPage]);
 
   const visiblePageNumbers = useMemo(() => {
     const visibleCount = Math.min(
@@ -340,7 +364,7 @@ export default function Products({ onAddToCart }) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeTag, activeSubcategory, searchValue, showWishlistOnly, sortBy]);
+  }, [activeTag, activeSubcategory, searchValue, showWishlistOnly, sortBy, productsPerPage]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -376,7 +400,7 @@ export default function Products({ onAddToCart }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="product-catalog min-h-screen bg-slate-50 text-slate-900">
       <header className="catalog-hero border-b border-emerald-900" style={{ '--catalog-hero-image': `url("${catalogHero}")` }}>
         <div className="mx-auto flex min-h-[190px] max-w-[1600px] items-center px-4 py-6 sm:min-h-[200px] sm:px-6 lg:px-8">
           <div className="max-w-[34rem] md:w-[52%]">
@@ -391,7 +415,7 @@ export default function Products({ onAddToCart }) {
       <main className="mx-auto max-w-[1600px] px-4 py-4 sm:px-6 lg:px-8">
         {/* Filters */}
         <section className="rounded-2xl border border-slate-300 bg-white p-4 shadow-sm sm:p-4">
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto] lg:items-center lg:gap-4">
+          <div className="catalog-search-sort grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-center lg:gap-4">
             {/* Search */}
             <label className="relative block lg:col-start-1">
               <span className="sr-only">
@@ -445,73 +469,20 @@ export default function Products({ onAddToCart }) {
               </select>
             </label>
 
-            {/* Clear filters */}
-            {filtersAreActive && (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
-              >
-                <X size={16} aria-hidden="true" />
-                Clear
-              </button>
-            )}
+
           </div>
 
-          {/* Tag filters */}
-          <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {categoryTabs.map((tab) => {
-              const isActive = activeTag === tab.key;
-
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  aria-pressed={isActive}
-                  onClick={() =>
-                    { setActiveTag(tab.key); setActiveSubcategory('all'); }
-                  }
-                  className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-4 focus:ring-emerald-100 ${
-                    isActive
-                      ? "bg-emerald-700 text-white shadow-sm"
-                      : "bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
-
-            <button
-              type="button"
-              aria-pressed={showWishlistOnly}
-              onClick={() => {
-                if(!showWishlistOnly){
-                  setActiveTag('all');
-                  setActiveSubcategory('all');
-                  setSearchValue('');
-                }
-                setShowWishlistOnly(current=>!current);
-              }}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-4 focus:ring-rose-100 ${
-                showWishlistOnly
-                  ? "bg-rose-600 text-white shadow-sm"
-                  : "bg-rose-50 text-rose-700 hover:bg-rose-100"
-              }`}
-            >
-              <Heart
-                size={15}
-                fill={showWishlistOnly ? "currentColor" : "none"}
-                aria-hidden="true"
-              />
-              Wishlist ({loading ? '…' : catalogWishlistCount})
-            </button>
-          </div>
+          <CatalogCategories selected={showWishlistOnly?'wishlist':activeTag} count={loading?'?':catalogWishlistCount} onSelect={key=>{
+            setShowWishlistOnly(key==='wishlist');
+            setActiveTag(key==='wishlist'?'all':key);
+            setActiveSubcategory('all');
+            if(key==='wishlist')setSearchValue('');
+          }}/>
           {subcategoryTabs[activeTag] && (
-            <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Category options">
-              {[{key:'all',label:'All'},...subcategoryTabs[activeTag]].map(tab=>(
+            <div className="catalog-filter-row mt-3 flex flex-wrap gap-2" role="group" aria-label="Category options">
+              {[{key:'all',label:activeTag==='succulents'?'All Succulents':activeTag==='lettuce'?'All Lettuce':'All Supplies'},...subcategoryTabs[activeTag]].map(tab=>(
                 <button key={tab.key} type="button" aria-pressed={activeSubcategory===tab.key}
-                  onClick={()=>setActiveSubcategory(tab.key)}
+                  onClick={event=>{setActiveSubcategory(tab.key);event.currentTarget.scrollIntoView({block:"nearest",inline:"nearest",behavior:"instant"});}}
                   className={'min-h-10 rounded-lg border px-3 py-2 text-xs font-medium transition focus:outline-none focus:ring-4 focus:ring-emerald-100 '+(activeSubcategory===tab.key?'border-emerald-700 bg-emerald-50 text-emerald-900':'border-slate-200 text-slate-600 hover:border-emerald-300')}>
                   {tab.label}
                 </button>
@@ -521,7 +492,7 @@ export default function Products({ onAddToCart }) {
         </section>
 
         {/* Product heading */}
-        <div className="mt-4 flex items-end justify-between gap-4">
+        <div ref={resultsHeading} tabIndex={-1} aria-label="Product results" className="mt-4 flex items-end justify-between gap-4 focus:outline-none">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
               Available collection
@@ -543,7 +514,7 @@ export default function Products({ onAddToCart }) {
         </div>
 
         {/* Product grid */}
-        <section className="mt-3 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <section className="catalog-product-grid mt-3 grid gap-5">
           {loading ? (
             Array.from({ length: 10 }).map(
               (_, index) => (
@@ -552,7 +523,7 @@ export default function Products({ onAddToCart }) {
                   className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
                   aria-hidden="true"
                 >
-                  <div className="aspect-[4/3] animate-pulse bg-slate-200" />
+                  <div className="aspect-square animate-pulse bg-slate-200" />
 
                   <div className="space-y-4 p-5">
                     <div className="h-5 w-3/4 animate-pulse rounded bg-slate-200" />
@@ -623,13 +594,14 @@ export default function Products({ onAddToCart }) {
                 product.inventoryType === 'edible' && product.stock > 0 &&
                 product.stock <= product.lowStockThreshold;
 
+              const inCart=product.inventoryType!=='GARDENING_SUPPLY'&&cartItems.some(item=>String(item.id)===String(product.id));
               const isWishlisted = wishlistIdSet.has(
                 String(product.id)
               );
               return (
                 <article
                   key={product.id}
-                  className="group flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-lg hover:shadow-slate-200/60"
+                  className="catalog-product-card group flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-lg hover:shadow-slate-200/60"
                 >
                   {/* Product image */}
                   <button
@@ -639,7 +611,7 @@ export default function Products({ onAddToCart }) {
                         `/product/${product.id}`
                       )
                     }
-                    className="relative block aspect-[4/3] w-full overflow-hidden bg-slate-100 text-left focus:outline-none focus:ring-4 focus:ring-inset focus:ring-emerald-200"
+                    className="relative block aspect-square w-full overflow-hidden bg-slate-100 text-left focus:outline-none focus:ring-4 focus:ring-inset focus:ring-emerald-200"
                     aria-label={`View ${product.name}`}
                   >
                     <img
@@ -654,7 +626,7 @@ export default function Products({ onAddToCart }) {
 
                     {/* Tag badge */}
                     <span
-                      className={`absolute left-3 top-3 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide shadow-sm ${
+                      className={`catalog-tag absolute left-3 top-3 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide shadow-sm ${
                         badgeStyles[
                           product.tagKey
                         ]
@@ -669,7 +641,7 @@ export default function Products({ onAddToCart }) {
                     {/* Stock is counted in individual packs/pieces. */}
                     {(isAquaponics || isOutOfStock) ? (
                       <span
-                        className={"absolute bottom-3 right-3 rounded-full px-2.5 py-1 text-[11px] font-semibold shadow-sm backdrop-blur " + (
+                        className={"catalog-stock-badge absolute bottom-3 right-3 rounded-full px-2.5 py-1 text-[11px] font-semibold shadow-sm backdrop-blur " + (
                           isOutOfStock
                             ? "bg-slate-950/80 text-white"
                             : isLowStock
@@ -683,29 +655,32 @@ export default function Products({ onAddToCart }) {
                   </button>
 
                   {/* Product details */}
-                  <div className="flex flex-1 flex-col p-5">
+                  <div className="catalog-card-content flex flex-1 flex-col p-5">
                     <div className="flex-1">
                       <h3 className="line-clamp-2 text-base font-bold leading-6 text-slate-950">
                         {product.name}
                       </h3>
                       {product.inventoryType === 'succulent' && <p className="mt-1 font-mono text-xs text-slate-500">{product.productCode}</p>}
 
+                      <p className="catalog-mobile-status mt-1 text-xs text-slate-600">
+                        {product.inventoryType==='GARDENING_SUPPLY' ? (product.variants?.length||0)+' variants ? '+product.status : product.inventoryType==='edible' ? product.stock+' packs ? 400g each' : isOutOfStock ? 'Unavailable' : 'Available ? 1 plant'}
+                      </p>
                       {product.note ? (
                         <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">{product.note}</p>
                       ) : null}
                     </div>
 
-                    <p className="mt-5 text-xl font-bold tracking-tight text-emerald-700">
+                    <p className="catalog-price mt-5 text-xl font-bold tracking-tight text-emerald-700">
                       {product.inventoryType==='GARDENING_SUPPLY'?`From ${formatPhp(numericPrice)} / selling unit`:product.inventoryType==='edible' ? product.batches?.length ? `${formatPhp(product.batches[0].price)} · oldest eligible batch` : 'No eligible batches' : formatPhp(numericPrice)}
                     </p>
 
                     {/* Product actions */}
-                    <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+                    <div className="catalog-card-actions mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
                       <button
                         type="button"
-                        disabled={isOutOfStock}
+                        disabled={isOutOfStock||inCart}
                         onClick={(event) =>
-                          ['edible','GARDENING_SUPPLY'].includes(product.inventoryType)?navigate(`/product/${product.id}`):onAddToCart?.(product, 1, event.currentTarget)
+                          product.inventoryType==='GARDENING_SUPPLY'?navigate(`/product/${product.id}`):onAddToCart?.(product, 1, event.currentTarget)
                         }
                         className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
                       >
@@ -716,7 +691,7 @@ export default function Products({ onAddToCart }) {
 
                         {isOutOfStock
                           ? "Unavailable"
-                          : product.inventoryType==='GARDENING_SUPPLY'?"Choose variant":product.inventoryType==='edible'?"Choose batch":"Add to cart"}
+                          : product.inventoryType==='GARDENING_SUPPLY'?"View Options":"Add to cart"}
                       </button>
 
                       <button
@@ -774,14 +749,14 @@ export default function Products({ onAddToCart }) {
                 Showing{" "}
                 <span className="font-semibold text-slate-700">
                   {(currentPage - 1) *
-                    PRODUCTS_PER_PAGE +
+                    productsPerPage +
                     1}
                 </span>{" "}
                 to{" "}
                 <span className="font-semibold text-slate-700">
                   {Math.min(
                     currentPage *
-                      PRODUCTS_PER_PAGE,
+                      productsPerPage,
                     filteredProducts.length
                   )}
                 </span>{" "}
@@ -796,9 +771,7 @@ export default function Products({ onAddToCart }) {
                 <button
                   type="button"
                   onClick={() =>
-                    setCurrentPage((page) =>
-                      Math.max(1, page - 1)
-                    )
+                    changePage(Math.max(1, currentPage - 1))
                   }
                   disabled={currentPage === 1}
                   className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
@@ -820,7 +793,7 @@ export default function Products({ onAddToCart }) {
                         key={pageNumber}
                         type="button"
                         onClick={() =>
-                          setCurrentPage(
+                          changePage(
                             pageNumber
                           )
                         }
@@ -844,12 +817,7 @@ export default function Products({ onAddToCart }) {
                 <button
                   type="button"
                   onClick={() =>
-                    setCurrentPage((page) =>
-                      Math.min(
-                        totalPages,
-                        page + 1
-                      )
-                    )
+                    changePage(Math.min(totalPages, currentPage + 1))
                   }
                   disabled={
                     currentPage === totalPages

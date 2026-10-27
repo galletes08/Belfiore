@@ -1,118 +1,30 @@
-import { useState } from "react";
-import { CreditCard, KeyRound, ShieldCheck } from "lucide-react";
-import { apiChangePassword, clearCustomerToken } from "../../api/client";
-import AccountSidebar from "./AccountSidebar";
-
-const fieldClass = "mt-2 w-full rounded-xl border border-[#dce5d8] bg-white px-4 py-3 text-sm text-[#173d2b] outline-none transition focus:border-[#0f6b45] focus:ring-4 focus:ring-[#d9ebdc]";
-
-export default function AccountSettings({ section }) {
-  const [passwords, setPasswords] = useState({ current: "", next: "", confirm: "" });
-  const [message, setMessage] = useState("");
-  const [messageIsError, setMessageIsError] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const handleLogout = () => {
-    localStorage.removeItem("isLoggedIn");
-    clearCustomerToken();
-  };
-
-  const handlePasswordSubmit = async (event) => {
-    event.preventDefault();
-    setMessageIsError(true);
-
-    if (passwords.next.length < 6) {
-      setMessage("New password must be at least 6 characters.");
-      return;
-    }
-    if (passwords.next !== passwords.confirm) {
-      setMessage("New passwords do not match.");
-      return;
-    }
-
-    setSaving(true);
-    setMessage("");
-    try {
-      const result = await apiChangePassword(passwords.current, passwords.next);
-      setPasswords({ current: "", next: "", confirm: "" });
-      setMessageIsError(false);
-      setMessage(result.message || "Password updated successfully.");
-    } catch (error) {
-      setMessageIsError(true);
-      setMessage(error.message || "Unable to update password.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const isCards = section === "cards";
-
-  return (
-    <div className="min-h-screen overflow-x-hidden bg-[#f8faf6] font-['Montserrat'] text-[#24372d]">
-      <div className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-0 px-4 md:px-6 lg:grid-cols-[250px_minmax(0,1fr)]">
-        <AccountSidebar onLogout={handleLogout} />
-
-        <main className="min-w-0 space-y-6 py-6 lg:px-6">
-          <section className="py-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#5e6f65]">My Account</p>
-            <h1 className="mt-3 font-['Playfair_Display'] text-3xl leading-tight text-[#0f4d2e] md:text-4xl">
-              {isCards ? "Bank & Cards" : "Change Password"}
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-[#5e6f65]">
-              {isCards
-                ? "Manage the payment methods connected to your Belfiore purchases."
-                : "Use a strong, unique password to keep your account protected."}
-            </p>
-          </section>
-
-          {isCards ? (
-            <section className="rounded-[1.35rem] border border-[#e1e7dc] bg-white p-6 shadow-[0_18px_45px_rgba(15,77,46,0.06)]">
-              <span className="grid h-12 w-12 place-items-center rounded-xl bg-[#e8f3ea] text-[#0f4d2e]">
-                <CreditCard size={21} />
-              </span>
-              <h2 className="mt-5 text-xl font-semibold text-[#173d2b]">No saved banks or cards</h2>
-              <p className="mt-2 max-w-xl text-sm leading-6 text-[#5e6f65]">
-                Saved payment methods will appear here once secure card storage is enabled.
-              </p>
-              <div className="mt-6 rounded-2xl border border-[#e1e7dc] bg-[#fbfcf8] p-4 text-sm leading-6 text-[#405145]">
-                For your security, card numbers are never stored directly in this browser.
-              </div>
-            </section>
-          ) : (
-            <form onSubmit={handlePasswordSubmit} className="max-w-2xl rounded-[1.35rem] border border-[#e1e7dc] bg-white p-6 shadow-[0_18px_45px_rgba(15,77,46,0.06)]">
-              <div className="flex items-start gap-3 border-b border-[#eef2ea] pb-5">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#e8f3ea] text-[#0f4d2e]">
-                  <ShieldCheck size={18} />
-                </span>
-                <div>
-                  <h2 className="text-xl font-semibold text-[#173d2b]">Password security</h2>
-                  <p className="mt-1 text-sm text-[#5e6f65]">Enter your current password before choosing a new one.</p>
-                </div>
-              </div>
-
-              <div className="mt-6 grid gap-5">
-                <label>
-                  <span className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-[#6c786f]">Current Password</span>
-                  <input type="password" required value={passwords.current} onChange={(event) => setPasswords({ ...passwords, current: event.target.value })} className={fieldClass} />
-                </label>
-                <label>
-                  <span className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-[#6c786f]">New Password</span>
-                  <input type="password" required value={passwords.next} onChange={(event) => setPasswords({ ...passwords, next: event.target.value })} className={fieldClass} />
-                </label>
-                <label>
-                  <span className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-[#6c786f]">Confirm New Password</span>
-                  <input type="password" required value={passwords.confirm} onChange={(event) => setPasswords({ ...passwords, confirm: event.target.value })} className={fieldClass} />
-                </label>
-              </div>
-
-              <button type="submit" disabled={saving} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#0f4d2e] px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-[#173d2b] disabled:cursor-not-allowed disabled:opacity-60">
-                <KeyRound size={15} />
-                {saving ? "Updating..." : "Update Password"}
-              </button>
-              {message ? <p className={"mt-4 text-sm " + (messageIsError ? "text-red-600" : "text-emerald-700")}>{message}</p> : null}
-            </form>
-          )}
-        </main>
-      </div>
-    </div>
-  );
+import {useRef,useState} from 'react';
+import {Navigate} from 'react-router-dom';
+import {Eye,EyeOff,KeyRound,ShieldCheck} from 'lucide-react';
+import {apiChangePassword,clearCustomerToken} from '../../api/client';
+import AccountSidebar from './AccountSidebar';
+export default function AccountSettings({section}){
+ const [passwords,setPasswords]=useState({current:'',next:'',confirm:''}),[visible,setVisible]=useState({}),[saving,setSaving]=useState(false),[message,setMessage]=useState(''),[failed,setFailed]=useState(false);
+ const busy=useRef(false);
+ const submit=async event=>{
+  event.preventDefault();if(busy.current)return;
+  setFailed(true);setMessage('');
+  if(passwords.next.length<6){setMessage('New password must be at least 6 characters.');return;}
+  if(passwords.next!==passwords.confirm){setMessage('New passwords do not match.');return;}
+  if(passwords.next===passwords.current){setMessage('Choose a new password different from your current password.');return;}
+  busy.current=true;setSaving(true);
+  try{const result=await apiChangePassword(passwords.current,passwords.next);setPasswords({current:'',next:'',confirm:''});setVisible({});setFailed(false);setMessage(result.message||'Password updated successfully.');}
+  catch(error){setMessage(error.message||'Unable to update password.');}
+  finally{busy.current=false;setSaving(false);}
+ };
+ if(section==='cards')return <Navigate to="/dashboard" replace/>;
+ return <div className="min-h-screen bg-[#f8faf6] font-['Montserrat'] text-[#24372d]"><div className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-0 px-4 md:px-6 lg:grid-cols-[230px_minmax(0,1fr)]">
+  <AccountSidebar onLogout={clearCustomerToken}/><main className="min-w-0 space-y-4 py-4 lg:px-5"><header><p className="text-xs font-semibold uppercase tracking-[.2em] text-slate-500">Account Security</p><h1 className="mt-1 font-['Playfair_Display'] text-2xl text-emerald-950 sm:text-3xl">Change Password</h1><p className="mt-2 text-sm text-slate-600">Use a strong, unique password to keep your account protected.</p></header>
+   <form onSubmit={submit} className="max-w-2xl rounded-xl border border-[#e1e7dc] bg-white p-4 shadow-sm sm:p-5"><div className="flex items-center gap-3 border-b border-slate-100 pb-4"><ShieldCheck size={22} className="text-emerald-800"/><div><h2 className="font-semibold">Password security</h2><p className="mt-1 text-xs text-slate-500">Your current password is verified securely before any change.</p></div></div>
+    <div className="mt-4 grid gap-4">{[['current','Current Password'],['next','New Password'],['confirm','Confirm New Password']].map(([key,label])=><label key={key} className="block text-sm font-medium text-emerald-950">{label}<span className="relative mt-2 block"><input type={visible[key]?'text':'password'} required autoComplete={key==='current'?'current-password':'new-password'} value={passwords[key]} onChange={event=>setPasswords({...passwords,[key]:event.target.value})} className="min-h-11 w-full rounded-lg border border-[#dce5d8] bg-white py-3 pl-3 pr-12 text-sm outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100"/><button type="button" aria-label={(visible[key]?'Hide ':'Show ')+label.toLowerCase()} aria-pressed={!!visible[key]} onClick={()=>setVisible({...visible,[key]:!visible[key]})} className="absolute inset-y-0 right-0 grid w-11 place-items-center rounded-lg focus-visible:outline-2">{visible[key]?<EyeOff size={18}/>:<Eye size={18}/>}</button></span></label>)}</div>
+    <button type="submit" disabled={saving} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#0f4d2e] px-4 py-3 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60 sm:w-auto"><KeyRound size={16}/>{saving?'Updating?':'Update Password'}</button>
+    {message&&<p role={failed?'alert':'status'} className={'mt-3 text-sm '+(failed?'text-red-700':'text-emerald-800')}>{message}</p>}
+   </form>
+  </main>
+ </div></div>;
 }

@@ -1,11 +1,20 @@
-import {compareInventoryProducts} from '../../shared/inventoryRules.js';
+import {compareInventoryProducts,isOutOfStock} from '../../shared/inventoryRules.js';
 import {matchesInventoryFilter} from './inventory.js';
 import {inventoryAttention} from './inventoryAttention.js';
 
-export const INVENTORY_FILTERS=['All Products','Succulents','Edible Plants','Gardening Supplies','White Tag','Green Tag','Red Tag','Aquaponics','Available','Reserved','Sold','Low Stock','Out of Stock','Needs Attention','Archived','Unavailable'];
-export function inventoryRows(products,{search='',filter='All Products'}={}){
+export const INVENTORY_FILTERS=['All Products','Succulents','Aquaponics','Gardening Supplies','White Tag','Green Tag','Red Tag','Sold','Low Stock','Out of Stock','Archived'];
+export function matchesAdvancedInventoryFilters(product,{type='',status='',tag='',stock=''}={}){
+ if(type && ((type==='Gardening Supplies' && product.inventoryType!=='GARDENING_SUPPLY') || (type==='Succulents' && product.inventoryType!=='succulent') || (type==='Aquaponics' && product.inventoryType!=='edible')))return false;
+ if(status && (status==='Archived' ? !product.archivedAt : product.archivedAt || product.status!==status))return false;
+ if(tag && product.tag?.toLowerCase()!==tag.toLowerCase())return false;
+ if(stock==='Low Stock' && product.status!=='Low Stock')return false;
+ if(stock==='Out of Stock' && !isOutOfStock(product))return false;
+ if(stock==='Needs Attention' && inventoryAttention([product]).length===0)return false;
+ return true;
+}
+export function inventoryRows(products,{search='',filter='All Products',advancedFilters={}}={}){
  const query=search.toLowerCase().trim();
- const rows=products.filter(p=>(filter==='Needs Attention'?inventoryAttention([p]).length>0:matchesInventoryFilter(p,filter))&&[p.name,p.productCode,...(p.variants||[]).flatMap(v=>[v.name,v.sku])].join(' ').toLowerCase().includes(query));
+ const rows=products.filter(p=>(filter==='Needs Attention'?inventoryAttention([p]).length>0:matchesInventoryFilter(p,filter))&&matchesAdvancedInventoryFilters(p,advancedFilters)&&[p.name,p.productCode,...(p.variants||[]).flatMap(v=>[v.name,v.sku])].join(' ').toLowerCase().includes(query));
  return filter==='All Products'?rows.sort(compareInventoryProducts):rows;
 }
 export function staffInventoryProduct(p,initializableIds=[]){

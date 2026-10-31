@@ -147,9 +147,8 @@ export function registerInventoryRoutes(router, { upload, ensureTypeId, mapProdu
         const result = await client.query(`INSERT INTO products(type_id, category, inventory_type, name, product_code,
           tag, price, stock, low_stock_threshold, description, image_url, archived_at)
           VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,$7,$8,$9,$10,$11,CASE WHEN $12 THEN NOW() ELSE NULL END) RETURNING *`,
-        [typeId, value.category, value.type, value.name, value.code, value.tag, value.price, value.type==='edible'?0:value.stock,
+        [typeId, value.category, value.type, value.name, value.code, value.tag, value.price, value.stock,
           value.threshold, value.description, image, req.body.status === 'Archived']);
-        if(value.type==='edible'&&value.stock>0&&result.rows[0].lettuce_stock_model==='quantity')throw inventoryError('Create the product with zero opening packs, then record confirmed quality-checked Stock In.',400);
         if(value.type==='edible'&&value.stock>0&&result.rows[0].lettuce_stock_model!=='quantity') await createHarvestBatch(client,{id:result.rows[0].id,price:value.price},{quantity:value.stock,harvestDate:req.body.harvestDate,allowUnverified:true,reason:'Initial inventory',notes:'Unknown harvest dates remain unverified'},actor(req));
         const row = await client.query(`${PRODUCT_SELECT} WHERE p.id = $1`, [result.rows[0].id]);
         if(req.inventoryUser.role==='staff')await staffEvent(client,req.operationsUser,'Product Added',{productId:result.rows[0].id,newValue:{name:value.name,type:value.type},reason:'Staff-created inventory product'});

@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.npm-cache
 dist
 .env
 server/.env
@@ -15,6 +16,7 @@ server/uploads
 server/backups/
 dist-ssr
 *.local
+*.md
 
 # Editor directories and files
 .vscode/*
